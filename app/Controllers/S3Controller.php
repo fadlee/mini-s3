@@ -73,13 +73,11 @@ class S3Controller
                 
                 response()
                     ->withHeader('ETag', $etag)
-                    ->status(200);
-                exit;
+                    ->plain('', 200);
             } else {
                 // Upload single object
                 $this->storage->saveObject($bucket, $key, request()->body());
-                response()->status(200);
-                exit;
+                response()->plain('', 200);
             }
         } catch (RuntimeException $e) {
             S3Response::error('404', $e->getMessage(), "/{$bucket}/{$key}");

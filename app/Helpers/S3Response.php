@@ -29,9 +29,7 @@ class S3Response
         response()
             ->status((int)$code)
             ->withHeader('Content-Type', 'application/xml')
-            ->markup($xml->asXML())
-        ;
-        exit;
+            ->markup($xml->asXML());
     }
     
     /**
