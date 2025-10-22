@@ -5,6 +5,8 @@
  * Entry Point
  */
 
+error_log("=== REQUEST: " . $_SERVER['REQUEST_METHOD'] . " " . $_SERVER['REQUEST_URI'] . " ===");
+
 // Load Composer autoloader
 require_once __DIR__ . '/../vendor/autoload.php';
 

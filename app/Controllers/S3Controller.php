@@ -196,6 +196,7 @@ class S3Controller
      */
     public function deleteObject($bucket = null, $key = null)
     {
+        error_log("DELETE: bucket=$bucket, key=$key");
         $this->checkAuth();
         
         // Validate
@@ -211,14 +212,18 @@ class S3Controller
         
         if ($uploadId) {
             // Abort multipart upload
+            error_log("DELETE: Aborting multipart upload=$uploadId");
             $this->multipart->abortUpload($bucket, $key, $uploadId);
         } else {
             // Delete object
-            $this->storage->deleteObject($bucket, $key);
+            error_log("DELETE: Deleting object");
+            $result = $this->storage->deleteObject($bucket, $key);
+            error_log("DELETE: Result=$result");
         }
         
-        response()->status(204);
-        exit;
+        error_log("DELETE: Sending 204 response");
+        response()->noContent();
+        error_log("DELETE: After noContent()");
     }
     
     /**
