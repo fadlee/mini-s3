@@ -43,12 +43,9 @@ class S3Controller
     /**
      * PUT /{bucket}/{key} - Upload object or part
      */
-    public function putObject()
+    public function putObject($bucket = null, $key = null)
     {
         $this->checkAuth();
-        
-        $bucket = request()->params('bucket');
-        $key = request()->params('key');
         
         // Validate
         if (!$this->validation->validateBucketName($bucket)) {
@@ -90,12 +87,9 @@ class S3Controller
     /**
      * GET /{bucket}/{key} - Download object
      */
-    public function getObject()
+    public function getObject($bucket = null, $key = null)
     {
         $this->checkAuth();
-        
-        $bucket = request()->params('bucket');
-        $key = request()->params('key');
         
         // Validate
         if (!$this->validation->validateBucketName($bucket)) {
@@ -143,11 +137,9 @@ class S3Controller
     /**
      * GET /{bucket}/ - List objects
      */
-    public function listObjects()
+    public function listObjects($bucket = null)
     {
         $this->checkAuth();
-        
-        $bucket = request()->params('bucket');
         
         // Validate
         if (!$this->validation->validateBucketName($bucket)) {
@@ -163,12 +155,9 @@ class S3Controller
     /**
      * HEAD /{bucket}/{key} - Get object metadata
      */
-    public function headObject()
+    public function headObject($bucket = null, $key = null)
     {
         $this->checkAuth();
-        
-        $bucket = request()->params('bucket');
-        $key = request()->params('key');
         
         // Validate
         if (!$this->validation->validateBucketName($bucket)) {
@@ -201,12 +190,9 @@ class S3Controller
     /**
      * DELETE /{bucket}/{key} - Delete object or abort upload
      */
-    public function deleteObject()
+    public function deleteObject($bucket = null, $key = null)
     {
         $this->checkAuth();
-        
-        $bucket = request()->params('bucket');
-        $key = request()->params('key');
         
         // Validate
         if (!$this->validation->validateBucketName($bucket)) {
@@ -233,12 +219,9 @@ class S3Controller
     /**
      * POST /{bucket}/{key} - Multipart operations
      */
-    public function postObject()
+    public function postObject($bucket = null, $key = null)
     {
         $this->checkAuth();
-        
-        $bucket = request()->params('bucket');
-        $key = request()->params('key');
         
         // Validate
         if (!$this->validation->validateBucketName($bucket)) {
@@ -285,11 +268,9 @@ class S3Controller
     /**
      * POST /{bucket}/ - Multi-object delete
      */
-    public function postBucket()
+    public function postBucket($bucket = null)
     {
         $this->checkAuth();
-        
-        $bucket = request()->params('bucket');
         
         // Validate
         if (!$this->validation->validateBucketName($bucket)) {
