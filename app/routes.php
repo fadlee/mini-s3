@@ -7,10 +7,8 @@
  */
 
 use App\Controllers\S3Controller;
-use App\Middleware\AuthMiddleware;
 
 $controller = new S3Controller();
-$auth = new AuthMiddleware();
 
 // Health check route (no auth required)
 app()->get('/', function() {
@@ -23,20 +21,17 @@ app()->get('/', function() {
     ]);
 });
 
-// Apply authentication middleware to all S3 routes
-app()->group(['middleware' => $auth], function() use ($controller) {
-    
-    // Object operations - /{bucket}/{key}
-    app()->put('/{bucket}/{key}', [$controller, 'putObject']);
-    app()->get('/{bucket}/{key}', [$controller, 'getObject']);
-    app()->delete('/{bucket}/{key}', [$controller, 'deleteObject']);
-    app()->head('/{bucket}/{key}', [$controller, 'headObject']);
-    app()->post('/{bucket}/{key}', [$controller, 'postObject']);
-    
-    // Bucket operations - /{bucket}/
-    app()->get('/{bucket}/', [$controller, 'listObjects']);
-    app()->post('/{bucket}/', [$controller, 'postBucket']);
-});
+// S3 API routes (authentication handled in controller)
+// Object operations - /{bucket}/{key}
+app()->put('/{bucket}/{key}', [$controller, 'putObject']);
+app()->get('/{bucket}/{key}', [$controller, 'getObject']);
+app()->delete('/{bucket}/{key}', [$controller, 'deleteObject']);
+app()->head('/{bucket}/{key}', [$controller, 'headObject']);
+app()->post('/{bucket}/{key}', [$controller, 'postObject']);
+
+// Bucket operations - /{bucket}/
+app()->get('/{bucket}/', [$controller, 'listObjects']);
+app()->post('/{bucket}/', [$controller, 'postBucket']);
 
 // 404 handler
 app()->set404(function() {

@@ -27,10 +27,26 @@ class S3Controller
     }
     
     /**
+     * Check authentication
+     */
+    private function checkAuth(): void
+    {
+        $authHeader = request()->headers('Authorization');
+        $credential = request()->get('X-Amz-Credential');
+        $accessKey = $this->validation->extractAccessKeyId($authHeader, $credential);
+        
+        if (!$this->validation->validateAccessKey($accessKey)) {
+            response()->status(401)->exit();
+        }
+    }
+    
+    /**
      * PUT /{bucket}/{key} - Upload object or part
      */
     public function putObject()
     {
+        $this->checkAuth();
+        
         $bucket = request()->params('bucket');
         $key = request()->params('key');
         
@@ -76,6 +92,8 @@ class S3Controller
      */
     public function getObject()
     {
+        $this->checkAuth();
+        
         $bucket = request()->params('bucket');
         $key = request()->params('key');
         
@@ -127,6 +145,8 @@ class S3Controller
      */
     public function listObjects()
     {
+        $this->checkAuth();
+        
         $bucket = request()->params('bucket');
         
         // Validate
@@ -145,6 +165,8 @@ class S3Controller
      */
     public function headObject()
     {
+        $this->checkAuth();
+        
         $bucket = request()->params('bucket');
         $key = request()->params('key');
         
@@ -181,6 +203,8 @@ class S3Controller
      */
     public function deleteObject()
     {
+        $this->checkAuth();
+        
         $bucket = request()->params('bucket');
         $key = request()->params('key');
         
@@ -211,6 +235,8 @@ class S3Controller
      */
     public function postObject()
     {
+        $this->checkAuth();
+        
         $bucket = request()->params('bucket');
         $key = request()->params('key');
         
@@ -261,6 +287,8 @@ class S3Controller
      */
     public function postBucket()
     {
+        $this->checkAuth();
+        
         $bucket = request()->params('bucket');
         
         // Validate

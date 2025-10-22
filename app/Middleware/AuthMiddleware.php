@@ -3,14 +3,13 @@
 namespace App\Middleware;
 
 use App\Services\ValidationService;
-use Leaf\Middleware;
 
 /**
  * AuthMiddleware
  * 
  * Authenticates requests using AWS signature validation
  */
-class AuthMiddleware extends Middleware
+class AuthMiddleware
 {
     private ValidationService $validation;
     
@@ -21,17 +20,21 @@ class AuthMiddleware extends Middleware
     
     /**
      * Handle incoming request
+     *
+     * @return callable Middleware function
      */
-    public function call()
+    public function __invoke(): callable
     {
-        $accessKey = $this->extractAccessKey();
-        
-        if (!$this->validation->validateAccessKey($accessKey)) {
-            response()->status(401)->exit();
-        }
-        
-        // Continue to next middleware or controller
-        $this->next();
+        return function() {
+            $accessKey = $this->extractAccessKey();
+            
+            if (!$this->validation->validateAccessKey($accessKey)) {
+                response()->status(401)->exit();
+            }
+            
+            // Continue to next middleware or controller
+            return true;
+        };
     }
     
     /**
