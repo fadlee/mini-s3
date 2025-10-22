@@ -2,7 +2,7 @@
 
 // Configuration
 define('DATA_DIR', __DIR__ . '/data'); // Use absolute path
-define('ALLOWED_ACCESS_KEYS', ['put_your_key_here']);
+define('ALLOWED_ACCESS_KEYS', ['minioadmin']);
 define('MAX_REQUEST_SIZE', 100 * 1024 * 1024); // 100MB
 
 // Helper functions
@@ -269,8 +269,42 @@ switch ($method) {
         }
 
     case 'POST':
-        // Handle POST (multipart upload)
-        if (isset($_GET['uploads'])) {
+        // Handle POST (multipart upload or multi-object delete)
+        if (isset($_GET['delete'])) {
+            // Multi-object delete
+            $xml = simplexml_load_string(file_get_contents('php://input'));
+            $quiet = isset($xml->Quiet) && (string)$xml->Quiet === 'true';
+            
+            $result = new SimpleXMLElement('<?xml version="1.0" encoding="UTF-8"?><DeleteResult></DeleteResult>');
+            
+            foreach ($xml->Object as $object) {
+                $objectKey = (string)$object->Key;
+                
+                if (!is_valid_object_key($objectKey)) {
+                    $error = $result->addChild('Error');
+                    $error->addChild('Key', $objectKey);
+                    $error->addChild('Code', 'InvalidObjectKey');
+                    $error->addChild('Message', 'Invalid object key');
+                    continue;
+                }
+                
+                $filePath = DATA_DIR . "/{$bucket}/{$objectKey}";
+                
+                if (file_exists($filePath)) {
+                    unlink($filePath);
+                }
+                
+                if (!$quiet) {
+                    $deleted = $result->addChild('Deleted');
+                    $deleted->addChild('Key', $objectKey);
+                }
+            }
+            
+            header('Content-Type: application/xml');
+            http_response_code(200);
+            echo $result->asXML();
+            exit;
+        } elseif (isset($_GET['uploads'])) {
             // Initiate multipart upload
             $uploadId = bin2hex(random_bytes(16));
             $uploadDir = DATA_DIR . "/{$bucket}/{$key}-temp/{$uploadId}";
@@ -315,7 +349,7 @@ switch ($method) {
 
             generate_s3_complete_multipart_upload_response($bucket, $key, $uploadId);
         } else {
-            generate_s3_error_response('400', 'Invalid POST request: missing uploads or uploadId parameter', "/{$bucket}/{$key}");
+            generate_s3_error_response('400', 'Invalid POST request: missing delete, uploads or uploadId parameter', "/{$bucket}/{$key}");
         }
         break;
 
