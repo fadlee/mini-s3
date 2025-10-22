@@ -168,8 +168,8 @@ The data directory contains all uploaded files and must be protected from direct
 The included `data/.htaccess` file provides multiple layers of protection:
 - **PHP execution disabled**: Prevents uploaded PHP files from being executed
 - **Script handlers removed**: Blocks PHP, Python, Perl, ASP, CGI, and shell scripts
-- **Direct access denied**: Returns 403 Forbidden for all direct file access
-- **Security headers**: Adds X-Content-Type-Options and X-Frame-Options
+- **Files served as plain text**: Script files are downloadable as text/plain, preventing execution
+- **Security headers**: Adds X-Content-Type-Options, X-Frame-Options, and Content-Security-Policy
 
 No additional configuration needed - the `.htaccess` file is included in the data directory.
 
