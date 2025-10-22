@@ -1,0 +1,38 @@
+# Prevent PHP execution in data directory
+# This is a critical security measure to prevent uploaded PHP files from being executed
+
+# Disable PHP processing
+php_flag engine off
+
+# Remove PHP and other script handlers
+<FilesMatch "\.(php|php3|php4|php5|php7|phtml|pl|py|jsp|asp|sh|cgi)$">
+    SetHandler none
+    SetHandler default-handler
+    Options -ExecCGI
+    <IfModule mod_php5.c>
+        php_flag engine off
+    </IfModule>
+    <IfModule mod_php7.c>
+        php_flag engine off
+    </IfModule>
+    <IfModule mod_php.c>
+        php_flag engine off
+    </IfModule>
+</FilesMatch>
+
+# Deny direct access to all files
+<IfModule mod_authz_core.c>
+    Require all denied
+</IfModule>
+
+# For Apache 2.2
+<IfModule !mod_authz_core.c>
+    Order deny,allow
+    Deny from all
+</IfModule>
+
+# Additional security headers
+<IfModule mod_headers.c>
+    Header set X-Content-Type-Options "nosniff"
+    Header set X-Frame-Options "DENY"
+</IfModule>
