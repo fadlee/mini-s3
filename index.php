@@ -1,9 +1,13 @@
 <?php
 
-// Configuration
-define('DATA_DIR', __DIR__ . '/data'); // Use absolute path
-define('ALLOWED_ACCESS_KEYS', ['minioadmin']);
-define('MAX_REQUEST_SIZE', 100 * 1024 * 1024); // 100MB
+if (file_exists('config.php')) {
+    require_once 'config.php';
+} else {
+    // Default configuration
+    define('DATA_DIR', __DIR__ . '/data'); // Use absolute path
+    define('ALLOWED_ACCESS_KEYS', ['minioadmin']);
+    define('MAX_REQUEST_SIZE', 100 * 1024 * 1024); // 100MB
+}
 
 // Helper functions
 function extract_access_key_id()
@@ -274,12 +278,12 @@ switch ($method) {
             // Multi-object delete
             $xml = simplexml_load_string(file_get_contents('php://input'));
             $quiet = isset($xml->Quiet) && (string)$xml->Quiet === 'true';
-            
+
             $result = new SimpleXMLElement('<?xml version="1.0" encoding="UTF-8"?><DeleteResult></DeleteResult>');
-            
+
             foreach ($xml->Object as $object) {
                 $objectKey = (string)$object->Key;
-                
+
                 if (!is_valid_object_key($objectKey)) {
                     $error = $result->addChild('Error');
                     $error->addChild('Key', $objectKey);
@@ -287,19 +291,19 @@ switch ($method) {
                     $error->addChild('Message', 'Invalid object key');
                     continue;
                 }
-                
+
                 $filePath = DATA_DIR . "/{$bucket}/{$objectKey}";
-                
+
                 if (file_exists($filePath)) {
                     unlink($filePath);
                 }
-                
+
                 if (!$quiet) {
                     $deleted = $result->addChild('Deleted');
                     $deleted->addChild('Key', $objectKey);
                 }
             }
-            
+
             header('Content-Type: application/xml');
             http_response_code(200);
             echo $result->asXML();
