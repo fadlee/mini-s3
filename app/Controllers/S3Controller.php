@@ -36,7 +36,8 @@ class S3Controller
         $accessKey = $this->validation->extractAccessKeyId($authHeader, $credential);
         
         if (!$this->validation->validateAccessKey($accessKey)) {
-            response()->status(401)->exit();
+            response()->status(401);
+            exit;
         }
     }
     
