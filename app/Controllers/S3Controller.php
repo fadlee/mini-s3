@@ -183,7 +183,8 @@ class S3Controller
                 ->withHeader('Content-Length', (string) $size)
                 ->withHeader('Content-Type', $mimeType)
                 ->status(200)
-                ->exit();
+                ;
+                exit;
                 
         } catch (RuntimeException $e) {
             S3Response::error('500', $e->getMessage(), "/{$bucket}/{$key}");
