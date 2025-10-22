@@ -161,25 +161,26 @@ class S3Response
         $end = $filesize - 1;
         $length = $filesize;
         
+        // Send headers directly using PHP since we're streaming
         if ($range !== null) {
             $start = $range[0];
             $end = $range[1];
             $length = $end - $start + 1;
             
-            response()->status(206);
-            response()->withHeader('Content-Range', "bytes {$start}-{$end}/{$filesize}");
-            response()->withHeader('Content-Length', (string)$length);
+            header('HTTP/1.1 206 Partial Content');
+            header("Content-Range: bytes {$start}-{$end}/{$filesize}");
+            header('Content-Length: ' . $length);
         } else {
-            response()->status(200);
-            response()->withHeader('Content-Length', (string)$filesize);
+            header('HTTP/1.1 200 OK');
+            header('Content-Length: ' . $filesize);
         }
         
-        response()->withHeader('Accept-Ranges', 'bytes');
-        response()->withHeader('Content-Type', $mimeType);
-        response()->withHeader('Content-Disposition', 'attachment; filename="' . basename($filename) . '"');
-        response()->withHeader('Cache-Control', 'private');
-        response()->withHeader('Pragma', 'public');
-        response()->withHeader('X-Powered-By', 'S3');
+        header('Accept-Ranges: bytes');
+        header('Content-Type: ' . $mimeType);
+        header('Content-Disposition: attachment; filename="' . basename($filename) . '"');
+        header('Cache-Control: private');
+        header('Pragma: public');
+        header('X-Powered-By: S3');
         
         // Seek to start position
         fseek($filePointer, $start);

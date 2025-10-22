@@ -120,9 +120,7 @@ class S3Controller
                 if ($start > $end || $start < 0) {
                     response()
                         ->withHeader('Content-Range', "bytes */{$filesize}")
-                        ->status(416)
-                    ;
-                exit;
+                        ->exit('Range Not Satisfiable', 416);
                 }
                 
                 $range = [$start, $end];
