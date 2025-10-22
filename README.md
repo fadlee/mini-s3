@@ -158,6 +158,40 @@ define('MAX_REQUEST_SIZE', 500 * 1024 * 1024); // 500MB
 
 > **Note**: When using third-party S3 tools, only the access key is validated. Secret key and region can be any non-empty values.
 
+## Security
+
+### Data Directory Protection
+
+The data directory contains all uploaded files and must be protected from direct web access and script execution.
+
+#### Apache (Automatic)
+The included `data/.htaccess` file provides multiple layers of protection:
+- **PHP execution disabled**: Prevents uploaded PHP files from being executed
+- **Script handlers removed**: Blocks PHP, Python, Perl, ASP, CGI, and shell scripts
+- **Direct access denied**: Returns 403 Forbidden for all direct file access
+- **Security headers**: Adds X-Content-Type-Options and X-Frame-Options
+
+No additional configuration needed - the `.htaccess` file is included in the data directory.
+
+#### Nginx (Manual Configuration Required)
+Add this to your server block to deny access to the data directory:
+```nginx
+location ~ ^/data/ {
+    deny all;
+    return 403;
+}
+```
+
+### Best Practices
+
+1. **Use HTTPS**: Always deploy with SSL/TLS certificates to encrypt data in transit
+2. **Strong Access Keys**: Use long, random strings for `ALLOWED_ACCESS_KEYS`
+3. **File Permissions**: Ensure data directory has appropriate permissions (e.g., `chmod 750 data`)
+4. **Regular Updates**: Keep PHP and web server software up to date
+5. **Monitor Access**: Review web server logs for suspicious activity
+6. **External Config**: Use `config.php` instead of hardcoding credentials in `index.php`
+7. **Firewall Rules**: Restrict access to your S3 endpoint if possible
+
 ## Usage Examples
 
 ### AWS CLI
