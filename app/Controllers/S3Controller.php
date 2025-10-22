@@ -73,12 +73,13 @@ class S3Controller
                 
                 response()
                     ->withHeader('ETag', $etag)
-                    ->status(200)
-                    ->exit();
+                    ->status(200);
+                exit;
             } else {
                 // Upload single object
                 $this->storage->saveObject($bucket, $key, request()->body());
-                response()->status(200)->exit();
+                response()->status(200);
+                exit;
             }
         } catch (RuntimeException $e) {
             S3Response::error('404', $e->getMessage(), "/{$bucket}/{$key}");
@@ -122,7 +123,8 @@ class S3Controller
                     response()
                         ->withHeader('Content-Range', "bytes */{$filesize}")
                         ->status(416)
-                        ->exit();
+                    ;
+                exit;
                 }
                 
                 $range = [$start, $end];
@@ -214,7 +216,8 @@ class S3Controller
             $this->storage->deleteObject($bucket, $key);
         }
         
-        response()->status(204)->exit();
+        response()->status(204);
+        exit;
     }
     
     /**
