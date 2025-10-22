@@ -246,7 +246,7 @@ class S3Controller
                 
             } elseif ($uploadId) {
                 // Complete multipart upload
-                $xmlBody = request()->body();
+                $xmlBody = file_get_contents('php://input');
                 $xml = simplexml_load_string($xmlBody);
                 
                 $parts = [];
@@ -287,7 +287,7 @@ class S3Controller
         }
         
         try {
-            $xmlBody = request()->body();
+            $xmlBody = file_get_contents('php://input');
             $xml = simplexml_load_string($xmlBody);
             $quiet = isset($xml->Quiet) && (string) $xml->Quiet === 'true';
             
