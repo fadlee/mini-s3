@@ -8,13 +8,13 @@ define('MAX_REQUEST_SIZE', 100 * 1024 * 1024); // 100MB
 // Helper functions
 function extract_access_key_id()
 {
-    // 1. 从 Authorization header 提取
+    // 1. Extract from the Authorization header
     $authorization = $_SERVER['HTTP_AUTHORIZATION'] ?? '';
     if (preg_match('/AWS4-HMAC-SHA256 Credential=([^\/]+)\//', $authorization, $matches)) {
         return $matches[1];
     }
 
-    // 2. 从 X-Amz-Credential URL 参数提取
+    // 2. Extract from X-Amz-Credential URL parameter
     $credential = $_GET['X-Amz-Credential'] ?? '';
     if ($credential) {
         $parts = explode('/', $credential);
@@ -125,6 +125,72 @@ function list_files($bucket, $prefix = '')
     return $files;
 }
 
+function delete_directory($path)
+{
+    if (!file_exists($path)) {
+        return;
+    }
+
+    if (is_file($path) || is_link($path)) {
+        unlink($path);
+        return;
+    }
+
+    $iterator = new FilesystemIterator($path, FilesystemIterator::SKIP_DOTS);
+
+    foreach ($iterator as $item) {
+        if ($item->isDir()) {
+            delete_directory($item->getPathname());
+        } else {
+            unlink($item->getPathname());
+        }
+    }
+
+    rmdir($path);
+}
+
+function is_valid_bucket_name($bucket)
+{
+    $length = strlen($bucket);
+    if ($length < 3 || $length > 63) {
+        return false;
+    }
+
+    if (!preg_match('/^[a-z0-9][a-z0-9.-]*[a-z0-9]$/', $bucket)) {
+        return false;
+    }
+
+    if (strpos($bucket, '..') !== false || strpos($bucket, '.-') !== false || strpos($bucket, '-.') !== false) {
+        return false;
+    }
+
+    if (filter_var($bucket, FILTER_VALIDATE_IP)) {
+        return false;
+    }
+
+    return true;
+}
+
+function is_valid_object_key($key)
+{
+    if ($key === '') {
+        return true;
+    }
+
+    if (strpos($key, "\0") !== false) {
+        return false;
+    }
+
+    $segments = explode('/', $key);
+    foreach ($segments as $segment) {
+        if ($segment === '.' || $segment === '..') {
+            return false;
+        }
+    }
+
+    return true;
+}
+
 // Ensure DATA_DIR exists
 if (!file_exists(DATA_DIR)) {
     mkdir(DATA_DIR, 0777, true);
@@ -143,6 +209,14 @@ $key = implode('/', array_slice($path_parts, 1));
 // Fix 2: validate bucket and key legality
 if ($method !== 'GET' && empty($bucket)) {
     generate_s3_error_response('400', 'Bucket name not specified', '/');
+}
+
+if ($bucket !== '' && !is_valid_bucket_name($bucket)) {
+    generate_s3_error_response('400', 'Invalid bucket name', "/{$bucket}");
+}
+
+if ($key !== '' && !is_valid_object_key($key)) {
+    generate_s3_error_response('400', 'Invalid object key', "/{$bucket}/{$key}");
 }
 
 // Fix 3: handle root path LIST requests
@@ -237,7 +311,7 @@ switch ($method) {
             fclose($fp);
 
             // Clean up
-            system("rm -rf " . escapeshellarg(DATA_DIR . "/{$bucket}/{$key}-temp"));
+            delete_directory(DATA_DIR . "/{$bucket}/{$key}-temp");
 
             generate_s3_complete_multipart_upload_response($bucket, $key, $uploadId);
         } else {
@@ -347,7 +421,7 @@ switch ($method) {
                 generate_s3_error_response('404', 'Upload ID not found', "/{$bucket}/{$key}");
             }
 
-            system("rm -rf " . escapeshellarg($uploadDir));
+            delete_directory($uploadDir);
             http_response_code(204);
             exit;
         } else {
