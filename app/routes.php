@@ -6,15 +6,14 @@
  * Define all S3 API routes here
  */
 
-use Leaf\App;
-
 // Temporary health check route
 app()->get('/', function() {
     response()->json([
         'app' => 'Mini-S3',
         'version' => '2.0.0-alpha',
         'status' => 'refactoring in progress',
-        'framework' => 'Leaf PHP ' . App::VERSION
+        'framework' => 'Leaf PHP',
+        'php' => PHP_VERSION
     ]);
 });
 
