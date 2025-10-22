@@ -6,18 +6,42 @@
  * Define all S3 API routes here
  */
 
-// Temporary health check route
+use App\Controllers\S3Controller;
+use App\Middleware\AuthMiddleware;
+
+$controller = new S3Controller();
+$auth = new AuthMiddleware();
+
+// Health check route (no auth required)
 app()->get('/', function() {
     response()->json([
         'app' => 'Mini-S3',
-        'version' => '2.0.0-alpha',
-        'status' => 'refactoring in progress',
+        'version' => '2.0.0-refactored',
+        'status' => 'operational',
         'framework' => 'Leaf PHP',
         'php' => PHP_VERSION
     ]);
 });
 
-// TODO: Add S3 API routes
-// app()->put('/{bucket}/{key}', [S3Controller::class, 'putObject']);
-// app()->get('/{bucket}/{key}', [S3Controller::class, 'getObject']);
-// etc...
+// Apply authentication middleware to all S3 routes
+app()->group(['middleware' => $auth], function() use ($controller) {
+    
+    // Object operations - /{bucket}/{key}
+    app()->put('/{bucket}/{key}', [$controller, 'putObject']);
+    app()->get('/{bucket}/{key}', [$controller, 'getObject']);
+    app()->delete('/{bucket}/{key}', [$controller, 'deleteObject']);
+    app()->head('/{bucket}/{key}', [$controller, 'headObject']);
+    app()->post('/{bucket}/{key}', [$controller, 'postObject']);
+    
+    // Bucket operations - /{bucket}/
+    app()->get('/{bucket}/', [$controller, 'listObjects']);
+    app()->post('/{bucket}/', [$controller, 'postBucket']);
+});
+
+// 404 handler
+app()->set404(function() {
+    response()->status(404)->json([
+        'error' => 'Not Found',
+        'message' => 'The requested resource was not found'
+    ]);
+});
