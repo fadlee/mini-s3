@@ -60,7 +60,6 @@ class S3Response
             ->withHeader('Content-Type', 'application/xml')
             ->markup($xml->asXML())
         ;
-        exit;
     }
     
     /**
@@ -82,7 +81,6 @@ class S3Response
             ->withHeader('Content-Type', 'application/xml')
             ->markup($xml->asXML())
         ;
-        exit;
     }
     
     /**
@@ -105,7 +103,6 @@ class S3Response
             ->withHeader('Content-Type', 'application/xml')
             ->markup($xml->asXML())
         ;
-        exit;
     }
     
     /**
@@ -141,7 +138,6 @@ class S3Response
             ->withHeader('Content-Type', 'application/xml')
             ->markup($xml->asXML())
         ;
-        exit;
     }
     
     /**

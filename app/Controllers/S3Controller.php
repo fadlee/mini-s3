@@ -180,9 +180,7 @@ class S3Controller
             response()
                 ->withHeader('Content-Length', (string) $size)
                 ->withHeader('Content-Type', $mimeType)
-                ->status(200)
-                ;
-                exit;
+                ->plain('', 200);
                 
         } catch (RuntimeException $e) {
             S3Response::error('500', $e->getMessage(), "/{$bucket}/{$key}");
@@ -221,7 +219,6 @@ class S3Controller
         
         error_log("DELETE: Sending 204 response");
         response()->noContent();
-        error_log("DELETE: After noContent()");
     }
     
     /**
