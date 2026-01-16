@@ -16,7 +16,7 @@ foreach ($config as $key => $value) {
 }
 
 $f3->set('AUTOLOAD', __DIR__ . '/../app/');
-$f3->set('DEBUG', 3);
+$f3->set('DEBUG', 0);
 
 if (!file_exists($f3->get('DATA_DIR'))) {
     mkdir($f3->get('DATA_DIR'), 0777, true);
