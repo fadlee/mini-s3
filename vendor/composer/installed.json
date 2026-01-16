@@ -1,0 +1,54 @@
+{
+    "packages": [
+        {
+            "name": "bcosca/fatfree-core",
+            "version": "3.9.2",
+            "version_normalized": "3.9.2.0",
+            "source": {
+                "type": "git",
+                "url": "https://github.com/f3-factory/fatfree-core.git",
+                "reference": "3ba261541e529d20b32615fe5f7b5740ea0951a3"
+            },
+            "dist": {
+                "type": "zip",
+                "url": "https://api.github.com/repos/f3-factory/fatfree-core/zipball/3ba261541e529d20b32615fe5f7b5740ea0951a3",
+                "reference": "3ba261541e529d20b32615fe5f7b5740ea0951a3",
+                "shasum": ""
+            },
+            "require": {
+                "php": ">=7.2"
+            },
+            "time": "2025-12-02T00:44:50+00:00",
+            "type": "library",
+            "installation-source": "dist",
+            "autoload": {
+                "classmap": [
+                    "."
+                ]
+            },
+            "notification-url": "https://packagist.org/downloads/",
+            "license": [
+                "GPL-3.0"
+            ],
+            "description": "A powerful yet easy-to-use PHP micro-framework designed to help you build dynamic and robust Web applications - fast!",
+            "homepage": "http://fatfreeframework.com/",
+            "support": {
+                "issues": "https://github.com/f3-factory/fatfree-core/issues",
+                "source": "https://github.com/f3-factory/fatfree-core/tree/3.9.2"
+            },
+            "funding": [
+                {
+                    "url": "https://www.buymeacoffee.com/ikkez",
+                    "type": "buy_me_a_coffee"
+                },
+                {
+                    "url": "https://github.com/ikkez",
+                    "type": "github"
+                }
+            ],
+            "install-path": "../bcosca/fatfree-core"
+        }
+    ],
+    "dev": true,
+    "dev-package-names": []
+}
