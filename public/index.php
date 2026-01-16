@@ -34,7 +34,15 @@ $f3->route('GET /', function ($f3) {
 
 $f3->route('GET /@bucket', 'App\Controllers\BucketController->listObjects');
 
-$f3->route('POST /@bucket?delete=*', 'App\Controllers\BucketController->multiDelete');
+$f3->route('POST /@bucket', function ($f3, $params) {
+    if ($f3->exists('GET.delete')) {
+        $controller = new App\Controllers\BucketController();
+        $controller->beforeRoute($f3);
+        $controller->multiDelete($f3, $params);
+    } else {
+        App\Services\XmlService::error('400', 'Invalid POST request to bucket', "/{$params['bucket']}");
+    }
+});
 
 $f3->route('GET /@bucket/*', function ($f3, $params) {
     $params['key'] = $params[2] ?? $params['*'] ?? '';
