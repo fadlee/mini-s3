@@ -1,0 +1,25 @@
+# Environment & Config
+.env
+config/config.php
+
+# Data directory
+data/*
+!data/.htaccess
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Temporary files
+tmp/
+temp/
