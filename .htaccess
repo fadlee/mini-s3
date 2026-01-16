@@ -1,11 +1,6 @@
 <IfModule mod_rewrite.c>
     RewriteEngine On
-
-    # 如果请求的不是真实存在的文件或目录
-    RewriteCond %{REQUEST_FILENAME} !-f
-    RewriteCond %{REQUEST_FILENAME} !-d
-
-    # 将所有请求重定向到 index.php
-    RewriteRule ^(.*)$ index.php [L,QSA]
+    RewriteRule ^$ public/ [L]
+    RewriteRule (.*) public/$1 [L]
 </IfModule>
 
