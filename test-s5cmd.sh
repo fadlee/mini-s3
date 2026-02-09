@@ -2,12 +2,13 @@
 set -e
 
 # Configuration
-export AWS_ACCESS_KEY_ID="minioadmin"
-export AWS_SECRET_ACCESS_KEY="minioadmin"
-export AWS_REGION="us-east-1"
+export AWS_ACCESS_KEY_ID="${AWS_ACCESS_KEY_ID:-minioadmin}"
+export AWS_SECRET_ACCESS_KEY="${AWS_SECRET_ACCESS_KEY:-minioadmin}"
+export AWS_REGION="${AWS_REGION:-us-east-1}"
 export AWS_S3_FORCE_PATH_STYLE=1
-ENDPOINT="https://mini-s3.test"
-TEST_BUCKET="testbucket"
+ENDPOINT="${ENDPOINT:-https://mini-s3.test}"
+TEST_BUCKET="${TEST_BUCKET:-testbucket}"
+S5CMD_EXTRA_ARGS="${S5CMD_EXTRA_ARGS:-}"
 TEST_FILE="/tmp/mini-s3-test-$(date +%s).txt"
 TEST_CONTENT="hello from s5cmd automated test - $(date)"
 DOWNLOAD_FILE="/tmp/mini-s3-downloaded-$(date +%s).txt"
@@ -22,6 +23,19 @@ echo "=================================="
 echo "Mini-S3 s5cmd Integration Test"
 echo "=================================="
 echo ""
+
+if [[ "$ENDPOINT" == http://* ]]; then
+    echo -e "${YELLOW}Warning: endpoint uses HTTP. If your vhost redirects HTTP->HTTPS, SigV4 requests can fail.${NC}"
+    echo -e "${YELLOW}Try using ENDPOINT=https://... instead.${NC}"
+    echo ""
+fi
+
+S5CMD_BASE_CMD=(s5cmd --endpoint-url "$ENDPOINT")
+if [[ -n "$S5CMD_EXTRA_ARGS" ]]; then
+    # shellcheck disable=SC2206
+    S5CMD_EXTRA_ARR=($S5CMD_EXTRA_ARGS)
+    S5CMD_BASE_CMD+=("${S5CMD_EXTRA_ARR[@]}")
+fi
 
 # Cleanup function
 cleanup() {
@@ -38,14 +52,14 @@ cleanup() {
 trap cleanup EXIT
 
 # Test 1: Create test file
-echo -e "${YELLOW}[1/4] Creating test file...${NC}"
+echo -e "${YELLOW}[1/5] Creating test file...${NC}"
 echo "$TEST_CONTENT" > "$TEST_FILE"
 echo "  ✓ Created: $TEST_FILE"
 echo ""
 
 # Test 2: Upload file
-echo -e "${YELLOW}[2/4] Uploading file to s3://$TEST_BUCKET/hello.txt...${NC}"
-if s5cmd --endpoint-url "$ENDPOINT" cp "$TEST_FILE" "s3://$TEST_BUCKET/hello.txt"; then
+echo -e "${YELLOW}[2/5] Uploading file to s3://$TEST_BUCKET/hello.txt...${NC}"
+if "${S5CMD_BASE_CMD[@]}" cp "$TEST_FILE" "s3://$TEST_BUCKET/hello.txt"; then
     echo -e "  ${GREEN}✓ Upload successful${NC}"
 else
     echo -e "  ${RED}✗ Upload failed${NC}"
@@ -54,8 +68,8 @@ fi
 echo ""
 
 # Test 3: List bucket contents
-echo -e "${YELLOW}[3/4] Listing bucket contents...${NC}"
-if s5cmd --endpoint-url "$ENDPOINT" ls "s3://$TEST_BUCKET/"; then
+echo -e "${YELLOW}[3/5] Listing bucket contents...${NC}"
+if "${S5CMD_BASE_CMD[@]}" ls "s3://$TEST_BUCKET/"; then
     echo -e "  ${GREEN}✓ List successful${NC}"
 else
     echo -e "  ${RED}✗ List failed${NC}"
@@ -64,8 +78,8 @@ fi
 echo ""
 
 # Test 4: Download and verify
-echo -e "${YELLOW}[4/4] Downloading and verifying file...${NC}"
-if s5cmd --endpoint-url "$ENDPOINT" cp "s3://$TEST_BUCKET/hello.txt" "$DOWNLOAD_FILE"; then
+echo -e "${YELLOW}[4/5] Downloading and verifying file...${NC}"
+if "${S5CMD_BASE_CMD[@]}" cp "s3://$TEST_BUCKET/hello.txt" "$DOWNLOAD_FILE"; then
     echo -e "  ${GREEN}✓ Download successful${NC}"
     
     # Verify content
@@ -87,7 +101,7 @@ echo ""
 
 # Test 5: Delete object
 echo -e "${YELLOW}[5/5] Deleting object...${NC}"
-if s5cmd --endpoint-url "$ENDPOINT" rm "s3://$TEST_BUCKET/hello.txt"; then
+if "${S5CMD_BASE_CMD[@]}" rm "s3://$TEST_BUCKET/hello.txt"; then
     echo -e "  ${GREEN}✓ Delete successful${NC}"
 else
     echo -e "  ${RED}✗ Delete failed${NC}"

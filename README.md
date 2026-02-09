@@ -9,18 +9,18 @@ A lightweight S3-compatible object storage server implemented in PHP, using loca
 - ✅ S3 OBJECT API compatibility (PUT/GET/DELETE/POST)
 - ✅ Multipart upload support
 - ✅ No database required - pure filesystem storage
-- ✅ Simple AWS V4 signature authentication
-- ✅ Lightweight single-file deployment
+- ✅ Full AWS Signature V4 verification (header auth + presigned URL)
+- ✅ Lightweight deployment with minimal PHP files
 
 
 ## TLDR
 
-Simply create a new website on your virtual host, place the `index.php` file from the GitHub repository into the website's root directory, modify the password configuration at the beginning of `index.php`, then config the rewite rule set all route to index.php, and you're ready to use it.
+Set up a virtual host, deploy this project to your web root, configure credentials in `config/config.php`, then route all requests to `index.php`.
 
 - **Endpoint**: Your website domain
-- **Access Key**: The password you configured
-- **Secret Key**: Can be any value (not used in this project)
-- **Region**: Can be any value (not used in this project)
+- **Access Key**: Configured in `CREDENTIALS`
+- **Secret Key**: Configured in `CREDENTIALS` (required and validated)
+- **Region**: Used by SigV4 signing scope (for example `us-east-1`)
 
 For example, if an object has:
 - `bucket="music"`
@@ -43,7 +43,7 @@ You can also combine this with Cloudflare's CDN for faster and more stable perfo
 
 1. Set up a website
 
-2. Download `index.php` to your website root directory
+2. Download this project to your website root directory
 
 3. Create data directory
 Create a `data` folder in your website root directory
@@ -139,24 +139,54 @@ server {
 
 ### Configuration
 
-#### Option 1: Edit index.php directly
-Edit the configuration at the beginning of `index.php`:
+#### Option 1: Use `config/config.php` (recommended)
+Edit `config/config.php`:
 ```php
-define('DATA_DIR', __DIR__ . '/data');
-define('ALLOWED_ACCESS_KEYS', ['your-access-key-here']);
-define('MAX_REQUEST_SIZE', 100 * 1024 * 1024); // 100MB
+<?php
+return [
+    'DATA_DIR' => __DIR__ . '/../data',
+    'MAX_REQUEST_SIZE' => 100 * 1024 * 1024,
+    'CREDENTIALS' => [
+        'prod-key-1' => 'prod-secret-1',
+    ],
+    'ALLOW_LEGACY_ACCESS_KEY_ONLY' => false,
+    'ALLOWED_ACCESS_KEYS' => [],
+    'CLOCK_SKEW_SECONDS' => 900,
+    'MAX_PRESIGN_EXPIRES' => 604800,
+    'AUTH_DEBUG_LOG' => '', // Optional, e.g. /tmp/mini-s3-auth-debug.log
+];
 ```
 
-#### Option 2: Use separate config.php (recommended)
-Create a `config.php` file in the same directory:
+#### Option 2: Legacy `config.php` compatibility (deprecated)
+If you still use old constant-based config, it is supported only for transition:
 ```php
 <?php
 define('DATA_DIR', __DIR__ . '/data');
 define('ALLOWED_ACCESS_KEYS', ['minioadmin', 'another-key']);
 define('MAX_REQUEST_SIZE', 500 * 1024 * 1024); // 500MB
+define('ALLOW_LEGACY_ACCESS_KEY_ONLY', true);
 ```
 
-> **Note**: When using third-party S3 tools, only the access key is validated. Secret key and region can be any non-empty values.
+> **Important**:
+> - `CREDENTIALS` is the secure/default mode.
+> - `ALLOW_LEGACY_ACCESS_KEY_ONLY=true` disables full signature verification and is deprecated.
+> - `CREDENTIALS` must not be empty unless legacy mode is explicitly enabled.
+
+### Migration: `ALLOWED_ACCESS_KEYS` -> `CREDENTIALS`
+
+Old config:
+```php
+define('ALLOWED_ACCESS_KEYS', ['my-access-key']);
+```
+
+New config:
+```php
+return [
+    'CREDENTIALS' => [
+        'my-access-key' => 'my-secret-key',
+    ],
+];
+```
 
 ## Security
 
@@ -185,11 +215,11 @@ location ~ ^/data/ {
 ### Best Practices
 
 1. **Use HTTPS**: Always deploy with SSL/TLS certificates to encrypt data in transit
-2. **Strong Access Keys**: Use long, random strings for `ALLOWED_ACCESS_KEYS`
+2. **Strong Credentials**: Use long, random values for both access key and secret key in `CREDENTIALS`
 3. **File Permissions**: Ensure data directory has appropriate permissions (e.g., `chmod 750 data`)
 4. **Regular Updates**: Keep PHP and web server software up to date
 5. **Monitor Access**: Review web server logs for suspicious activity
-6. **External Config**: Use `config.php` instead of hardcoding credentials in `index.php`
+6. **External Config**: Use `config/config.php` and do not hardcode credentials in source files
 7. **Firewall Rules**: Restrict access to your S3 endpoint if possible
 
 ## Usage Examples
@@ -200,7 +230,7 @@ Configure credentials:
 ```bash
 aws configure
 # AWS Access Key ID: minioadmin
-# AWS Secret Access Key: any-value
+# AWS Secret Access Key: must match the configured secret key
 # Default region name: us-east-1
 # Default output format: json
 ```
@@ -406,6 +436,9 @@ Run the included test script to verify your installation:
 ```bash
 # Edit test-s5cmd.sh to set your endpoint and credentials
 ./test-s5cmd.sh
+
+# Run full integration suite (SigV4 header auth + presigned + multipart + ranges)
+./tests/integration/run.sh
 ```
 
 The test script validates:
@@ -413,3 +446,20 @@ The test script validates:
 - ✅ Bucket listing
 - ✅ File download and content verification
 - ✅ File deletion
+
+The integration suite validates:
+- ✅ Valid/invalid SigV4 authorization header
+- ✅ Valid/expired presigned URL
+- ✅ Multipart upload flow
+- ✅ Multipart upload session isolation
+- ✅ Invalid XML handling (`MalformedXML`)
+- ✅ Request size limit enforcement (`413`)
+- ✅ Range request behavior (`206` / `416`)
+
+### Troubleshooting Signature Mismatch
+
+If you see `SignatureDoesNotMatch` with third-party tools:
+1. Temporarily set `'AUTH_DEBUG_LOG' => '/tmp/mini-s3-auth-debug.log'` in `config/config.php`
+2. Retry the failing request
+3. Inspect `/tmp/mini-s3-auth-debug.log` to compare provided signature vs canonical request attempts
+4. Disable debug log again after investigation

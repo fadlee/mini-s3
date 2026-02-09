@@ -1,10 +1,10 @@
 <?php
 
 return [
-    'DATA_DIR' => __DIR__ . '/data',
+    'DATA_DIR' => __DIR__ . '/../data',
     'MAX_REQUEST_SIZE' => 100 * 1024 * 1024,
     'CREDENTIALS' => [
-        'prod-key-1' => 'prod-secret-1',
+        'minioadmin' => 'minioadmin',
     ],
     'ALLOW_LEGACY_ACCESS_KEY_ONLY' => false,
     'ALLOWED_ACCESS_KEYS' => [],
