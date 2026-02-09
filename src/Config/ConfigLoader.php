@@ -19,6 +19,7 @@ final class ConfigLoader
             'CLOCK_SKEW_SECONDS' => 900,
             'MAX_PRESIGN_EXPIRES' => 604800,
             'AUTH_DEBUG_LOG' => '',
+            'ALLOW_HOST_CANDIDATE_FALLBACKS' => false,
         ];
 
         $modernConfigPath = $baseDir . '/config/config.php';
@@ -60,6 +61,7 @@ final class ConfigLoader
         $config['CLOCK_SKEW_SECONDS'] = max(1, (int) $config['CLOCK_SKEW_SECONDS']);
         $config['MAX_PRESIGN_EXPIRES'] = max(1, (int) $config['MAX_PRESIGN_EXPIRES']);
         $config['AUTH_DEBUG_LOG'] = trim((string) ($config['AUTH_DEBUG_LOG'] ?? ''));
+        $config['ALLOW_HOST_CANDIDATE_FALLBACKS'] = (bool) ($config['ALLOW_HOST_CANDIDATE_FALLBACKS'] ?? false);
 
         $credentials = [];
         foreach ((array) ($config['CREDENTIALS'] ?? []) as $accessKey => $secretKey) {

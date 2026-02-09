@@ -11,4 +11,5 @@ return [
     'CLOCK_SKEW_SECONDS' => 900,
     'MAX_PRESIGN_EXPIRES' => 604800,
     'AUTH_DEBUG_LOG' => '',
+    'ALLOW_HOST_CANDIDATE_FALLBACKS' => false,
 ];

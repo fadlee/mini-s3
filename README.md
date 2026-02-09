@@ -154,6 +154,7 @@ return [
     'CLOCK_SKEW_SECONDS' => 900,
     'MAX_PRESIGN_EXPIRES' => 604800,
     'AUTH_DEBUG_LOG' => '', // Optional, e.g. /tmp/mini-s3-auth-debug.log
+    'ALLOW_HOST_CANDIDATE_FALLBACKS' => false, // Keep false unless your proxy rewrites Host
 ];
 ```
 
@@ -171,6 +172,7 @@ define('ALLOW_LEGACY_ACCESS_KEY_ONLY', true);
 > - `CREDENTIALS` is the secure/default mode.
 > - `ALLOW_LEGACY_ACCESS_KEY_ONLY=true` disables full signature verification and is deprecated.
 > - `CREDENTIALS` must not be empty unless legacy mode is explicitly enabled.
+> - `ALLOW_HOST_CANDIDATE_FALLBACKS=false` enforces strict Host matching for SigV4 (recommended).
 
 ### Migration: `ALLOWED_ACCESS_KEYS` -> `CREDENTIALS`
 
@@ -449,9 +451,11 @@ The test script validates:
 
 The integration suite validates:
 - ✅ Valid/invalid SigV4 authorization header
+- ✅ Strict Host verification for signed requests
 - ✅ Valid/expired presigned URL
 - ✅ Multipart upload flow
 - ✅ Multipart upload session isolation
+- ✅ Multipart temp files are hidden from object listing
 - ✅ Invalid XML handling (`MalformedXML`)
 - ✅ Request size limit enforcement (`413`)
 - ✅ Range request behavior (`206` / `416`)

@@ -22,6 +22,8 @@ TEST_KEY="hello.txt"
 cleanup() {
   rm -rf "$TMP_DIR"
   rm -rf "$ROOT/data/$TEST_BUCKET" >/dev/null 2>&1 || true
+  rm -rf "$ROOT/data/.multipart/$TEST_BUCKET" >/dev/null 2>&1 || true
+  rmdir "$ROOT/data/.multipart" >/dev/null 2>&1 || true
 }
 trap cleanup EXIT
 
@@ -44,6 +46,15 @@ assert_contains() {
   local file="$2"
   local message="$3"
   if ! rg -F -q "$needle" "$file"; then
+    fail "$message"
+  fi
+}
+
+assert_not_contains() {
+  local needle="$1"
+  local file="$2"
+  local message="$3"
+  if rg -F -q "$needle" "$file"; then
     fail "$message"
   fi
 }
@@ -164,7 +175,20 @@ run_request PUT "/$TEST_BUCKET/invalid-sig.txt" "$TMP_DIR/hello.txt" "$TMP_DIR/i
   "Authorization: $authorization_bad"
 assert_eq "401" "$(meta_status "$TMP_DIR/invalidsig.meta")" "Invalid signature must be rejected"
 
-# 3) Valid presigned URL -> success
+# 3) Signed host must match request host even when x-forwarded-host is set
+empty_payload_hash="e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+signed_lines_host="$(sign_headers GET "$SIGN_BASE_URL/$TEST_BUCKET/$TEST_KEY" "$empty_payload_hash")"
+amz_date_host="$(printf '%s\n' "$signed_lines_host" | sed -n '1p')"
+authorization_host="$(printf '%s\n' "$signed_lines_host" | sed -n '2p')"
+run_request GET "/$TEST_BUCKET/$TEST_KEY" "" "$TMP_DIR/host-mismatch.body" "$TMP_DIR/host-mismatch.meta" \
+  "Host: internal.local" \
+  "x-forwarded-host: $SIGN_HOST" \
+  "x-amz-date: $amz_date_host" \
+  "x-amz-content-sha256: $empty_payload_hash" \
+  "Authorization: $authorization_host"
+assert_eq "401" "$(meta_status "$TMP_DIR/host-mismatch.meta")" "Host mismatch should be rejected even with x-forwarded-host"
+
+# 4) Valid presigned URL -> success
 presigned_valid="$("$PHP_BIN" "$SIGV4_HELPER" presign GET "$SIGN_BASE_URL/$TEST_BUCKET/$TEST_KEY" "$ACCESS_KEY" "$SECRET_KEY" 120 0)"
 valid_uri="$("$PHP_BIN" -r '$u=parse_url($argv[1]); echo ($u["path"] ?? "/") . (isset($u["query"]) ? "?" . $u["query"] : "");' "$presigned_valid")"
 valid_host="$("$PHP_BIN" -r '$u=parse_url($argv[1]); echo ($u["host"] ?? ""); if(isset($u["port"])) echo ":".$u["port"];' "$presigned_valid")"
@@ -174,19 +198,19 @@ if ! diff -q "$TMP_DIR/hello.txt" "$TMP_DIR/presign-valid.body" >/dev/null; then
   fail "Valid presigned response body mismatch"
 fi
 
-# 4) Expired presigned URL -> 401
+# 5) Expired presigned URL -> 401
 presigned_expired="$("$PHP_BIN" "$SIGV4_HELPER" presign GET "$SIGN_BASE_URL/$TEST_BUCKET/$TEST_KEY" "$ACCESS_KEY" "$SECRET_KEY" 1 -3600)"
 expired_uri="$("$PHP_BIN" -r '$u=parse_url($argv[1]); echo ($u["path"] ?? "/") . (isset($u["query"]) ? "?" . $u["query"] : "");' "$presigned_expired")"
 expired_host="$("$PHP_BIN" -r '$u=parse_url($argv[1]); echo ($u["host"] ?? ""); if(isset($u["port"])) echo ":".$u["port"];' "$presigned_expired")"
 run_request GET "$expired_uri" "" "$TMP_DIR/presign-expired.body" "$TMP_DIR/presign-expired.meta" "Host: $expired_host"
 assert_eq "401" "$(meta_status "$TMP_DIR/presign-expired.meta")" "Expired presigned request should be rejected"
 
-# 5) Invalid XML on POST delete -> 400 MalformedXML
+# 6) Invalid XML on POST delete -> 400 MalformedXML
 signed_request POST "/$TEST_BUCKET/?delete" "$ROOT/tests/integration/fixtures/delete-invalid.xml" "$TMP_DIR/delete-invalid.body" "$TMP_DIR/delete-invalid.meta"
 assert_eq "400" "$(meta_status "$TMP_DIR/delete-invalid.meta")" "Invalid XML delete request should fail"
 assert_contains "MalformedXML" "$TMP_DIR/delete-invalid.body" "MalformedXML code should be returned"
 
-# 6) Multipart: initiate/upload/complete success
+# 7) Multipart: initiate/upload/complete success
 printf 'part-one-' > "$TMP_DIR/part1.bin"
 printf 'part-two' > "$TMP_DIR/part2.bin"
 
@@ -202,6 +226,12 @@ assert_eq "200" "$(meta_status "$TMP_DIR/mp-put1.meta")" "Multipart part 1 uploa
 
 signed_request PUT "/$TEST_BUCKET/multi.bin?partNumber=2&uploadId=$upload_id" "$TMP_DIR/part2.bin" "$TMP_DIR/mp-put2.body" "$TMP_DIR/mp-put2.meta"
 assert_eq "200" "$(meta_status "$TMP_DIR/mp-put2.meta")" "Multipart part 2 upload should succeed"
+
+# Multipart temp files must not leak into bucket listing
+signed_request GET "/$TEST_BUCKET/" "" "$TMP_DIR/mp-list.body" "$TMP_DIR/mp-list.meta"
+assert_eq "200" "$(meta_status "$TMP_DIR/mp-list.meta")" "List should succeed while multipart upload is in progress"
+assert_not_contains "multi.bin-temp/" "$TMP_DIR/mp-list.body" "Multipart temp directory must not appear in list response"
+assert_not_contains "$upload_id" "$TMP_DIR/mp-list.body" "Multipart upload id must not appear in list response"
 
 cat > "$TMP_DIR/mp-complete.xml" <<XML
 <CompleteMultipartUpload>
@@ -220,7 +250,7 @@ if ! diff -q "$TMP_DIR/multi-expected.bin" "$TMP_DIR/multi-get.body" >/dev/null;
   fail "Multipart merged output mismatch"
 fi
 
-# 7) Completing upload A must not delete upload B temp session
+# 8) Completing upload A must not delete upload B temp session
 signed_request POST "/$TEST_BUCKET/concurrent.bin?uploads" "" "$TMP_DIR/c-init-a.body" "$TMP_DIR/c-init-a.meta"
 assert_eq "200" "$(meta_status "$TMP_DIR/c-init-a.meta")" "Concurrent upload A init should succeed"
 upload_a="$(sed -n 's:.*<UploadId>\([^<]*\)</UploadId>.*:\1:p' "$TMP_DIR/c-init-a.body")"
@@ -251,12 +281,12 @@ assert_eq "200" "$(meta_status "$TMP_DIR/c-complete-a.meta")" "Concurrent upload
 signed_request PUT "/$TEST_BUCKET/concurrent.bin?partNumber=2&uploadId=$upload_b" "$TMP_DIR/c-b2.bin" "$TMP_DIR/c-b2.body" "$TMP_DIR/c-b2.meta"
 assert_eq "200" "$(meta_status "$TMP_DIR/c-b2.meta")" "Upload B should still exist after upload A complete"
 
-# 8) Request body > MAX_REQUEST_SIZE -> 413
+# 9) Request body > MAX_REQUEST_SIZE -> 413
 printf 'x' > "$TMP_DIR/too-large.bin"
 signed_request PUT "/$TEST_BUCKET/too-large.bin" "$TMP_DIR/too-large.bin" "$TMP_DIR/too-large.body" "$TMP_DIR/too-large.meta" "Content-Length: 104857601"
 assert_eq "413" "$(meta_status "$TMP_DIR/too-large.meta")" "Oversized request should be rejected"
 
-# 9) Range valid -> 206, range invalid -> 416
+# 10) Range valid -> 206, range invalid -> 416
 signed_request GET "/$TEST_BUCKET/multi.bin" "" "$TMP_DIR/range-valid.body" "$TMP_DIR/range-valid.meta" "Range: bytes=0-3"
 assert_eq "206" "$(meta_status "$TMP_DIR/range-valid.meta")" "Valid range request should return 206"
 range_valid_size="$(wc -c < "$TMP_DIR/range-valid.body" | tr -d ' ')"

@@ -21,7 +21,8 @@ final class SigV4Authenticator
         private readonly bool $allowLegacyAccessKeyOnly,
         private readonly int $clockSkewSeconds,
         private readonly int $maxPresignExpires,
-        private readonly string $authDebugLogPath = ''
+        private readonly string $authDebugLogPath = '',
+        private readonly bool $allowHostCandidateFallbacks = false
     ) {
         $normalizedCredentials = [];
         foreach ($credentials as $accessKey => $secretKey) {
@@ -500,7 +501,12 @@ final class SigV4Authenticator
             return [null];
         }
 
-        $rawHosts = [trim($request->getHost())];
+        $primaryHost = trim($request->getHost());
+        if (!$this->allowHostCandidateFallbacks) {
+            return [$primaryHost];
+        }
+
+        $rawHosts = [$primaryHost];
         $forwardedHost = $request->getHeader('x-forwarded-host');
         if ($forwardedHost !== null && $forwardedHost !== '') {
             $parts = explode(',', $forwardedHost);

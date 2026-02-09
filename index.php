@@ -29,7 +29,8 @@ try {
         (bool) $config['ALLOW_LEGACY_ACCESS_KEY_ONLY'],
         (int) $config['CLOCK_SKEW_SECONDS'],
         (int) $config['MAX_PRESIGN_EXPIRES'],
-        (string) ($config['AUTH_DEBUG_LOG'] ?? '')
+        (string) ($config['AUTH_DEBUG_LOG'] ?? ''),
+        (bool) ($config['ALLOW_HOST_CANDIDATE_FALLBACKS'] ?? false)
     );
 
     $router = new S3Router(

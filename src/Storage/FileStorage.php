@@ -11,6 +11,8 @@ use RuntimeException;
 
 final class FileStorage
 {
+    private const MULTIPART_ROOT = '.multipart';
+
     public function __construct(private readonly string $dataDir)
     {
     }
@@ -74,7 +76,7 @@ final class FileStorage
     {
         $filePath = $this->objectPath($bucket, $key);
         $this->ensureDirectory(dirname($filePath));
-        $this->copyInputToFile($filePath);
+        $this->copyInputToAtomicFile($filePath);
     }
 
     public function deleteObject(string $bucket, string $key): void
@@ -93,7 +95,11 @@ final class FileStorage
 
     public function multipartDir(string $bucket, string $key, string $uploadId): string
     {
-        return $this->dataDir . '/' . $bucket . '/' . $key . '-temp/' . $uploadId;
+        return $this->dataDir
+            . '/' . self::MULTIPART_ROOT
+            . '/' . $bucket
+            . '/' . $this->keyNamespace($key)
+            . '/' . $uploadId;
     }
 
     public function multipartDirExists(string $bucket, string $key, string $uploadId): bool
@@ -109,7 +115,7 @@ final class FileStorage
         }
 
         $partPath = $uploadDir . '/' . $partNumber;
-        $this->copyInputToFile($partPath);
+        $this->copyInputToAtomicFile($partPath);
 
         return $partPath;
     }
@@ -124,29 +130,42 @@ final class FileStorage
         $filePath = $this->objectPath($bucket, $key);
         $this->ensureDirectory(dirname($filePath));
 
-        $out = fopen($filePath, 'wb');
+        $tmpPath = $this->createTempPath(dirname($filePath), '.obj-');
+        $out = fopen($tmpPath, 'wb');
         if ($out === false) {
             throw new RuntimeException('Failed to open destination file');
         }
 
-        foreach ($partNumbers as $partNumber) {
-            $partPath = $uploadDir . '/' . $partNumber;
-            if (!is_file($partPath)) {
-                fclose($out);
-                throw new RuntimeException('Part file missing: ' . $partNumber);
-            }
+        try {
+            foreach ($partNumbers as $partNumber) {
+                $partPath = $uploadDir . '/' . $partNumber;
+                if (!is_file($partPath)) {
+                    throw new RuntimeException('Part file missing: ' . $partNumber);
+                }
 
-            $in = fopen($partPath, 'rb');
-            if ($in === false) {
-                fclose($out);
-                throw new RuntimeException('Failed to open multipart part: ' . $partNumber);
-            }
+                $in = fopen($partPath, 'rb');
+                if ($in === false) {
+                    throw new RuntimeException('Failed to open multipart part: ' . $partNumber);
+                }
 
-            stream_copy_to_stream($in, $out);
-            fclose($in);
+                $copied = stream_copy_to_stream($in, $out);
+                fclose($in);
+                if ($copied === false) {
+                    throw new RuntimeException('Failed to merge multipart part: ' . $partNumber);
+                }
+            }
+        } catch (RuntimeException $e) {
+            fclose($out);
+            @unlink($tmpPath);
+            throw $e;
         }
 
         fclose($out);
+
+        if (!rename($tmpPath, $filePath)) {
+            @unlink($tmpPath);
+            throw new RuntimeException('Failed to finalize destination file');
+        }
     }
 
     public function cleanupMultipartUpload(string $bucket, string $key, string $uploadId): void
@@ -154,10 +173,13 @@ final class FileStorage
         $uploadDir = $this->multipartDir($bucket, $key, $uploadId);
         $this->deleteDirectory($uploadDir);
 
-        $tempRoot = $this->dataDir . '/' . $bucket . '/' . $key . '-temp';
-        if (is_dir($tempRoot) && $this->isDirectoryEmpty($tempRoot)) {
-            rmdir($tempRoot);
-        }
+        $keyRoot = dirname($uploadDir);
+        $bucketRoot = dirname($keyRoot);
+        $multipartRoot = $this->dataDir . '/' . self::MULTIPART_ROOT;
+
+        $this->removeIfEmptyDirectory($keyRoot);
+        $this->removeIfEmptyDirectory($bucketRoot);
+        $this->removeIfEmptyDirectory($multipartRoot);
     }
 
     public function abortMultipartUpload(string $bucket, string $key, string $uploadId): void
@@ -165,7 +187,7 @@ final class FileStorage
         $this->cleanupMultipartUpload($bucket, $key, $uploadId);
     }
 
-    private function copyInputToFile(string $targetPath): void
+    private function copyInputToAtomicFile(string $targetPath): void
     {
         $inputStream = PHP_SAPI === 'cli' ? 'php://stdin' : 'php://input';
         $input = fopen($inputStream, 'rb');
@@ -173,16 +195,27 @@ final class FileStorage
             throw new RuntimeException('Failed to read request body');
         }
 
-        $output = fopen($targetPath, 'wb');
+        $tmpPath = $this->createTempPath(dirname($targetPath), '.upload-');
+        $output = fopen($tmpPath, 'wb');
         if ($output === false) {
             fclose($input);
             throw new RuntimeException('Failed to write file');
         }
 
-        stream_copy_to_stream($input, $output);
+        $copied = stream_copy_to_stream($input, $output);
 
         fclose($output);
         fclose($input);
+
+        if ($copied === false) {
+            @unlink($tmpPath);
+            throw new RuntimeException('Failed to write file');
+        }
+
+        if (!rename($tmpPath, $targetPath)) {
+            @unlink($tmpPath);
+            throw new RuntimeException('Failed to finalize file');
+        }
     }
 
     private function ensureDirectory(string $dir): void
@@ -220,5 +253,31 @@ final class FileStorage
         $iterator = new FilesystemIterator($dir, FilesystemIterator::SKIP_DOTS);
 
         return !$iterator->valid();
+    }
+
+    private function keyNamespace(string $key): string
+    {
+        if ($key === '') {
+            return '_root';
+        }
+
+        return hash('sha256', $key);
+    }
+
+    private function createTempPath(string $directory, string $prefix): string
+    {
+        $tmpPath = tempnam($directory, $prefix);
+        if ($tmpPath === false) {
+            throw new RuntimeException('Failed to create temporary file');
+        }
+
+        return $tmpPath;
+    }
+
+    private function removeIfEmptyDirectory(string $dir): void
+    {
+        if (is_dir($dir) && $this->isDirectoryEmpty($dir)) {
+            @rmdir($dir);
+        }
     }
 }
