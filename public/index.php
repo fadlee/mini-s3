@@ -2,13 +2,15 @@
 
 declare(strict_types=1);
 
-require_once __DIR__ . '/src/Config/ConfigLoader.php';
-require_once __DIR__ . '/src/Auth/AuthException.php';
-require_once __DIR__ . '/src/Auth/SigV4Authenticator.php';
-require_once __DIR__ . '/src/Http/RequestContext.php';
-require_once __DIR__ . '/src/Storage/FileStorage.php';
-require_once __DIR__ . '/src/S3/S3Response.php';
-require_once __DIR__ . '/src/S3/S3Router.php';
+define('BASE_PATH', realpath(__DIR__.'/..'));
+
+require_once BASE_PATH . '/src/Config/ConfigLoader.php';
+require_once BASE_PATH . '/src/Auth/AuthException.php';
+require_once BASE_PATH . '/src/Auth/SigV4Authenticator.php';
+require_once BASE_PATH . '/src/Http/RequestContext.php';
+require_once BASE_PATH . '/src/Storage/FileStorage.php';
+require_once BASE_PATH . '/src/S3/S3Response.php';
+require_once BASE_PATH . '/src/S3/S3Router.php';
 
 use MiniS3\Auth\SigV4Authenticator;
 use MiniS3\Config\ConfigLoader;
@@ -18,7 +20,7 @@ use MiniS3\S3\S3Router;
 use MiniS3\Storage\FileStorage;
 
 try {
-    $config = ConfigLoader::load(__DIR__);
+    $config = ConfigLoader::load(BASE_PATH);
 
     $request = RequestContext::fromGlobals();
     $storage = new FileStorage((string) $config['DATA_DIR']);
