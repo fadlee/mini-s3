@@ -140,6 +140,14 @@ signed_request() {
 
 echo "[INFO] Starting mini-s3 integration tests (CLI harness)"
 
+# 0) Browser CORS preflight for presigned uploads must not require SigV4 auth.
+run_request OPTIONS "/$TEST_BUCKET/$TEST_KEY" "" "$TMP_DIR/cors-preflight.body" "$TMP_DIR/cors-preflight.meta" \
+  "Host: $SIGN_HOST" \
+  "Origin: http://localhost:4321" \
+  "Access-Control-Request-Method: PUT" \
+  "Access-Control-Request-Headers: content-length,x-amz-checksum-crc32,x-amz-sdk-checksum-algorithm"
+assert_eq "204" "$(meta_status "$TMP_DIR/cors-preflight.meta")" "CORS preflight should succeed"
+
 # 1) Upload/list/get/delete success
 printf 'hello integration test\n' > "$TMP_DIR/hello.txt"
 signed_request PUT "/$TEST_BUCKET/$TEST_KEY" "$TMP_DIR/hello.txt" "$TMP_DIR/put.body" "$TMP_DIR/put.meta"
@@ -153,6 +161,12 @@ signed_request GET "/$TEST_BUCKET/$TEST_KEY" "" "$TMP_DIR/get.body" "$TMP_DIR/ge
 assert_eq "200" "$(meta_status "$TMP_DIR/get.meta")" "GET should succeed"
 if ! diff -q "$TMP_DIR/hello.txt" "$TMP_DIR/get.body" >/dev/null; then
   fail "Downloaded body differs from uploaded body"
+fi
+
+run_request GET "/$TEST_BUCKET/$TEST_KEY" "" "$TMP_DIR/public-get.body" "$TMP_DIR/public-get.meta" "Host: $SIGN_HOST"
+assert_eq "200" "$(meta_status "$TMP_DIR/public-get.meta")" "Public GET should succeed without authentication"
+if ! diff -q "$TMP_DIR/hello.txt" "$TMP_DIR/public-get.body" >/dev/null; then
+  fail "Public GET body differs from uploaded body"
 fi
 
 signed_request DELETE "/$TEST_BUCKET/$TEST_KEY" "" "$TMP_DIR/del.body" "$TMP_DIR/del.meta"
@@ -175,18 +189,18 @@ run_request PUT "/$TEST_BUCKET/invalid-sig.txt" "$TMP_DIR/hello.txt" "$TMP_DIR/i
   "Authorization: $authorization_bad"
 assert_eq "401" "$(meta_status "$TMP_DIR/invalidsig.meta")" "Invalid signature must be rejected"
 
-# 3) Signed host must match request host even when x-forwarded-host is set
+# 3) Signed write host must match request host even when x-forwarded-host is set
 empty_payload_hash="e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
-signed_lines_host="$(sign_headers GET "$SIGN_BASE_URL/$TEST_BUCKET/$TEST_KEY" "$empty_payload_hash")"
+signed_lines_host="$(sign_headers DELETE "$SIGN_BASE_URL/$TEST_BUCKET/$TEST_KEY" "$empty_payload_hash")"
 amz_date_host="$(printf '%s\n' "$signed_lines_host" | sed -n '1p')"
 authorization_host="$(printf '%s\n' "$signed_lines_host" | sed -n '2p')"
-run_request GET "/$TEST_BUCKET/$TEST_KEY" "" "$TMP_DIR/host-mismatch.body" "$TMP_DIR/host-mismatch.meta" \
+run_request DELETE "/$TEST_BUCKET/$TEST_KEY" "" "$TMP_DIR/host-mismatch.body" "$TMP_DIR/host-mismatch.meta" \
   "Host: internal.local" \
   "x-forwarded-host: $SIGN_HOST" \
   "x-amz-date: $amz_date_host" \
   "x-amz-content-sha256: $empty_payload_hash" \
   "Authorization: $authorization_host"
-assert_eq "401" "$(meta_status "$TMP_DIR/host-mismatch.meta")" "Host mismatch should be rejected even with x-forwarded-host"
+assert_eq "401" "$(meta_status "$TMP_DIR/host-mismatch.meta")" "Write host mismatch should be rejected even with x-forwarded-host"
 
 # 4) Valid presigned URL -> success
 presigned_valid="$("$PHP_BIN" "$SIGV4_HELPER" presign GET "$SIGN_BASE_URL/$TEST_BUCKET/$TEST_KEY" "$ACCESS_KEY" "$SECRET_KEY" 120 0)"
@@ -198,12 +212,12 @@ if ! diff -q "$TMP_DIR/hello.txt" "$TMP_DIR/presign-valid.body" >/dev/null; then
   fail "Valid presigned response body mismatch"
 fi
 
-# 5) Expired presigned URL -> 401
-presigned_expired="$("$PHP_BIN" "$SIGV4_HELPER" presign GET "$SIGN_BASE_URL/$TEST_BUCKET/$TEST_KEY" "$ACCESS_KEY" "$SECRET_KEY" 1 -3600)"
+# 5) Expired presigned write URL -> 401
+presigned_expired="$("$PHP_BIN" "$SIGV4_HELPER" presign PUT "$SIGN_BASE_URL/$TEST_BUCKET/expired-put.txt" "$ACCESS_KEY" "$SECRET_KEY" 1 -3600)"
 expired_uri="$("$PHP_BIN" -r '$u=parse_url($argv[1]); echo ($u["path"] ?? "/") . (isset($u["query"]) ? "?" . $u["query"] : "");' "$presigned_expired")"
 expired_host="$("$PHP_BIN" -r '$u=parse_url($argv[1]); echo ($u["host"] ?? ""); if(isset($u["port"])) echo ":".$u["port"];' "$presigned_expired")"
-run_request GET "$expired_uri" "" "$TMP_DIR/presign-expired.body" "$TMP_DIR/presign-expired.meta" "Host: $expired_host"
-assert_eq "401" "$(meta_status "$TMP_DIR/presign-expired.meta")" "Expired presigned request should be rejected"
+run_request PUT "$expired_uri" "$TMP_DIR/hello.txt" "$TMP_DIR/presign-expired.body" "$TMP_DIR/presign-expired.meta" "Host: $expired_host"
+assert_eq "401" "$(meta_status "$TMP_DIR/presign-expired.meta")" "Expired presigned write request should be rejected"
 
 # 6) Invalid XML on POST delete -> 400 MalformedXML
 signed_request POST "/$TEST_BUCKET/?delete" "$ROOT/tests/integration/fixtures/delete-invalid.xml" "$TMP_DIR/delete-invalid.body" "$TMP_DIR/delete-invalid.meta"

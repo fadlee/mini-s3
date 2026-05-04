@@ -19,22 +19,32 @@ final class S3Router
         private readonly FileStorage $storage,
         private readonly S3Response $response,
         private readonly SigV4Authenticator $authenticator,
-        private readonly int $maxRequestSize
+        private readonly int $maxRequestSize,
+        private readonly bool $publicReadAllBuckets = false
     ) {
     }
 
     public function handle(): never
     {
         try {
+            $this->sendCorsHeaders();
+
             $this->storage->ensureDataDirExists();
 
             [$bucket, $key] = $this->extractBucketAndKey();
             $method = $this->request->getMethod();
 
+            if ($method === 'OPTIONS') {
+                http_response_code(204);
+                exit;
+            }
+
             $this->validateBucketAndKey($method, $bucket, $key);
             $this->validateRequestSize();
 
-            $this->authenticator->authenticate($this->request);
+            if (!$this->isPublicRead($method)) {
+                $this->authenticator->authenticate($this->request);
+            }
 
             switch ($method) {
                 case 'PUT':
@@ -65,6 +75,31 @@ final class S3Router
         } catch (Throwable $e) {
             $this->response->error(500, 'InternalError', 'Internal server error');
         }
+    }
+
+    private function isPublicRead(string $method): bool
+    {
+        return $this->publicReadAllBuckets && ($method === 'GET' || $method === 'HEAD');
+    }
+
+    private function sendCorsHeaders(): void
+    {
+        $origin = $this->request->getHeader('origin');
+        if ($origin === null || $origin === '') {
+            return;
+        }
+
+        header('Access-Control-Allow-Origin: ' . $origin);
+        header('Vary: Origin');
+        header('Access-Control-Allow-Methods: GET, HEAD, PUT, POST, DELETE, OPTIONS');
+        header('Access-Control-Expose-Headers: ETag, Content-Length, Content-Range');
+
+        $requestHeaders = $this->request->getHeader('access-control-request-headers');
+        if ($requestHeaders !== null && $requestHeaders !== '') {
+            header('Access-Control-Allow-Headers: ' . $requestHeaders);
+        }
+
+        header('Access-Control-Max-Age: 86400');
     }
 
     private function handlePut(string $bucket, string $key): never

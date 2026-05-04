@@ -93,4 +93,4 @@ if ($root === false) {
 }
 
 chdir($root);
-require $root . '/index.php';
+require $root . '/public/index.php';

@@ -40,7 +40,8 @@ try {
         $storage,
         $response,
         $authenticator,
-        (int) $config['MAX_REQUEST_SIZE']
+        (int) $config['MAX_REQUEST_SIZE'],
+        (bool) ($config['PUBLIC_READ_ALL_BUCKETS'] ?? false)
     );
 
     $router->handle();
