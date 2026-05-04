@@ -1,0 +1,16 @@
+{
+  "name": "mini-s3/server",
+  "description": "Lightweight S3-compatible object storage server in PHP.",
+  "type": "project",
+  "license": "MIT",
+  "scripts": {
+    "lint": "tests/lint.sh",
+    "test": "tests/integration/run.sh",
+    "check": [
+      "@lint",
+      "@test"
+    ]
+  },
+  "require": {},
+  "require-dev": {}
+}

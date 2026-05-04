@@ -56,6 +56,8 @@ final class ConfigLoader
             }
         }
 
+        $config = self::applyEnvironmentOverrides($config);
+
         $config['DATA_DIR'] = (string) $config['DATA_DIR'];
         $config['MAX_REQUEST_SIZE'] = max(1, (int) $config['MAX_REQUEST_SIZE']);
         $config['ALLOW_LEGACY_ACCESS_KEY_ONLY'] = (bool) $config['ALLOW_LEGACY_ACCESS_KEY_ONLY'];
@@ -95,5 +97,63 @@ final class ConfigLoader
         }
 
         return $config;
+    }
+
+    private static function applyEnvironmentOverrides(array $config): array
+    {
+        $stringMap = [
+            'MINI_S3_DATA_DIR' => 'DATA_DIR',
+            'MINI_S3_AUTH_DEBUG_LOG' => 'AUTH_DEBUG_LOG',
+        ];
+
+        foreach ($stringMap as $envName => $configKey) {
+            $value = self::env($envName);
+            if ($value !== null) {
+                $config[$configKey] = $value;
+            }
+        }
+
+        $maxRequestSize = self::env('MINI_S3_MAX_REQUEST_SIZE');
+        if ($maxRequestSize !== null) {
+            $config['MAX_REQUEST_SIZE'] = (int) $maxRequestSize;
+        }
+
+        $publicRead = self::env('MINI_S3_PUBLIC_READ_ALL_BUCKETS');
+        if ($publicRead !== null) {
+            $config['PUBLIC_READ_ALL_BUCKETS'] = self::parseBoolean($publicRead);
+        }
+
+        $hostFallbacks = self::env('MINI_S3_ALLOW_HOST_CANDIDATE_FALLBACKS');
+        if ($hostFallbacks !== null) {
+            $config['ALLOW_HOST_CANDIDATE_FALLBACKS'] = self::parseBoolean($hostFallbacks);
+        }
+
+        $credentialsJson = self::env('MINI_S3_CREDENTIALS_JSON');
+        if ($credentialsJson !== null) {
+            $decoded = json_decode($credentialsJson, true);
+            if (!is_array($decoded)) {
+                throw new RuntimeException('Misconfiguration: MINI_S3_CREDENTIALS_JSON must be a JSON object');
+            }
+            $config['CREDENTIALS'] = $decoded;
+        }
+
+        return $config;
+    }
+
+    private static function env(string $name): ?string
+    {
+        $value = getenv($name);
+        if ($value === false || $value === '') {
+            return null;
+        }
+
+        return $value;
+    }
+
+    private static function parseBoolean(string $value): bool
+    {
+        $normalized = strtolower(trim($value));
+
+        return in_array($normalized, ['1', 'true', 'yes', 'on'], true);
     }
 }

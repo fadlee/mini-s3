@@ -4,7 +4,7 @@ return [
     'DATA_DIR' => __DIR__ . '/data',
     'MAX_REQUEST_SIZE' => 100 * 1024 * 1024,
     'CREDENTIALS' => [
-        'prod-key-1' => 'prod-secret-1',
+        'replace-with-access-key' => 'replace-with-secret-key',
     ],
     'ALLOW_LEGACY_ACCESS_KEY_ONLY' => false,
     'ALLOWED_ACCESS_KEYS' => [],

@@ -72,6 +72,34 @@ final class FileStorage
         return is_file($this->objectPath($bucket, $key));
     }
 
+    public function objectMetadata(string $bucket, string $key): ?array
+    {
+        $filePath = $this->objectPath($bucket, $key);
+        if (!is_file($filePath)) {
+            return null;
+        }
+
+        $size = filesize($filePath);
+        if ($size === false) {
+            throw new RuntimeException('Failed to read file metadata');
+        }
+
+        return [
+            'size' => $size,
+            'mimeType' => mime_content_type($filePath) ?: 'application/octet-stream',
+        ];
+    }
+
+    public function openObjectReadStream(string $bucket, string $key)
+    {
+        $stream = fopen($this->objectPath($bucket, $key), 'rb');
+        if ($stream === false) {
+            throw new RuntimeException('Failed to open file');
+        }
+
+        return $stream;
+    }
+
     public function putObjectFromInput(string $bucket, string $key): void
     {
         $filePath = $this->objectPath($bucket, $key);

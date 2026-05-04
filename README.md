@@ -15,7 +15,7 @@ A lightweight S3-compatible object storage server implemented in PHP, using loca
 
 ## TLDR
 
-Set up a virtual host, deploy this project to your web root, configure credentials in `config/config.php`, then route all requests to `index.php`.
+Set your web server root to this project's `public/` directory, configure credentials with environment variables or `config/config.php`, then route all requests to `public/index.php`.
 
 - **Endpoint**: Your website domain
 - **Access Key**: Configured in `CREDENTIALS`
@@ -26,7 +26,7 @@ For example, if an object has:
 - `bucket="music"`
 - `key="hello.mp3"`
 
-It will be stored at: `./data/music/hello.mp3`
+It will be stored under `DATA_DIR`, for example: `./data/music/hello.mp3`
 
 You can also combine this with Cloudflare's CDN for faster and more stable performance.
 
@@ -41,25 +41,34 @@ You can also combine this with Cloudflare's CDN for faster and more stable perfo
 
 ### Installation
 
-1. Set up a website
+1. Deploy this project outside the public web root when possible.
 
-2. Download this project to your website root directory
+2. Set Apache/Nginx document root to `/path/to/mini-s3/public`.
 
-3. Create data directory
-Create a `data` folder in your website root directory
+3. Create a `data` directory, preferably outside the web root, and set `DATA_DIR` to that path.
 
-4. Configure URL rewriting
+4. Configure credentials using environment variables or a local `config/config.php` copied from `config.example.php`.
+
+5. Configure URL rewriting.
 
 #### Apache Configuration
 
-Create `.htaccess` in root directory with:
+Use `public/` as the document root. Example virtual host settings:
+```apache
+DocumentRoot /path/to/mini-s3/public
+
+<Directory /path/to/mini-s3/public>
+    AllowOverride All
+    Require all granted
+</Directory>
+```
+
+If using `.htaccess`, place rewrite rules in `public/.htaccess`:
 ```apache
 <IfModule mod_rewrite.c>
     RewriteEngine On
-    # If request is not for existing file/directory
     RewriteCond %{REQUEST_FILENAME} !-f
     RewriteCond %{REQUEST_FILENAME} !-d
-    # Redirect all requests to index.php
     RewriteRule ^(.*)$ index.php [L,QSA]
 </IfModule>
 ```
@@ -72,7 +81,7 @@ server {
     listen 80;
     server_name your-domain.com;
 
-    root /path/to/mini-s3;
+    root /path/to/mini-s3/public;
     index index.php;
 
     # Increase upload size limits
@@ -93,12 +102,6 @@ server {
         fastcgi_param HTTP_AUTHORIZATION $http_authorization;
         fastcgi_pass_header Authorization;
     }
-
-    # Deny access to data directory
-    location ~ ^/data/ {
-        deny all;
-        return 403;
-    }
 }
 ```
 
@@ -111,7 +114,7 @@ server {
     ssl_certificate /path/to/ssl/cert.pem;
     ssl_certificate_key /path/to/ssl/key.pem;
 
-    root /path/to/mini-s3;
+    root /path/to/mini-s3/public;
     index index.php;
 
     client_max_body_size 100M;
@@ -129,18 +132,32 @@ server {
         fastcgi_param HTTP_AUTHORIZATION $http_authorization;
         fastcgi_pass_header Authorization;
     }
-
-    location ~ ^/data/ {
-        deny all;
-        return 403;
-    }
 }
 ```
 
 ### Configuration
 
-#### Option 1: Use `config/config.php` (recommended)
-Edit `config/config.php`:
+#### Option 1: Environment variables (recommended)
+
+`ConfigLoader` reads `config/config.php` first, then environment variables override file values.
+
+- `MINI_S3_DATA_DIR`
+- `MINI_S3_MAX_REQUEST_SIZE`
+- `MINI_S3_CREDENTIALS_JSON`
+- `MINI_S3_PUBLIC_READ_ALL_BUCKETS`
+- `MINI_S3_AUTH_DEBUG_LOG`
+- `MINI_S3_ALLOW_HOST_CANDIDATE_FALLBACKS`
+
+Example:
+```bash
+export MINI_S3_CREDENTIALS_JSON='{"prod-key":"prod-secret"}'
+export MINI_S3_DATA_DIR='/var/lib/mini-s3/data'
+```
+
+#### Option 2: Use local `config/config.php`
+
+Copy `config.example.php` to `config/config.php`, then edit it. This file is ignored by git and should contain local deployment values only.
+
 ```php
 <?php
 return [
@@ -159,7 +176,7 @@ return [
 ];
 ```
 
-#### Option 2: Legacy `config.php` compatibility (deprecated)
+#### Option 3: Legacy `config.php` compatibility (deprecated)
 If you still use old constant-based config, it is supported only for transition:
 ```php
 <?php
@@ -195,19 +212,19 @@ return [
 
 ### Data Directory Protection
 
-The data directory contains all uploaded files and must be protected from direct web access and script execution.
+The data directory contains all uploaded files and must be protected from direct web access and script execution. Prefer storing it outside `public/` by setting `DATA_DIR` to a path such as `/var/lib/mini-s3/data`.
 
-#### Apache (Automatic)
-The included `data/.htaccess` file provides multiple layers of protection:
+#### Apache Fallback
+If your deployment keeps `data/` under the project root, protect it with web-server rules. A `data/.htaccess` file can provide multiple layers of protection:
 - **PHP execution disabled**: Prevents uploaded PHP files from being executed
 - **Script handlers removed**: Blocks PHP, Python, Perl, ASP, CGI, and shell scripts
 - **Files served as plain text**: Script files are downloadable as text/plain, preventing execution
 - **Security headers**: Adds X-Content-Type-Options, X-Frame-Options, and Content-Security-Policy
 
-No additional configuration needed - the `.htaccess` file is included in the data directory.
+This is defense in depth. The recommended deployment keeps `data/` outside `public/` so Apache cannot serve it directly.
 
-#### Nginx (Manual Configuration Required)
-Add this to your server block to deny access to the data directory:
+#### Nginx Fallback
+If `data/` is reachable from your server root, add this deny rule:
 ```nginx
 location ~ ^/data/ {
     deny all;
@@ -224,6 +241,18 @@ location ~ ^/data/ {
 5. **Monitor Access**: Review web server logs for suspicious activity
 6. **External Config**: Use `config/config.php` and do not hardcode credentials in source files
 7. **Firewall Rules**: Restrict access to your S3 endpoint if possible
+
+## Development Checks
+
+```bash
+tests/lint.sh
+tests/integration/run.sh
+composer lint
+composer test
+composer check
+```
+
+`composer` is optional and only provides development scripts. Runtime does not require Composer.
 
 ## Usage Examples
 

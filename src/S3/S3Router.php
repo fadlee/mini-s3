@@ -18,6 +18,7 @@ final class S3Router
         private readonly RequestContext $request,
         private readonly FileStorage $storage,
         private readonly S3Response $response,
+        private readonly RequestValidator $validator,
         private readonly SigV4Authenticator $authenticator,
         private readonly int $maxRequestSize,
         private readonly bool $publicReadAllBuckets = false
@@ -108,7 +109,7 @@ final class S3Router
         $partNumber = $this->request->getQueryParam('partNumber');
 
         if ($uploadId !== null && $partNumber !== null) {
-            if (!$this->isPositiveInteger($partNumber)) {
+            if (!$this->validator->isPositiveInteger($partNumber)) {
                 $this->response->error(400, 'InvalidPart', 'partNumber must be a positive integer', $this->resource($bucket, $key));
             }
 
@@ -138,7 +139,7 @@ final class S3Router
 
             foreach ($xml->Object as $object) {
                 $objectKey = (string) $object->Key;
-                if (!$this->isValidObjectKey($objectKey)) {
+                if (!$this->validator->isValidObjectKey($objectKey)) {
                     $errors[] = [
                         'key' => $objectKey,
                         'code' => 'InvalidObjectKey',
@@ -172,7 +173,7 @@ final class S3Router
             $parts = [];
             foreach ($xml->Part as $part) {
                 $partNumber = (string) $part->PartNumber;
-                if (!$this->isPositiveInteger($partNumber)) {
+                if (!$this->validator->isPositiveInteger($partNumber)) {
                     $this->response->error(400, 'InvalidPart', 'PartNumber must be a positive integer', $this->resource($bucket, $key));
                 }
 
@@ -216,22 +217,14 @@ final class S3Router
             $this->response->listObjects($files, $bucket, $prefix);
         }
 
-        $filePath = $this->storage->objectPath($bucket, $key);
-        if (!is_file($filePath)) {
+        $metadata = $this->storage->objectMetadata($bucket, $key);
+        if ($metadata === null) {
             $this->response->error(404, 'NoSuchKey', 'Object not found', $this->resource($bucket, $key));
         }
 
-        $fileSize = filesize($filePath);
-        if ($fileSize === false) {
-            $this->response->error(500, 'InternalError', 'Failed to read file metadata', $this->resource($bucket, $key));
-        }
-
-        $fp = fopen($filePath, 'rb');
-        if ($fp === false) {
-            $this->response->error(500, 'InternalError', 'Failed to open file', $this->resource($bucket, $key));
-        }
-
-        $mimeType = mime_content_type($filePath) ?: 'application/octet-stream';
+        $fileSize = (int) $metadata['size'];
+        $fp = $this->storage->openObjectReadStream($bucket, $key);
+        $mimeType = (string) $metadata['mimeType'];
         $range = $this->request->getHeader('range');
 
         $start = 0;
@@ -240,26 +233,20 @@ final class S3Router
         $status = 200;
 
         if ($range !== null && $range !== '') {
-            [$isValidRange, $start, $end] = $this->parseRange($range, $fileSize);
+            [$isValidRange, $start, $end] = $this->validator->parseRange($range, $fileSize);
             if (!$isValidRange) {
                 fclose($fp);
-                header('Content-Range: bytes */' . $fileSize);
+                $this->response->sendInvalidRangeHeader($fileSize);
                 http_response_code(416);
                 exit;
             }
 
             $status = 206;
             $length = ($fileSize === 0) ? 0 : ($end - $start + 1);
-            header('Content-Range: bytes ' . $start . '-' . $end . '/' . $fileSize);
+            $this->response->sendRangeHeader($start, $end, $fileSize);
         }
 
-        http_response_code($status);
-        header('Accept-Ranges: bytes');
-        header('Content-Type: ' . $mimeType);
-        header('Content-Length: ' . $length);
-        header('Content-Disposition: attachment; filename="' . basename($key) . '"');
-        header('Cache-Control: private');
-        header('Pragma: public');
+        $this->response->sendObjectHeaders($status, $length, $mimeType, basename($key));
 
         if ($length === 0) {
             fclose($fp);
@@ -292,19 +279,12 @@ final class S3Router
             $this->response->error(400, 'InvalidRequest', 'Object key required for HEAD', $this->resource($bucket, $key));
         }
 
-        $filePath = $this->storage->objectPath($bucket, $key);
-        if (!is_file($filePath)) {
+        $metadata = $this->storage->objectMetadata($bucket, $key);
+        if ($metadata === null) {
             $this->response->error(404, 'NoSuchKey', 'Resource not found', $this->resource($bucket, $key));
         }
 
-        $contentLength = filesize($filePath);
-        if ($contentLength === false) {
-            $this->response->error(500, 'InternalError', 'Failed to read file metadata', $this->resource($bucket, $key));
-        }
-
-        header('Content-Length: ' . $contentLength);
-        header('Content-Type: ' . (mime_content_type($filePath) ?: 'application/octet-stream'));
-        http_response_code(200);
+        $this->response->sendObjectHeaders(200, (int) $metadata['size'], (string) $metadata['mimeType'], basename($key), false);
         exit;
     }
 
@@ -336,27 +316,18 @@ final class S3Router
             $this->response->error(400, 'InvalidBucketName', 'Bucket name required', '/');
         }
 
-        if ($bucket !== '' && !$this->isValidBucketName($bucket)) {
+        if ($bucket !== '' && !$this->validator->isValidBucketName($bucket)) {
             $this->response->error(400, 'InvalidBucketName', 'Invalid bucket name', '/' . $bucket);
         }
 
-        if ($key !== '' && !$this->isValidObjectKey($key)) {
+        if ($key !== '' && !$this->validator->isValidObjectKey($key)) {
             $this->response->error(400, 'InvalidObjectKey', 'Invalid object key', $this->resource($bucket, $key));
         }
     }
 
     private function validateRequestSize(): void
     {
-        $contentLength = $this->request->getHeader('content-length');
-        if ($contentLength === null || $contentLength === '') {
-            return;
-        }
-
-        if (!ctype_digit($contentLength)) {
-            return;
-        }
-
-        if ((int) $contentLength > $this->maxRequestSize) {
+        if ($this->validator->isOversizedRequest($this->request->getHeader('content-length'), $this->maxRequestSize)) {
             $this->response->error(413, 'EntityTooLarge', 'Request too large');
         }
     }
@@ -394,111 +365,6 @@ final class S3Router
         }
 
         return $xml;
-    }
-
-    private function parseRange(string $range, int $fileSize): array
-    {
-        if (!preg_match('/^bytes=(\d*)-(\d*)$/', trim($range), $matches)) {
-            return [false, 0, 0];
-        }
-
-        if ($fileSize <= 0) {
-            return [false, 0, 0];
-        }
-
-        $startRaw = $matches[1];
-        $endRaw = $matches[2];
-
-        if ($startRaw === '' && $endRaw === '') {
-            return [false, 0, 0];
-        }
-
-        if ($startRaw === '') {
-            if (!ctype_digit($endRaw)) {
-                return [false, 0, 0];
-            }
-
-            $suffixLength = (int) $endRaw;
-            if ($suffixLength <= 0) {
-                return [false, 0, 0];
-            }
-
-            $start = max(0, $fileSize - $suffixLength);
-            $end = $fileSize - 1;
-
-            return [true, $start, $end];
-        }
-
-        if (!ctype_digit($startRaw)) {
-            return [false, 0, 0];
-        }
-
-        $start = (int) $startRaw;
-        if ($start >= $fileSize) {
-            return [false, 0, 0];
-        }
-
-        if ($endRaw === '') {
-            return [true, $start, $fileSize - 1];
-        }
-
-        if (!ctype_digit($endRaw)) {
-            return [false, 0, 0];
-        }
-
-        $end = min((int) $endRaw, $fileSize - 1);
-        if ($start > $end) {
-            return [false, 0, 0];
-        }
-
-        return [true, $start, $end];
-    }
-
-    private function isValidBucketName(string $bucket): bool
-    {
-        $length = strlen($bucket);
-        if ($length < 3 || $length > 63) {
-            return false;
-        }
-
-        if (!preg_match('/^[a-z0-9][a-z0-9.-]*[a-z0-9]$/', $bucket)) {
-            return false;
-        }
-
-        if (str_contains($bucket, '..') || str_contains($bucket, '.-') || str_contains($bucket, '-.')) {
-            return false;
-        }
-
-        if (filter_var($bucket, FILTER_VALIDATE_IP)) {
-            return false;
-        }
-
-        return true;
-    }
-
-    private function isValidObjectKey(string $key): bool
-    {
-        if ($key === '') {
-            return true;
-        }
-
-        if (str_contains($key, "\0")) {
-            return false;
-        }
-
-        $segments = explode('/', $key);
-        foreach ($segments as $segment) {
-            if ($segment === '.' || $segment === '..') {
-                return false;
-            }
-        }
-
-        return true;
-    }
-
-    private function isPositiveInteger(string $value): bool
-    {
-        return ctype_digit($value) && (int) $value > 0;
     }
 
     private function resource(string $bucket, string $key): string

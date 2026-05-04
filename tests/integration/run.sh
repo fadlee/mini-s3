@@ -2,10 +2,7 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-PHP_BIN="${PHP_BIN:-/Users/fadlee/Library/Application Support/Herd/bin/php82}"
-if [ ! -x "$PHP_BIN" ]; then
-  PHP_BIN="${PHP_BIN_FALLBACK:-php}"
-fi
+PHP_BIN="${PHP_BIN:-php}"
 
 SIGV4_HELPER="$ROOT/tests/integration/sigv4.php"
 REQUEST_HELPER="$ROOT/tests/integration/request.php"

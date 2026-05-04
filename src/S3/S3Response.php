@@ -84,6 +84,29 @@ final class S3Response
         $this->sendXml($xml, 200);
     }
 
+    public function sendObjectHeaders(int $status, int $length, string $mimeType, string $filename, bool $attachment = true): void
+    {
+        http_response_code($status);
+        header('Accept-Ranges: bytes');
+        header('Content-Type: ' . $mimeType);
+        header('Content-Length: ' . $length);
+        if ($attachment) {
+            header('Content-Disposition: attachment; filename="' . addcslashes($filename, "\\\"") . '"');
+        }
+        header('Cache-Control: private');
+        header('Pragma: public');
+    }
+
+    public function sendRangeHeader(int $start, int $end, int $fileSize): void
+    {
+        header('Content-Range: bytes ' . $start . '-' . $end . '/' . $fileSize);
+    }
+
+    public function sendInvalidRangeHeader(int $fileSize): void
+    {
+        header('Content-Range: bytes */' . $fileSize);
+    }
+
     private function sendXml(SimpleXMLElement $xml, int $httpStatus): never
     {
         http_response_code($httpStatus);
