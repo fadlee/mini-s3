@@ -2,9 +2,9 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Make official Mini S3 release zips contain exactly one deployable PHP file, `index.php`, while keeping repository source modular.
+**Goal:** Make official Mini S3 release zips contain a deployable generated `index.php` plus root `.htaccess`, while keeping repository source modular.
 
-**Architecture:** Keep `public/index.php` and `src/*` as development source. Update the release script to generate a bundled `index.php` by inlining the explicitly ordered source files listed in `public/index.php`, then stage only that file in the archive. Update release tests and README instructions to match the new one-file release contract.
+**Architecture:** Keep `public/index.php` and `src/*` as development source. Update the release script to generate a bundled `index.php` by inlining the explicitly ordered source files listed in `public/index.php`, then stage it with root `.htaccess` in the archive. Update release tests and README instructions to match the release contract.
 
 **Tech Stack:** PHP 8.0+, Bash release tooling, `zip`/`unzip`, existing shell/PHP tests.
 
@@ -12,8 +12,8 @@
 
 ## File Structure
 
-- Modify `tests/release-archive.sh`: change archive assertions from project-root layout to exactly one generated `index.php` file.
-- Modify `scripts/build-release.sh`: generate a single bundled PHP file and zip only that file.
+- Modify `tests/release-archive.sh`: change archive assertions from project-root layout to generated `index.php` plus root `.htaccess`.
+- Modify `scripts/build-release.sh`: generate a single bundled PHP file, copy root `.htaccess`, and zip only those files.
 - Modify `README.md`: update release installation instructions to deploy the extracted archive directory directly and remove references to copying `config.example.php` for releases.
 - No new runtime source files are created. No changes to `src/*` behavior are planned.
 
@@ -274,7 +274,7 @@ Release zips exclude uploaded data, local config, tests, and repository automati
 to:
 
 ```markdown
-Official release zips contain a single generated `index.php` file. Extract the archive, point your web server root to the extracted directory, then open `/_` to run the installer or configure credentials with environment variables.
+Official release zips contain a generated `index.php` file plus a root `.htaccess` for Apache rewriting. Extract the archive, point your web server root to the extracted directory, then open `/_` to run the installer or configure credentials with environment variables.
 
 Release zips exclude source files, Composer metadata, example config, uploaded data, local config, tests, documentation internals, and repository automation files.
 ```
@@ -356,7 +356,7 @@ mini-s3-v0.0.0-test/index.php
 
 Run: `git diff -- scripts/build-release.sh tests/release-archive.sh README.md docs/superpowers/specs/2026-05-05-single-file-release-design.md docs/superpowers/plans/2026-05-05-single-file-release.md`
 
-Expected: Diff only covers the single-file release spec, plan, release builder, release test, and README release instructions.
+Expected: Diff only covers the release spec, plan, release builder, release test, and README release instructions.
 
 - [ ] **Step 5: Report result**
 

@@ -53,7 +53,7 @@ You can also combine this with Cloudflare's CDN for faster and more stable perfo
 
 ### Release Zip Installation
 
-Official release zips contain a single generated `index.php` file. Extract the archive, point your web server root to the extracted directory, then open `/_` to run the installer or configure credentials with environment variables.
+Official release zips contain a generated `index.php` file plus a root `.htaccess` for Apache rewriting. Extract the archive, point your web server root to the extracted directory, then open `/_` to run the installer or configure credentials with environment variables.
 
 Release zips exclude source files, Composer metadata, example config, uploaded data, local config, tests, documentation internals, and repository automation files.
 

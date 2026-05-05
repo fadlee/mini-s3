@@ -48,6 +48,7 @@ rm -f "$ZIP_PATH"
 ZIP_LIST="$(unzip -l "$ZIP_PATH")"
 
 assert_zip_contains "index.php"
+assert_zip_contains ".htaccess"
 
 assert_zip_not_contains_exact "README.md"
 assert_zip_not_contains_exact "LICENSE"
@@ -55,7 +56,6 @@ assert_zip_not_contains_exact "config.example.php"
 assert_zip_not_contains_exact "composer.json"
 assert_zip_not_contains_prefix "public/"
 assert_zip_not_contains_prefix "src/"
-assert_zip_not_contains_exact ".htaccess"
 assert_zip_not_contains_prefix "tests/"
 assert_zip_not_contains_prefix "docs/"
 assert_zip_not_contains_prefix ".github/"
@@ -66,7 +66,7 @@ assert_zip_not_contains_prefix "dist/"
 assert_zip_not_contains_prefix "vendor/"
 assert_zip_not_contains_prefix "composer.lock"
 
-assert_zip_file_count 1
+assert_zip_file_count 2
 
 TMP_DIR="$(mktemp -d)"
 trap 'rm -rf "$TMP_DIR"' EXIT

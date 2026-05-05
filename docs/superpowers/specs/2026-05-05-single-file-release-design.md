@@ -2,11 +2,11 @@
 
 ## Goal
 
-Mini S3 should remain modular in the repository, but official release zips should be simple to deploy: one PHP entry file only. The release should not include `README.md`, `LICENSE`, `config.example.php`, `composer.json`, `src/`, `public/`, tests, local config, uploaded data, or repository automation files.
+Mini S3 should remain modular in the repository, but official release zips should be simple to deploy: one PHP entry file plus Apache rewrite rules. The release should not include `README.md`, `LICENSE`, `config.example.php`, `composer.json`, `src/`, `public/`, tests, local config, uploaded data, or repository automation files.
 
 ## Release Shape
 
-The release archive will contain a top-level directory named `mini-s3-<version>/` with a generated `index.php` file and no other files. The runtime deliverable and full archive content is exactly one PHP file.
+The release archive will contain a top-level directory named `mini-s3-<version>/` with a generated `index.php` file and a root `.htaccess` copied from `public/.htaccess`. The runtime deliverable is the generated PHP file; `.htaccess` exists only to make Apache shared-hosting installs route requests to it.
 
 Users deploy by extracting the zip and pointing the web server document root at the extracted directory. All requests route to `index.php`. The generated file preserves the current admin installer at `/_`, so first-run configuration replaces the need for an example config file.
 
@@ -48,7 +48,7 @@ Runtime configuration behavior remains unchanged except that no example config s
 
 `tests/release-archive.sh` will be updated to assert the new archive contract:
 
-- Contains `index.php` in the archive root directory.
+- Contains `index.php` and `.htaccess` in the archive root directory.
 - Does not contain `config.example.php`.
 - Does not contain `composer.json`.
 - Does not contain `README.md` or `LICENSE`.

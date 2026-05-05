@@ -16,6 +16,7 @@ fi
 
 REQUIRED_PATHS=(
   "public/index.php"
+  "public/.htaccess"
   "src"
 )
 
@@ -133,6 +134,7 @@ BUNDLE_PATH="$STAGE_DIR/index.php"
 } > "$BUNDLE_PATH"
 
 php -l "$BUNDLE_PATH" >/dev/null
+cp "$ROOT/public/.htaccess" "$STAGE_DIR/.htaccess"
 
 rm -f "$ZIP_PATH"
 (
