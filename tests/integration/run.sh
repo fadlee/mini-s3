@@ -151,6 +151,7 @@ if [ -f "$CONFIG_PATH" ]; then
   mv "$CONFIG_PATH" "$CONFIG_BACKUP_PATH"
 fi
 run_request GET "/_" "" "$TMP_DIR/admin-installer.body" "$TMP_DIR/admin-installer.meta" "Host: $SIGN_HOST"
+run_request POST "/_/upgrade" "" "$TMP_DIR/admin-upgrade-installer.body" "$TMP_DIR/admin-upgrade-installer.meta" "Host: $SIGN_HOST"
 if [ -n "$CONFIG_BACKUP_PATH" ] && [ -f "$CONFIG_BACKUP_PATH" ]; then
   mv "$CONFIG_BACKUP_PATH" "$CONFIG_PATH"
   CONFIG_BACKUP_PATH=""
@@ -158,6 +159,7 @@ fi
 assert_eq "200" "$(meta_status "$TMP_DIR/admin-installer.meta")" "Admin installer route should succeed"
 assert_contains "Install Mini S3" "$TMP_DIR/admin-installer.body" "Admin installer should render setup page"
 assert_not_contains "<?xml" "$TMP_DIR/admin-installer.body" "Admin installer should not render S3 XML"
+assert_eq "400" "$(meta_status "$TMP_DIR/admin-upgrade-installer.meta")" "Installer-mode upgrade POST should be rejected as invalid installer submission"
 
 run_request POST "/_/upgrade" "" "$TMP_DIR/admin-upgrade-unauth.body" "$TMP_DIR/admin-upgrade-unauth.meta" "Host: $SIGN_HOST"
 assert_eq "200" "$(meta_status "$TMP_DIR/admin-upgrade-unauth.meta")" "Unauthenticated upgrade route should render login page"
