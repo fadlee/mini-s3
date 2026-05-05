@@ -149,7 +149,11 @@ Mini S3 reserves the `/_` route prefix for its built-in installer and admin UI.
 
 If `config/config.php` does not exist, open `/_` in a browser to run the installer. The installer creates local config, sets an admin password, configures the data directory, and creates the first S3 access key and secret key.
 
+![Mini S3 installer](docs/screenshots/installer.png)
+
 After installation, open `/_` to log in. The admin dashboard shows bucket count, object count, total storage size, and data directory status. Use `/_/config` to edit local config values.
+
+![Mini S3 admin dashboard](docs/screenshots/admin-dashboard.png)
 
 The admin UI edits `config/config.php`. Environment variables still override runtime config and are not edited by the UI.
 
