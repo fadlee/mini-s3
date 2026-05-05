@@ -39,6 +39,10 @@ final class AdminRouter
                 $this->redirect('/_');
             }
 
+            if ($path === '/_/upgrade' && !$auth->isAuthenticated()) {
+                $this->html($renderer->login('', $auth->csrfToken()));
+            }
+
             if (!$auth->isAuthenticated()) {
                 $this->handleLogin($renderer, $auth);
             }
@@ -47,8 +51,18 @@ final class AdminRouter
                 $this->handleConfig($renderer, $writer, $auth, $config);
             }
 
+            if ($path === '/_/upgrade') {
+                $this->handleUpgrade($auth, $config);
+            }
+
+            $upgradeService = $this->upgradeService($config);
+            $currentVersion = defined('MINI_S3_VERSION') ? (string) constant('MINI_S3_VERSION') : null;
+            $updateStatus = $currentVersion === null
+                ? $upgradeService->status(null)
+                : $upgradeService->checkLatest($currentVersion);
+            $updateStatus['csrfToken'] = $auth->csrfToken();
             $stats = (new AdminStats())->scan((string) $config['DATA_DIR']);
-            $this->html($renderer->dashboard($stats, $config, $this->endpoint()));
+            $this->html($renderer->dashboard($stats, $config, $this->endpoint(), $updateStatus, $auth->consumeFlash()));
         } catch (Throwable $e) {
             http_response_code(500);
             header('Content-Type: text/html; charset=UTF-8');
@@ -111,6 +125,39 @@ final class AdminRouter
         }
 
         $this->html($renderer->config($values, [], $auth->csrfToken()));
+    }
+
+    private function handleUpgrade(AdminAuth $auth, array $config): never
+    {
+        if ($this->method !== 'POST') {
+            $this->redirect('/_');
+        }
+        if (!$auth->verifyCsrfToken((string) ($this->post['csrf_token'] ?? ''))) {
+            $auth->setFlash('CSRF token is invalid.');
+            $this->redirect('/_');
+        }
+
+        $currentVersion = defined('MINI_S3_VERSION') ? (string) constant('MINI_S3_VERSION') : null;
+        if ($currentVersion === null) {
+            $auth->setFlash('Auto-upgrade is only available for generated release installs.');
+            $this->redirect('/_');
+        }
+
+        $latestVersion = (string) ($this->post['latest_version'] ?? '');
+        $assetUrl = (string) ($this->post['asset_url'] ?? '');
+        $result = $this->upgradeService($config)->upgrade($currentVersion, $latestVersion, $assetUrl);
+        $auth->setFlash((string) $result['message']);
+        $this->redirect('/_');
+    }
+
+    private function upgradeService(array $config): AdminUpgradeService
+    {
+        $entryFile = (string) ($_SERVER['SCRIPT_FILENAME'] ?? '');
+        if ($entryFile === '') {
+            $entryFile = $this->baseDir . '/index.php';
+        }
+
+        return new AdminUpgradeService($this->baseDir, (string) $config['DATA_DIR'], $entryFile);
     }
 
     private function defaultValues(): array

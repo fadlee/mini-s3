@@ -159,6 +159,10 @@ assert_eq "200" "$(meta_status "$TMP_DIR/admin-installer.meta")" "Admin installe
 assert_contains "Install Mini S3" "$TMP_DIR/admin-installer.body" "Admin installer should render setup page"
 assert_not_contains "<?xml" "$TMP_DIR/admin-installer.body" "Admin installer should not render S3 XML"
 
+run_request POST "/_/upgrade" "" "$TMP_DIR/admin-upgrade-unauth.body" "$TMP_DIR/admin-upgrade-unauth.meta" "Host: $SIGN_HOST"
+assert_eq "200" "$(meta_status "$TMP_DIR/admin-upgrade-unauth.meta")" "Unauthenticated upgrade route should render login page"
+assert_contains "Mini S3 Admin Login" "$TMP_DIR/admin-upgrade-unauth.body" "Unauthenticated upgrade route should be protected"
+
 # 0) Browser CORS preflight for presigned uploads must not require SigV4 auth.
 run_request OPTIONS "/$TEST_BUCKET/$TEST_KEY" "" "$TMP_DIR/cors-preflight.body" "$TMP_DIR/cors-preflight.meta" \
   "Host: $SIGN_HOST" \
