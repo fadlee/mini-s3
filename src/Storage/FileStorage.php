@@ -86,8 +86,19 @@ final class FileStorage
 
         return [
             'size' => $size,
-            'mimeType' => mime_content_type($filePath) ?: 'application/octet-stream',
+            'mimeType' => $this->detectMimeType($filePath),
         ];
+    }
+
+    private function detectMimeType(string $filePath): string
+    {
+        try {
+            $mimeType = mime_content_type($filePath);
+        } catch (\Throwable) {
+            return 'application/octet-stream';
+        }
+
+        return $mimeType ?: 'application/octet-stream';
     }
 
     public function openObjectReadStream(string $bucket, string $key)
