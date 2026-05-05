@@ -49,7 +49,6 @@ The release zip uses project-root layout. After extraction, users should see fil
 
 ```text
 mini-s3-v1.0.0/
-  .htaccess
   README.md
   config.example.php
   public/
@@ -62,7 +61,6 @@ Users install by extracting the package, setting web root to `public/`, and conf
 
 The package includes runtime and installation files:
 
-- `.htaccess`
 - `README.md`
 - `config.example.php`
 - `composer.json`
@@ -78,6 +76,7 @@ The package excludes local, generated, secret, and development-only files:
 
 - `.git/`
 - `.github/`
+- `.htaccess` at archive root
 - `.env`
 - `.DS_Store`
 - `config/config.php`

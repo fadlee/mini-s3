@@ -1,0 +1,49 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.2'
+          tools: none
+
+      - name: Run lint
+        run: tests/lint.sh
+
+      - name: Run unit tests
+        run: |
+          php tests/unit/config-loader.php
+          php tests/unit/request-validator.php
+
+      - name: Run integration tests
+        run: tests/integration/run.sh
+
+      - name: Build release archive
+        run: scripts/build-release.sh "$GITHUB_REF_NAME"
+
+      - name: Verify release archive
+        run: tests/release-archive.sh
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" \
+            "dist/mini-s3-$GITHUB_REF_NAME.zip" \
+            --title "$GITHUB_REF_NAME" \
+            --notes "Release $GITHUB_REF_NAME"

@@ -6,9 +6,11 @@
   "scripts": {
     "lint": "tests/lint.sh",
     "test": "tests/integration/run.sh",
+    "release:test": "tests/release-archive.sh",
     "check": [
       "@lint",
-      "@test"
+      "@test",
+      "@release:test"
     ]
   },
   "require": {},

@@ -51,6 +51,12 @@ You can also combine this with Cloudflare's CDN for faster and more stable perfo
 
 5. Configure URL rewriting.
 
+### Release Zip Installation
+
+Official release zips use project-root layout. Extract the archive, point your web server root to the extracted `public/` directory, then configure credentials with environment variables or by copying `config.example.php` to `config/config.php`.
+
+Release zips exclude uploaded data, local config, tests, and repository automation files.
+
 #### Apache Configuration
 
 Use `public/` as the document root. Example virtual host settings:
@@ -247,12 +253,32 @@ location ~ ^/data/ {
 ```bash
 tests/lint.sh
 tests/integration/run.sh
+tests/release-archive.sh
 composer lint
 composer test
+composer run release:test
 composer check
 ```
 
 `composer` is optional and only provides development scripts. Runtime does not require Composer.
+
+### Creating a Release
+
+Maintainers create releases by pushing a version tag:
+
+```bash
+git tag v1.0.0
+git push origin v1.0.0
+```
+
+The GitHub Actions release workflow runs lint, tests, builds `mini-s3-v1.0.0.zip`, and attaches it to the GitHub Release.
+
+To test packaging locally:
+
+```bash
+scripts/build-release.sh v0.0.0-test
+tests/release-archive.sh
+```
 
 ## Usage Examples
 
