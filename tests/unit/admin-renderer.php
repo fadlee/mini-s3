@@ -60,6 +60,8 @@ assertContainsText('Current version:</strong> v1.0.1', $html, 'current version i
 assertContainsText('Latest version:</strong> v1.0.2', $html, 'latest version is rendered');
 assertContainsText('Upgrade to v1.0.2', $html, 'upgrade button is rendered');
 assertContainsText('action="/_/upgrade"', $html, 'upgrade form posts to upgrade route');
+assertContainsText('Check update', $html, 'check update button is rendered for release installs');
+assertContainsText('action="/_/check-update"', $html, 'check update form posts to check route');
 assertContainsText('Upgrade ready', $html, 'flash message is rendered');
 
 $unavailableHtml = (new AdminRenderer())->dashboard([
@@ -77,6 +79,7 @@ $unavailableHtml = (new AdminRenderer())->dashboard([
 ], '');
 assertContainsText('Auto-upgrade is only available for generated release installs.', $unavailableHtml, 'unavailable update state is rendered');
 assertNotContainsText('Upgrade to', $unavailableHtml, 'unavailable state has no upgrade button');
+assertNotContainsText('Check update', $unavailableHtml, 'source install has no check update button');
 
 if ($failures > 0) {
     exit(1);

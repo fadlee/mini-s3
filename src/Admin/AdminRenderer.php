@@ -110,6 +110,12 @@ final class AdminRenderer
         if (is_string($latest) && $latest !== '') {
             $body .= '<p><strong>Latest version:</strong> ' . $this->e($latest) . '</p>';
         }
+        if ($state !== 'unavailable') {
+            $body .= '<form method="post" action="/_/check-update">'
+                . '<input type="hidden" name="csrf_token" value="' . $this->e((string) ($status['csrfToken'] ?? '')) . '">'
+                . '<button type="submit">Check update</button>'
+                . '</form>';
+        }
         if ($state === 'update_available' && is_string($latest) && $latest !== '') {
             $body .= '<form method="post" action="/_/upgrade">'
                 . '<input type="hidden" name="csrf_token" value="' . $this->e((string) ($status['csrfToken'] ?? '')) . '">'
