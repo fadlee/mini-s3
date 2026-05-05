@@ -8,6 +8,7 @@ final class AdminAuth
 {
     private const AUTH_KEY = 'mini_s3_admin_authenticated';
     private const CSRF_KEY = 'mini_s3_admin_csrf_token';
+    private const FLASH_KEY = 'mini_s3_admin_flash';
 
     public function __construct(private readonly string $passwordHash)
     {
@@ -42,10 +43,23 @@ final class AdminAuth
 
     public function logout(): void
     {
-        unset($_SESSION[self::AUTH_KEY], $_SESSION[self::CSRF_KEY]);
+        unset($_SESSION[self::AUTH_KEY], $_SESSION[self::CSRF_KEY], $_SESSION[self::FLASH_KEY]);
         if (PHP_SAPI !== 'cli') {
             session_destroy();
         }
+    }
+
+    public function setFlash(string $message): void
+    {
+        $_SESSION[self::FLASH_KEY] = $message;
+    }
+
+    public function consumeFlash(): string
+    {
+        $message = (string) ($_SESSION[self::FLASH_KEY] ?? '');
+        unset($_SESSION[self::FLASH_KEY]);
+
+        return $message;
     }
 
     public function csrfToken(): string

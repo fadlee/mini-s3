@@ -32,6 +32,10 @@ assertSameValue(true, is_string($token) && strlen($token) >= 32, 'csrf token is 
 assertSameValue(true, $auth->verifyCsrfToken($token), 'csrf token verifies');
 assertSameValue(false, $auth->verifyCsrfToken('bad-token'), 'bad csrf token fails');
 
+$auth->setFlash('Upgrade complete');
+assertSameValue('Upgrade complete', $auth->consumeFlash(), 'flash message is consumed');
+assertSameValue('', $auth->consumeFlash(), 'flash message is cleared after consume');
+
 $auth->logout();
 assertSameValue(false, $auth->isAuthenticated(), 'logout clears authentication');
 
