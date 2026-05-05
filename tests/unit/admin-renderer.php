@@ -34,7 +34,13 @@ $html = (new AdminRenderer())->dashboard([
     'total_bytes' => 3,
 ], [
     'CREDENTIALS' => ['client-key' => 'client-secret'],
-], 'https://s3.example.test');
+], 'https://s3.example.test', [
+    'state' => 'update_available',
+    'message' => 'Update available: v1.0.2',
+    'currentVersion' => 'v1.0.1',
+    'latestVersion' => 'v1.0.2',
+    'assetUrl' => 'https://example.test/mini-s3-v1.0.2.zip',
+], 'Upgrade ready');
 
 assertContainsText('Connection config', $html, 'dashboard shows connection panel');
 assertContainsText('MINI_S3_ENDPOINT=https://s3.example.test', $html, 'generic endpoint is rendered');
@@ -49,6 +55,28 @@ assertContainsText('client-secret', $html, 'unmasked secret key is available aft
 assertContainsText('clie...-key', $html, 'masked access key is visible by default');
 assertContainsText('clie...cret', $html, 'masked secret key is visible by default');
 assertNotContainsText('ADMIN_PASSWORD_HASH', $html, 'admin config is not dumped');
+assertContainsText('Updates', $html, 'dashboard shows updates panel');
+assertContainsText('Current version:</strong> v1.0.1', $html, 'current version is rendered');
+assertContainsText('Latest version:</strong> v1.0.2', $html, 'latest version is rendered');
+assertContainsText('Upgrade to v1.0.2', $html, 'upgrade button is rendered');
+assertContainsText('action="/_/upgrade"', $html, 'upgrade form posts to upgrade route');
+assertContainsText('Upgrade ready', $html, 'flash message is rendered');
+
+$unavailableHtml = (new AdminRenderer())->dashboard([
+    'data_dir' => '/tmp/mini-s3-data',
+    'status' => 'ok',
+    'bucket_count' => 0,
+    'object_count' => 0,
+    'total_bytes' => 0,
+], [], '', [
+    'state' => 'unavailable',
+    'message' => 'Auto-upgrade is only available for generated release installs.',
+    'currentVersion' => null,
+    'latestVersion' => null,
+    'assetUrl' => null,
+], '');
+assertContainsText('Auto-upgrade is only available for generated release installs.', $unavailableHtml, 'unavailable update state is rendered');
+assertNotContainsText('Upgrade to', $unavailableHtml, 'unavailable state has no upgrade button');
 
 if ($failures > 0) {
     exit(1);

@@ -23,15 +23,17 @@ final class AdminRenderer
         return $this->layout('Mini S3 Admin Login', $body, false);
     }
 
-    public function dashboard(array $stats, array $config = [], string $endpoint = ''): string
+    public function dashboard(array $stats, array $config = [], string $endpoint = '', array $updateStatus = [], string $flashMessage = ''): string
     {
-        $body = '<div class="cards">'
+        $body = $this->flashMessage($flashMessage)
+            . '<div class="cards">'
             . $this->statCard('Buckets', (string) $stats['bucket_count'])
             . $this->statCard('Objects', (string) $stats['object_count'])
             . $this->statCard('Storage', $this->formatBytes((int) $stats['total_bytes']))
             . $this->statCard('Data Dir', $this->e((string) $stats['status']))
             . '</div>'
             . '<section class="panel"><h2>Data directory</h2><code>' . $this->e((string) $stats['data_dir']) . '</code></section>'
+            . $this->updatesPanel($updateStatus)
             . $this->connectionConfig($config, $endpoint);
 
         return $this->layout('Dashboard', $body, true);
@@ -77,13 +79,47 @@ final class AdminRenderer
 
         return '<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">'
             . '<title>' . $this->e($title) . '</title>'
-            . '<style>body{font-family:system-ui,-apple-system,sans-serif;margin:0;background:#f7f7f8;color:#17202a}header{background:#101827;color:white;padding:16px 20px;display:flex;gap:20px;align-items:center;justify-content:space-between;flex-wrap:wrap}header a{color:white;text-decoration:none;margin-right:14px}main{max-width:920px;margin:24px auto;padding:0 16px}.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:14px}.card,.panel,form{background:white;border:1px solid #e5e7eb;border-radius:12px;padding:18px;box-shadow:0 1px 2px rgba(0,0,0,.04)}label{display:block;margin:14px 0;font-weight:600}input{box-sizing:border-box;width:100%;padding:10px;margin-top:6px;border:1px solid #cbd5e1;border-radius:8px}input[type=checkbox]{width:auto}button{background:#1d4ed8;color:white;border:0;border-radius:8px;padding:10px 14px;font-weight:700}.error{background:#fee2e2;border:1px solid #fca5a5;color:#991b1b;padding:10px;border-radius:8px;margin-bottom:10px}code{word-break:break-all}pre{background:#0f172a;color:#e2e8f0;border-radius:10px;overflow:auto;padding:14px;white-space:pre-wrap}.snippet-actions{display:flex;gap:10px;flex-wrap:wrap;margin:10px 0}.hidden{display:none}</style>'
+            . '<style>body{font-family:system-ui,-apple-system,sans-serif;margin:0;background:#f7f7f8;color:#17202a}header{background:#101827;color:white;padding:16px 20px;display:flex;gap:20px;align-items:center;justify-content:space-between;flex-wrap:wrap}header a{color:white;text-decoration:none;margin-right:14px}main{max-width:920px;margin:24px auto;padding:0 16px}.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:14px}.card,.panel,form{background:white;border:1px solid #e5e7eb;border-radius:12px;padding:18px;box-shadow:0 1px 2px rgba(0,0,0,.04)}label{display:block;margin:14px 0;font-weight:600}input{box-sizing:border-box;width:100%;padding:10px;margin-top:6px;border:1px solid #cbd5e1;border-radius:8px}input[type=checkbox]{width:auto}button{background:#1d4ed8;color:white;border:0;border-radius:8px;padding:10px 14px;font-weight:700}.error{background:#fee2e2;border:1px solid #fca5a5;color:#991b1b;padding:10px;border-radius:8px;margin-bottom:10px}.notice{background:#dcfce7;border:1px solid #86efac;color:#166534;padding:10px;border-radius:8px;margin-bottom:10px}code{word-break:break-all}pre{background:#0f172a;color:#e2e8f0;border-radius:10px;overflow:auto;padding:14px;white-space:pre-wrap}.snippet-actions{display:flex;gap:10px;flex-wrap:wrap;margin:10px 0}.hidden{display:none}</style>'
             . '</head><body><header><strong>Mini S3</strong>' . $navigation . '</header><main><h1>' . $this->e($title) . '</h1>' . $body . '</main></body></html>';
     }
 
     private function statCard(string $label, string $value): string
     {
         return '<section class="card"><h2>' . $this->e($value) . '</h2><p>' . $this->e($label) . '</p></section>';
+    }
+
+    private function flashMessage(string $message): string
+    {
+        return $message === '' ? '' : '<div class="notice">' . $this->e($message) . '</div>';
+    }
+
+    private function updatesPanel(array $status): string
+    {
+        if ($status === []) {
+            return '';
+        }
+
+        $state = (string) ($status['state'] ?? 'unknown');
+        $message = (string) ($status['message'] ?? 'Update status unavailable.');
+        $current = $status['currentVersion'] ?? null;
+        $latest = $status['latestVersion'] ?? null;
+        $body = '<p>' . $this->e($message) . '</p>';
+        if (is_string($current) && $current !== '') {
+            $body .= '<p><strong>Current version:</strong> ' . $this->e($current) . '</p>';
+        }
+        if (is_string($latest) && $latest !== '') {
+            $body .= '<p><strong>Latest version:</strong> ' . $this->e($latest) . '</p>';
+        }
+        if ($state === 'update_available' && is_string($latest) && $latest !== '') {
+            $body .= '<form method="post" action="/_/upgrade">'
+                . '<input type="hidden" name="csrf_token" value="' . $this->e((string) ($status['csrfToken'] ?? '')) . '">'
+                . '<input type="hidden" name="latest_version" value="' . $this->e($latest) . '">'
+                . '<input type="hidden" name="asset_url" value="' . $this->e((string) ($status['assetUrl'] ?? '')) . '">'
+                . '<button type="submit">Upgrade to ' . $this->e($latest) . '</button>'
+                . '</form>';
+        }
+
+        return '<section class="panel"><h2>Updates</h2>' . $body . '</section>';
     }
 
     private function connectionConfig(array $config, string $endpoint): string
