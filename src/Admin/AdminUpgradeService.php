@@ -14,7 +14,8 @@ final class AdminUpgradeService
         private readonly string $baseDir,
         private readonly string $dataDir,
         private readonly string $entryFile,
-        private readonly mixed $metadataFetcher = null
+        private readonly mixed $metadataFetcher = null,
+        private readonly mixed $downloader = null
     ) {
     }
 
@@ -146,9 +147,122 @@ final class AdminUpgradeService
         return ['valid' => true, 'message' => 'Release index.php is valid.'];
     }
 
+    public function upgrade(string $currentVersion, string $latestVersion, string $assetUrl): array
+    {
+        if (!class_exists(\ZipArchive::class)) {
+            return ['ok' => false, 'message' => 'ZipArchive extension is required for auto-upgrade.'];
+        }
+        if ($this->compareVersions($currentVersion, $latestVersion) >= 0) {
+            return ['ok' => false, 'message' => 'No newer version is available.'];
+        }
+        if (!is_file($this->entryFile) || !is_writable($this->entryFile) || !is_writable(dirname($this->entryFile))) {
+            return ['ok' => false, 'message' => 'Current index.php or its directory is not writable.'];
+        }
+
+        $tmpDir = $this->dataDir . '/.upgrade-tmp';
+        if (!$this->ensureDirectory($tmpDir)) {
+            return ['ok' => false, 'message' => 'Temporary upgrade directory cannot be created or written.'];
+        }
+
+        $zipPath = $tmpDir . '/mini-s3-' . $latestVersion . '.zip';
+        $newPath = $tmpDir . '/index-' . $latestVersion . '.php';
+
+        try {
+            $this->download($assetUrl, $zipPath);
+            $code = $this->extractIndex($zipPath, $latestVersion);
+            $validation = $this->validateReleaseIndex($code, $latestVersion);
+            if (!$validation['valid']) {
+                return ['ok' => false, 'message' => $validation['message']];
+            }
+            if (file_put_contents($newPath, $code) === false) {
+                return ['ok' => false, 'message' => 'Unable to write downloaded index.php.'];
+            }
+
+            $backupPath = $this->backupCurrentIndex();
+            $siblingNewPath = $this->entryFile . '.new';
+            if (!copy($newPath, $siblingNewPath)) {
+                return ['ok' => false, 'message' => 'Unable to stage new index.php next to current entry file.'];
+            }
+            if (!rename($siblingNewPath, $this->entryFile)) {
+                @unlink($siblingNewPath);
+                $restored = @copy($backupPath, $this->entryFile);
+                return ['ok' => false, 'message' => $restored ? 'Upgrade failed and rollback succeeded.' : 'Upgrade failed and rollback failed. Restore backup manually.'];
+            }
+
+            return ['ok' => true, 'message' => 'Mini S3 upgraded to ' . $latestVersion . '.', 'backupPath' => $backupPath];
+        } catch (\Throwable $e) {
+            return ['ok' => false, 'message' => $e->getMessage()];
+        } finally {
+            @unlink($zipPath);
+            @unlink($newPath);
+        }
+    }
+
     private function normalizeVersion(string $version): string
     {
         return ltrim($version, 'vV');
+    }
+
+    private function download(string $url, string $destination): void
+    {
+        if ($this->downloader !== null) {
+            ($this->downloader)($url, $destination);
+            return;
+        }
+
+        $context = stream_context_create([
+            'http' => [
+                'method' => 'GET',
+                'header' => "User-Agent: mini-s3-admin-upgrade\r\n",
+                'timeout' => 30,
+            ],
+        ]);
+        $contents = file_get_contents($url, false, $context);
+        if ($contents === false) {
+            throw new \RuntimeException('Download failed.');
+        }
+        if (file_put_contents($destination, $contents) === false) {
+            throw new \RuntimeException('Unable to save downloaded release asset.');
+        }
+    }
+
+    private function extractIndex(string $zipPath, string $version): string
+    {
+        $expectedPath = 'mini-s3-' . $version . '/index.php';
+        $zip = new \ZipArchive();
+        if ($zip->open($zipPath) !== true) {
+            throw new \RuntimeException('Unable to open release zip.');
+        }
+        $code = $zip->getFromName($expectedPath);
+        $zip->close();
+        if ($code === false) {
+            throw new \RuntimeException('Release zip does not contain the expected index.php.');
+        }
+
+        return $code;
+    }
+
+    private function backupCurrentIndex(): string
+    {
+        $backupDir = $this->dataDir . '/.upgrade-backups/' . gmdate('Ymd-His') . '-' . bin2hex(random_bytes(3));
+        if (!$this->ensureDirectory($backupDir)) {
+            throw new \RuntimeException('Backup directory is not writable.');
+        }
+        $backupPath = $backupDir . '/index.php';
+        if (!copy($this->entryFile, $backupPath)) {
+            throw new \RuntimeException('Unable to back up current index.php.');
+        }
+
+        return $backupPath;
+    }
+
+    private function ensureDirectory(string $path): bool
+    {
+        if (!is_dir($path) && !mkdir($path, 0777, true)) {
+            return false;
+        }
+
+        return is_writable($path);
     }
 
     private function fetchLatestRelease(): array

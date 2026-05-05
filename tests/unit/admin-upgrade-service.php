@@ -89,6 +89,43 @@ assertSameValue(false, $validation['valid'], 'non-php release index is rejected'
 $validation = $service->validateReleaseIndex("<?php\nclass AdminRouter {}\nclass S3Router {}\n", 'v1.0.2');
 assertSameValue(false, $validation['valid'], 'missing version constant is rejected');
 
+$workspace = sys_get_temp_dir() . '/mini-s3-upgrade-' . bin2hex(random_bytes(4));
+$baseDir = $workspace . '/app';
+$dataDir = $baseDir . '/data';
+mkdir($dataDir, 0777, true);
+$entryFile = $baseDir . '/index.php';
+file_put_contents($entryFile, "<?php\ndefine('MINI_S3_VERSION', 'v1.0.1');\nclass AdminRouter {}\nclass S3Router {}\n");
+
+$zipPath = $workspace . '/mini-s3-v1.0.2.zip';
+$zip = new ZipArchive();
+$zip->open($zipPath, ZipArchive::CREATE);
+$zip->addFromString('mini-s3-v1.0.2/index.php', "<?php\ndefine('MINI_S3_VERSION', 'v1.0.2');\nclass AdminRouter {}\nclass S3Router {}\n");
+$zip->addFromString('mini-s3-v1.0.2/.htaccess', 'ignored');
+$zip->close();
+
+$installService = new AdminUpgradeService($baseDir, $dataDir, $entryFile, null, function (string $url, string $destination) use ($zipPath): void {
+    copy($zipPath, $destination);
+});
+$result = $installService->upgrade('v1.0.1', 'v1.0.2', 'https://example.test/mini-s3-v1.0.2.zip');
+assertSameValue(true, $result['ok'], 'upgrade succeeds');
+assertContainsValue("define('MINI_S3_VERSION', 'v1.0.2');", (string) file_get_contents($entryFile), 'entry file is replaced with new version');
+assertSameValue(false, str_contains((string) file_get_contents($entryFile), 'ignored'), 'htaccess content is not written into entry file');
+$backups = glob($dataDir . '/.upgrade-backups/*/index.php') ?: [];
+assertSameValue(1, count($backups), 'old index.php backup is created');
+assertContainsValue("define('MINI_S3_VERSION', 'v1.0.1');", (string) file_get_contents($backups[0]), 'backup contains old version');
+
+$badZipPath = $workspace . '/mini-s3-v1.0.3.zip';
+$badZip = new ZipArchive();
+$badZip->open($badZipPath, ZipArchive::CREATE);
+$badZip->addFromString('mini-s3-v1.0.3/../index.php', 'bad');
+$badZip->close();
+$badService = new AdminUpgradeService($baseDir, $dataDir, $entryFile, null, function (string $url, string $destination) use ($badZipPath): void {
+    copy($badZipPath, $destination);
+});
+$badResult = $badService->upgrade('v1.0.2', 'v1.0.3', 'https://example.test/mini-s3-v1.0.3.zip');
+assertSameValue(false, $badResult['ok'], 'upgrade rejects archive without exact index path');
+assertContainsValue("define('MINI_S3_VERSION', 'v1.0.2');", (string) file_get_contents($entryFile), 'entry file remains unchanged after rejected archive');
+
 if ($failures > 0) {
     exit(1);
 }
