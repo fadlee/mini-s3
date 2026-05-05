@@ -72,5 +72,8 @@ TMP_DIR="$(mktemp -d)"
 trap 'rm -rf "$TMP_DIR"' EXIT
 unzip -q "$ZIP_PATH" -d "$TMP_DIR"
 php -l "$TMP_DIR/mini-s3-$VERSION/index.php" >/dev/null
+if ! grep -Fq "define('MINI_S3_VERSION', '$VERSION');" "$TMP_DIR/mini-s3-$VERSION/index.php"; then
+  fail "generated index.php should define MINI_S3_VERSION"
+fi
 
 printf '[PASS] Release archive test passed\n'

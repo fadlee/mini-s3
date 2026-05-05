@@ -93,6 +93,7 @@ BUNDLE_PATH="$STAGE_DIR/index.php"
   printf 'declare(strict_types=1);\n\n'
   printf "namespace {\n"
   printf "    define('BASE_PATH', __DIR__);\n"
+  printf "    define('MINI_S3_VERSION', '%s');\n" "$VERSION"
   printf "}\n\n"
 
   for path in "${SOURCE_FILES[@]}"; do
