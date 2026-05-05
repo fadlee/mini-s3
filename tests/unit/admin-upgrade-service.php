@@ -126,6 +126,32 @@ $badResult = $badService->upgrade('v1.0.2', 'v1.0.3', 'https://example.test/mini
 assertSameValue(false, $badResult['ok'], 'upgrade rejects archive without exact index path');
 assertContainsValue("define('MINI_S3_VERSION', 'v1.0.2');", (string) file_get_contents($entryFile), 'entry file remains unchanged after rejected archive');
 
+$cacheWorkspace = sys_get_temp_dir() . '/mini-s3-upgrade-cache-' . bin2hex(random_bytes(4));
+$cacheDataDir = $cacheWorkspace . '/data';
+mkdir($cacheDataDir, 0777, true);
+$fetchCount = 0;
+$cacheService = new AdminUpgradeService($cacheWorkspace, $cacheDataDir, $cacheWorkspace . '/index.php', function () use (&$fetchCount): array {
+    $fetchCount++;
+    return [
+        'tag_name' => 'v1.0.2',
+        'assets' => [
+            ['name' => 'mini-s3-v1.0.2.zip', 'browser_download_url' => 'https://example.test/mini-s3-v1.0.2.zip'],
+        ],
+    ];
+});
+$cached = $cacheService->cachedStatus('v1.0.1');
+assertSameValue('update_available', $cached['state'], 'first cached status fetches latest release');
+assertSameValue(1, $fetchCount, 'first cached status calls fetcher');
+$cachedAgain = $cacheService->cachedStatus('v1.0.1');
+assertSameValue('update_available', $cachedAgain['state'], 'fresh cached status is reused');
+assertSameValue(1, $fetchCount, 'fresh cached status does not call fetcher again');
+$forced = $cacheService->cachedStatus('v1.0.1', true);
+assertSameValue('update_available', $forced['state'], 'forced cached status refresh still returns update status');
+assertSameValue(2, $fetchCount, 'forced cached status calls fetcher again');
+
+$cacheFile = $cacheDataDir . '/.upgrade-cache/latest.json';
+assertSameValue(true, is_file($cacheFile), 'cached status writes cache file');
+
 if ($failures > 0) {
     exit(1);
 }

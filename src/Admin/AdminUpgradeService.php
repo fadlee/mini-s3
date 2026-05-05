@@ -9,6 +9,7 @@ final class AdminUpgradeService
     private const REPO_OWNER = 'fadlee';
     private const REPO_NAME = 'mini-s3';
     private const MAX_INDEX_BYTES = 5242880;
+    private const CACHE_TTL_SECONDS = 21600;
 
     public function __construct(
         private readonly string $baseDir,
@@ -74,6 +75,21 @@ final class AdminUpgradeService
             'latestVersion' => $latestTag,
             'assetUrl' => $assetUrl,
         ];
+    }
+
+    public function cachedStatus(string $currentVersion, bool $force = false): array
+    {
+        if (!$force) {
+            $cached = $this->readCachedStatus();
+            if ($cached !== null) {
+                return $cached;
+            }
+        }
+
+        $status = $this->checkLatest($currentVersion);
+        $this->writeCachedStatus($status);
+
+        return $status;
     }
 
     public function status(?string $currentVersion): array
@@ -263,6 +279,49 @@ final class AdminUpgradeService
         }
 
         return is_writable($path);
+    }
+
+    private function readCachedStatus(): ?array
+    {
+        $path = $this->cachePath();
+        if (!is_file($path)) {
+            return null;
+        }
+        $contents = file_get_contents($path);
+        if ($contents === false) {
+            return null;
+        }
+        $decoded = json_decode($contents, true);
+        if (!is_array($decoded)) {
+            return null;
+        }
+        $cachedAt = (int) ($decoded['cachedAt'] ?? 0);
+        if ($cachedAt < time() - self::CACHE_TTL_SECONDS) {
+            return null;
+        }
+        $status = $decoded['status'] ?? null;
+
+        return is_array($status) ? $status : null;
+    }
+
+    private function writeCachedStatus(array $status): void
+    {
+        $dir = dirname($this->cachePath());
+        if (!is_dir($dir) && !mkdir($dir, 0777, true)) {
+            return;
+        }
+        if (!is_writable($dir)) {
+            return;
+        }
+        file_put_contents($this->cachePath(), json_encode([
+            'cachedAt' => time(),
+            'status' => $status,
+        ], JSON_UNESCAPED_SLASHES));
+    }
+
+    private function cachePath(): string
+    {
+        return $this->dataDir . '/.upgrade-cache/latest.json';
     }
 
     private function fetchLatestRelease(): array
