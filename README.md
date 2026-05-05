@@ -15,7 +15,7 @@ A lightweight S3-compatible object storage server implemented in PHP, using loca
 
 ## TLDR
 
-Set your web server root to this project's `public/` directory, configure credentials with environment variables or `config/config.php`, then route all requests to `public/index.php`.
+For source installs, set your web server root to this project's `public/` directory. For release zips, extract the archive, set your web server root to the extracted directory, and route all requests to `index.php`.
 
 - **Endpoint**: Your website domain
 - **Access Key**: Configured in `CREDENTIALS`
@@ -47,15 +47,15 @@ You can also combine this with Cloudflare's CDN for faster and more stable perfo
 
 3. Create a `data` directory, preferably outside the web root, and set `DATA_DIR` to that path.
 
-4. Configure credentials using environment variables or a local `config/config.php` copied from `config.example.php`.
+4. Configure credentials using the web installer, environment variables, or a local `config/config.php`. Source installs may copy `config.example.php`; release zips do not include it.
 
 5. Configure URL rewriting.
 
 ### Release Zip Installation
 
-Official release zips use project-root layout. Extract the archive, point your web server root to the extracted `public/` directory, then configure credentials with environment variables or by copying `config.example.php` to `config/config.php`.
+Official release zips contain a single generated `index.php` file. Extract the archive, point your web server root to the extracted directory, then open `/_` to run the installer or configure credentials with environment variables.
 
-Release zips exclude uploaded data, local config, tests, and repository automation files.
+Release zips exclude source files, Composer metadata, example config, uploaded data, local config, tests, documentation internals, and repository automation files.
 
 #### Apache Configuration
 

@@ -32,29 +32,45 @@ assert_zip_not_contains_exact() {
   fi
 }
 
+assert_zip_file_count() {
+  local expected_count="$1"
+  local actual_count
+  actual_count="$(unzip -Z1 "$ZIP_PATH" | grep -Ev '/$' | wc -l | tr -d '[:space:]')"
+  if [ "$actual_count" != "$expected_count" ]; then
+    fail "zip should contain exactly $expected_count file(s), found $actual_count"
+  fi
+}
+
 rm -f "$ZIP_PATH"
 "$ROOT/scripts/build-release.sh" "$VERSION"
 
 [ -f "$ZIP_PATH" ] || fail "zip file was not created"
 ZIP_LIST="$(unzip -l "$ZIP_PATH")"
 
-assert_zip_contains "README.md"
-assert_zip_contains "config.example.php"
-assert_zip_contains "composer.json"
-assert_zip_contains "public/.htaccess"
-assert_zip_contains "public/index.php"
-assert_zip_contains "src/S3/S3Router.php"
-assert_zip_contains "src/Admin/AdminRouter.php"
+assert_zip_contains "index.php"
 
+assert_zip_not_contains_exact "README.md"
+assert_zip_not_contains_exact "LICENSE"
+assert_zip_not_contains_exact "config.example.php"
+assert_zip_not_contains_exact "composer.json"
+assert_zip_not_contains_prefix "public/"
+assert_zip_not_contains_prefix "src/"
 assert_zip_not_contains_exact ".htaccess"
 assert_zip_not_contains_prefix "tests/"
-assert_zip_not_contains_prefix "docs/superpowers/"
+assert_zip_not_contains_prefix "docs/"
 assert_zip_not_contains_prefix ".github/"
 assert_zip_not_contains_prefix "data/"
-assert_zip_not_contains_prefix "config/config.php"
+assert_zip_not_contains_prefix "config/"
 assert_zip_not_contains_prefix ".env"
 assert_zip_not_contains_prefix "dist/"
 assert_zip_not_contains_prefix "vendor/"
 assert_zip_not_contains_prefix "composer.lock"
+
+assert_zip_file_count 1
+
+TMP_DIR="$(mktemp -d)"
+trap 'rm -rf "$TMP_DIR"' EXIT
+unzip -q "$ZIP_PATH" -d "$TMP_DIR"
+php -l "$TMP_DIR/mini-s3-$VERSION/index.php" >/dev/null
 
 printf '[PASS] Release archive test passed\n'
