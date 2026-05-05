@@ -182,6 +182,10 @@ run_request POST "/_/upgrade" "" "$TMP_DIR/admin-upgrade-unauth.body" "$TMP_DIR/
 assert_eq "200" "$(meta_status "$TMP_DIR/admin-upgrade-unauth.meta")" "Unauthenticated upgrade route should render login page"
 assert_contains "Mini S3 Admin Login" "$TMP_DIR/admin-upgrade-unauth.body" "Unauthenticated upgrade route should be protected"
 
+run_request POST "/_/check-update" "" "$TMP_DIR/admin-check-update-unauth.body" "$TMP_DIR/admin-check-update-unauth.meta" "Host: $SIGN_HOST"
+assert_eq "200" "$(meta_status "$TMP_DIR/admin-check-update-unauth.meta")" "Unauthenticated check-update route should render login page"
+assert_contains "Mini S3 Admin Login" "$TMP_DIR/admin-check-update-unauth.body" "Unauthenticated check-update route should be protected"
+
 # 0) Browser CORS preflight for presigned uploads must not require SigV4 auth.
 run_request OPTIONS "/$TEST_BUCKET/$TEST_KEY" "" "$TMP_DIR/cors-preflight.body" "$TMP_DIR/cors-preflight.meta" \
   "Host: $SIGN_HOST" \

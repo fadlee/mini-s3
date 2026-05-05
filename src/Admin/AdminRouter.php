@@ -39,7 +39,7 @@ final class AdminRouter
                 $this->redirect('/_');
             }
 
-            if ($path === '/_/upgrade' && !$auth->isAuthenticated()) {
+            if (in_array($path, ['/_/upgrade', '/_/check-update'], true) && !$auth->isAuthenticated()) {
                 $this->html($renderer->login('', $auth->csrfToken()));
             }
 
@@ -55,11 +55,15 @@ final class AdminRouter
                 $this->handleUpgrade($auth, $config);
             }
 
+            if ($path === '/_/check-update') {
+                $this->handleCheckUpdate($auth, $config);
+            }
+
             $upgradeService = $this->upgradeService($config);
             $currentVersion = defined('MINI_S3_VERSION') ? (string) constant('MINI_S3_VERSION') : null;
             $updateStatus = $currentVersion === null
                 ? $upgradeService->status(null)
-                : $upgradeService->checkLatest($currentVersion);
+                : $upgradeService->cachedStatus($currentVersion);
             $updateStatus['csrfToken'] = $auth->csrfToken();
             $stats = (new AdminStats())->scan((string) $config['DATA_DIR']);
             $this->html($renderer->dashboard($stats, $config, $this->endpoint(), $updateStatus, $auth->consumeFlash()));
@@ -125,6 +129,27 @@ final class AdminRouter
         }
 
         $this->html($renderer->config($values, [], $auth->csrfToken()));
+    }
+
+    private function handleCheckUpdate(AdminAuth $auth, array $config): never
+    {
+        if ($this->method !== 'POST') {
+            $this->redirect('/_');
+        }
+        if (!$auth->verifyCsrfToken((string) ($this->post['csrf_token'] ?? ''))) {
+            $auth->setFlash('CSRF token is invalid.');
+            $this->redirect('/_');
+        }
+
+        $currentVersion = defined('MINI_S3_VERSION') ? (string) constant('MINI_S3_VERSION') : null;
+        if ($currentVersion === null) {
+            $auth->setFlash('Auto-upgrade is only available for generated release installs.');
+            $this->redirect('/_');
+        }
+
+        $status = $this->upgradeService($config)->cachedStatus($currentVersion, true);
+        $auth->setFlash((string) $status['message']);
+        $this->redirect('/_');
     }
 
     private function handleUpgrade(AdminAuth $auth, array $config): never
