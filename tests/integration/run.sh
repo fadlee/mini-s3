@@ -44,7 +44,7 @@ assert_contains() {
   local needle="$1"
   local file="$2"
   local message="$3"
-  if ! rg -F -q "$needle" "$file"; then
+  if ! grep -F -q "$needle" "$file"; then
     fail "$message"
   fi
 }
@@ -53,7 +53,7 @@ assert_not_contains() {
   local needle="$1"
   local file="$2"
   local message="$3"
-  if rg -F -q "$needle" "$file"; then
+  if grep -F -q "$needle" "$file"; then
     fail "$message"
   fi
 }
