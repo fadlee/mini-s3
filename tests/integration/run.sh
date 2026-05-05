@@ -19,11 +19,15 @@ TEST_BUCKET="itest-$(date +%s)-$RANDOM"
 TEST_KEY="hello.txt"
 CONFIG_PATH="$ROOT/config/config.php"
 CONFIG_BACKUP_PATH=""
+CREATED_CONFIG=false
 
 cleanup() {
   if [ -n "$CONFIG_BACKUP_PATH" ] && [ -f "$CONFIG_BACKUP_PATH" ]; then
     mkdir -p "$ROOT/config"
     mv "$CONFIG_BACKUP_PATH" "$CONFIG_PATH"
+  fi
+  if [ "$CREATED_CONFIG" = true ]; then
+    rm -f "$CONFIG_PATH"
   fi
   rm -rf "$TMP_DIR"
   rm -rf "$ROOT/data/$TEST_BUCKET" >/dev/null 2>&1 || true
@@ -155,6 +159,19 @@ run_request POST "/_/upgrade" "" "$TMP_DIR/admin-upgrade-installer.body" "$TMP_D
 if [ -n "$CONFIG_BACKUP_PATH" ] && [ -f "$CONFIG_BACKUP_PATH" ]; then
   mv "$CONFIG_BACKUP_PATH" "$CONFIG_PATH"
   CONFIG_BACKUP_PATH=""
+else
+  mkdir -p "$ROOT/config"
+  cat > "$CONFIG_PATH" <<PHP
+<?php
+
+return [
+    'DATA_DIR' => '$ROOT/data',
+    'CREDENTIALS' => ['$ACCESS_KEY' => '$SECRET_KEY'],
+    'ADMIN_PASSWORD_HASH' => 'test-hash',
+    'PUBLIC_READ_ALL_BUCKETS' => true,
+];
+PHP
+  CREATED_CONFIG=true
 fi
 assert_eq "200" "$(meta_status "$TMP_DIR/admin-installer.meta")" "Admin installer route should succeed"
 assert_contains "Install Mini S3" "$TMP_DIR/admin-installer.body" "Admin installer should render setup page"
