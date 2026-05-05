@@ -17,8 +17,14 @@ export MINI_S3_PUBLIC_READ_ALL_BUCKETS="${MINI_S3_PUBLIC_READ_ALL_BUCKETS:-true}
 TMP_DIR="$(mktemp -d /tmp/mini-s3-int-XXXXXX)"
 TEST_BUCKET="itest-$(date +%s)-$RANDOM"
 TEST_KEY="hello.txt"
+CONFIG_PATH="$ROOT/config/config.php"
+CONFIG_BACKUP_PATH=""
 
 cleanup() {
+  if [ -n "$CONFIG_BACKUP_PATH" ] && [ -f "$CONFIG_BACKUP_PATH" ]; then
+    mkdir -p "$ROOT/config"
+    mv "$CONFIG_BACKUP_PATH" "$CONFIG_PATH"
+  fi
   rm -rf "$TMP_DIR"
   rm -rf "$ROOT/data/$TEST_BUCKET" >/dev/null 2>&1 || true
   rm -rf "$ROOT/data/.multipart/$TEST_BUCKET" >/dev/null 2>&1 || true
@@ -138,6 +144,20 @@ signed_request() {
 }
 
 echo "[INFO] Starting mini-s3 integration tests (CLI harness)"
+
+# Admin installer route should render HTML and stay separate from S3 XML routing.
+if [ -f "$CONFIG_PATH" ]; then
+  CONFIG_BACKUP_PATH="$TMP_DIR/config.php.backup"
+  mv "$CONFIG_PATH" "$CONFIG_BACKUP_PATH"
+fi
+run_request GET "/_" "" "$TMP_DIR/admin-installer.body" "$TMP_DIR/admin-installer.meta" "Host: $SIGN_HOST"
+if [ -n "$CONFIG_BACKUP_PATH" ] && [ -f "$CONFIG_BACKUP_PATH" ]; then
+  mv "$CONFIG_BACKUP_PATH" "$CONFIG_PATH"
+  CONFIG_BACKUP_PATH=""
+fi
+assert_eq "200" "$(meta_status "$TMP_DIR/admin-installer.meta")" "Admin installer route should succeed"
+assert_contains "Install Mini S3" "$TMP_DIR/admin-installer.body" "Admin installer should render setup page"
+assert_not_contains "<?xml" "$TMP_DIR/admin-installer.body" "Admin installer should not render S3 XML"
 
 # 0) Browser CORS preflight for presigned uploads must not require SigV4 auth.
 run_request OPTIONS "/$TEST_BUCKET/$TEST_KEY" "" "$TMP_DIR/cors-preflight.body" "$TMP_DIR/cors-preflight.meta" \

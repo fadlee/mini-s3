@@ -69,10 +69,12 @@ function tempProject(array $config): string
 $base = tempProject([
     'CREDENTIALS' => ['file-key' => 'file-secret'],
     'PUBLIC_READ_ALL_BUCKETS' => true,
+    'ADMIN_PASSWORD_HASH' => '$2y$10$abcdefghijklmnopqrstuuJ8CmYLcOeO9mRXuQzknW4f4mSb1zZ9K',
 ]);
 $config = ConfigLoader::load($base);
 assertSameValue(['file-key' => 'file-secret'], $config['CREDENTIALS'], 'config file credentials load');
 assertSameValue(true, $config['PUBLIC_READ_ALL_BUCKETS'], 'config file public read loads');
+assertSameValue('$2y$10$abcdefghijklmnopqrstuuJ8CmYLcOeO9mRXuQzknW4f4mSb1zZ9K', $config['ADMIN_PASSWORD_HASH'], 'admin password hash loads');
 
 withEnv([
     'MINI_S3_CREDENTIALS_JSON' => '{"env-key":"env-secret"}',
@@ -89,6 +91,10 @@ withEnv(['MINI_S3_CREDENTIALS_JSON' => '{bad-json'], function () use ($base): vo
 
 $emptyBase = tempProject([]);
 assertThrows(fn() => ConfigLoader::load($emptyBase), 'empty credentials fail closed');
+
+$defaultBase = tempProject(['CREDENTIALS' => ['default-key' => 'default-secret']]);
+$defaultConfig = ConfigLoader::load($defaultBase);
+assertSameValue(true, $defaultConfig['PUBLIC_READ_ALL_BUCKETS'], 'public read defaults to true');
 
 if ($failures > 0) {
     exit(1);

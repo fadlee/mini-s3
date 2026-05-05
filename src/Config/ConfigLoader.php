@@ -20,7 +20,8 @@ final class ConfigLoader
             'MAX_PRESIGN_EXPIRES' => 604800,
             'AUTH_DEBUG_LOG' => '',
             'ALLOW_HOST_CANDIDATE_FALLBACKS' => false,
-            'PUBLIC_READ_ALL_BUCKETS' => false,
+            'PUBLIC_READ_ALL_BUCKETS' => true,
+            'ADMIN_PASSWORD_HASH' => '',
         ];
 
         $modernConfigPath = $baseDir . '/config/config.php';
@@ -66,6 +67,7 @@ final class ConfigLoader
         $config['AUTH_DEBUG_LOG'] = trim((string) ($config['AUTH_DEBUG_LOG'] ?? ''));
         $config['ALLOW_HOST_CANDIDATE_FALLBACKS'] = (bool) ($config['ALLOW_HOST_CANDIDATE_FALLBACKS'] ?? false);
         $config['PUBLIC_READ_ALL_BUCKETS'] = (bool) ($config['PUBLIC_READ_ALL_BUCKETS'] ?? false);
+        $config['ADMIN_PASSWORD_HASH'] = trim((string) ($config['ADMIN_PASSWORD_HASH'] ?? ''));
 
         $credentials = [];
         foreach ((array) ($config['CREDENTIALS'] ?? []) as $accessKey => $secretKey) {

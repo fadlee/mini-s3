@@ -5,6 +5,11 @@ declare(strict_types=1);
 define('BASE_PATH', realpath(__DIR__.'/..'));
 
 require_once BASE_PATH . '/src/Config/ConfigLoader.php';
+require_once BASE_PATH . '/src/Admin/AdminAuth.php';
+require_once BASE_PATH . '/src/Admin/AdminConfigWriter.php';
+require_once BASE_PATH . '/src/Admin/AdminStats.php';
+require_once BASE_PATH . '/src/Admin/AdminRenderer.php';
+require_once BASE_PATH . '/src/Admin/AdminRouter.php';
 require_once BASE_PATH . '/src/Auth/AuthException.php';
 require_once BASE_PATH . '/src/Auth/SigV4Authenticator.php';
 require_once BASE_PATH . '/src/Http/RequestContext.php';
@@ -13,6 +18,7 @@ require_once BASE_PATH . '/src/S3/S3Response.php';
 require_once BASE_PATH . '/src/S3/RequestValidator.php';
 require_once BASE_PATH . '/src/S3/S3Router.php';
 
+use MiniS3\Admin\AdminRouter;
 use MiniS3\Auth\SigV4Authenticator;
 use MiniS3\Config\ConfigLoader;
 use MiniS3\Http\RequestContext;
@@ -22,6 +28,18 @@ use MiniS3\S3\S3Router;
 use MiniS3\Storage\FileStorage;
 
 try {
+    $requestUri = (string) ($_SERVER['REQUEST_URI'] ?? '/');
+    $requestPath = parse_url($requestUri, PHP_URL_PATH) ?: '/';
+    if ($requestPath === '/_' || str_starts_with($requestPath, '/_/')) {
+        $adminRouter = new AdminRouter(
+            BASE_PATH,
+            (string) ($_SERVER['REQUEST_METHOD'] ?? 'GET'),
+            $requestUri,
+            $_POST
+        );
+        $adminRouter->handle();
+    }
+
     $config = ConfigLoader::load(BASE_PATH);
 
     $request = RequestContext::fromGlobals();

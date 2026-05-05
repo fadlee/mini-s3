@@ -44,6 +44,7 @@ assert_zip_contains "composer.json"
 assert_zip_contains "public/.htaccess"
 assert_zip_contains "public/index.php"
 assert_zip_contains "src/S3/S3Router.php"
+assert_zip_contains "src/Admin/AdminRouter.php"
 
 assert_zip_not_contains_exact ".htaccess"
 assert_zip_not_contains_prefix "tests/"
