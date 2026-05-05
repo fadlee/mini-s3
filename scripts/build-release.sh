@@ -32,6 +32,7 @@ SOURCE_FILES=(
   "src/Admin/AdminAuth.php"
   "src/Admin/AdminConfigWriter.php"
   "src/Admin/AdminStats.php"
+  "src/Admin/AdminUpgradeService.php"
   "src/Admin/AdminRenderer.php"
   "src/Admin/AdminRouter.php"
   "src/Auth/AuthException.php"

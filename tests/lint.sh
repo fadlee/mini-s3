@@ -26,6 +26,7 @@ files=(
   "$ROOT/tests/unit/admin-config-writer.php"
   "$ROOT/tests/unit/admin-renderer.php"
   "$ROOT/tests/unit/admin-stats.php"
+  "$ROOT/tests/unit/admin-upgrade-service.php"
   "$ROOT/tests/unit/config-loader.php"
   "$ROOT/tests/unit/file-storage.php"
   "$ROOT/tests/unit/request-validator.php"
