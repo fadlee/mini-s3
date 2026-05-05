@@ -13,8 +13,66 @@ final class AdminUpgradeService
     public function __construct(
         private readonly string $baseDir,
         private readonly string $dataDir,
-        private readonly string $entryFile
+        private readonly string $entryFile,
+        private readonly mixed $metadataFetcher = null
     ) {
+    }
+
+    public function checkLatest(string $currentVersion): array
+    {
+        try {
+            $metadata = $this->metadataFetcher === null
+                ? $this->fetchLatestRelease()
+                : ($this->metadataFetcher)();
+        } catch (\Throwable $e) {
+            return [
+                'state' => 'error',
+                'message' => 'Unable to check GitHub releases: ' . $e->getMessage(),
+                'currentVersion' => $currentVersion,
+                'latestVersion' => null,
+                'assetUrl' => null,
+            ];
+        }
+
+        $latestTag = $this->releaseTag($metadata);
+        if ($latestTag === null) {
+            return [
+                'state' => 'error',
+                'message' => 'Latest GitHub release does not have a valid version tag.',
+                'currentVersion' => $currentVersion,
+                'latestVersion' => null,
+                'assetUrl' => null,
+            ];
+        }
+
+        if ($this->compareVersions($currentVersion, $latestTag) >= 0) {
+            return [
+                'state' => 'up_to_date',
+                'message' => 'Mini S3 is up to date.',
+                'currentVersion' => $currentVersion,
+                'latestVersion' => $latestTag,
+                'assetUrl' => null,
+            ];
+        }
+
+        $assetUrl = $this->assetUrl($metadata, $latestTag);
+        if ($assetUrl === null) {
+            return [
+                'state' => 'error',
+                'message' => 'Latest GitHub release does not include the expected zip asset.',
+                'currentVersion' => $currentVersion,
+                'latestVersion' => $latestTag,
+                'assetUrl' => null,
+            ];
+        }
+
+        return [
+            'state' => 'update_available',
+            'message' => 'Update available: ' . $latestTag,
+            'currentVersion' => $currentVersion,
+            'latestVersion' => $latestTag,
+            'assetUrl' => $assetUrl,
+        ];
     }
 
     public function status(?string $currentVersion): array
@@ -91,5 +149,27 @@ final class AdminUpgradeService
     private function normalizeVersion(string $version): string
     {
         return ltrim($version, 'vV');
+    }
+
+    private function fetchLatestRelease(): array
+    {
+        $context = stream_context_create([
+            'http' => [
+                'method' => 'GET',
+                'header' => "User-Agent: mini-s3-admin-upgrade\r\nAccept: application/vnd.github+json\r\n",
+                'timeout' => 5,
+            ],
+        ]);
+        $url = 'https://api.github.com/repos/' . self::REPO_OWNER . '/' . self::REPO_NAME . '/releases/latest';
+        $body = file_get_contents($url, false, $context);
+        if ($body === false) {
+            throw new \RuntimeException('request failed');
+        }
+        $decoded = json_decode($body, true);
+        if (!is_array($decoded)) {
+            throw new \RuntimeException('invalid JSON response');
+        }
+
+        return $decoded;
     }
 }

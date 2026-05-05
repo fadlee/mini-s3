@@ -28,6 +28,37 @@ function assertContainsValue(string $needle, string $haystack, string $message):
 
 $service = new AdminUpgradeService(__DIR__, sys_get_temp_dir(), __DIR__ . '/index.php');
 
+$upToDateService = new AdminUpgradeService(__DIR__, sys_get_temp_dir(), __DIR__ . '/index.php', function (): array {
+    return [
+        'tag_name' => 'v1.0.1',
+        'assets' => [
+            ['name' => 'mini-s3-v1.0.1.zip', 'browser_download_url' => 'https://example.test/mini-s3-v1.0.1.zip'],
+        ],
+    ];
+});
+$upToDate = $upToDateService->checkLatest('v1.0.1');
+assertSameValue('up_to_date', $upToDate['state'], 'matching latest release is up to date');
+assertSameValue('v1.0.1', $upToDate['latestVersion'], 'latest version is included for up to date state');
+
+$updateService = new AdminUpgradeService(__DIR__, sys_get_temp_dir(), __DIR__ . '/index.php', function (): array {
+    return [
+        'tag_name' => 'v1.0.2',
+        'assets' => [
+            ['name' => 'mini-s3-v1.0.2.zip', 'browser_download_url' => 'https://example.test/mini-s3-v1.0.2.zip'],
+        ],
+    ];
+});
+$update = $updateService->checkLatest('v1.0.1');
+assertSameValue('update_available', $update['state'], 'newer latest release is available');
+assertSameValue('v1.0.2', $update['latestVersion'], 'latest version is included for available update');
+assertSameValue('https://example.test/mini-s3-v1.0.2.zip', $update['assetUrl'], 'asset url is included for available update');
+
+$errorService = new AdminUpgradeService(__DIR__, sys_get_temp_dir(), __DIR__ . '/index.php', function (): array {
+    return ['tag_name' => 'latest', 'assets' => []];
+});
+$error = $errorService->checkLatest('v1.0.1');
+assertSameValue('error', $error['state'], 'invalid release tag returns error state');
+
 assertSameValue(0, $service->compareVersions('v1.0.0', '1.0.0'), 'same version with v prefix compares equal');
 assertSameValue(-1, $service->compareVersions('v1.0.0', 'v1.0.1'), 'older current version compares lower');
 assertSameValue(1, $service->compareVersions('v1.2.0', 'v1.1.9'), 'newer current version compares higher');
