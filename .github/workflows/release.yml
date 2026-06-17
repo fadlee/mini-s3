@@ -3,7 +3,7 @@ name: Release
 on:
   push:
     tags:
-      - 'v*'
+      - "v*"
 
 permissions:
   contents: write
@@ -22,11 +22,11 @@ jobs:
       - name: Setup PHP
         uses: shivammathur/setup-php@v2
         with:
-          php-version: '8.2'
+          php-version: "8.2"
           tools: none
 
       - name: Run lint
-        run: tests/lint.sh
+        run: php tests/lint.php
 
       - name: Run unit tests
         run: |
@@ -34,13 +34,13 @@ jobs:
           php tests/unit/request-validator.php
 
       - name: Run integration tests
-        run: tests/integration/run.sh
+        run: php tests/integration/run.php
 
       - name: Build release archive
-        run: scripts/build-release.sh "$GITHUB_REF_NAME"
+        run: php scripts/build-release.php "$GITHUB_REF_NAME"
 
       - name: Verify release archive
-        run: tests/release-archive.sh
+        run: php tests/release-archive.php
 
       - name: Create GitHub Release
         env:

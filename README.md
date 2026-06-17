@@ -267,12 +267,12 @@ location ~ ^/data/ {
 ## Development Checks
 
 ```bash
-tests/lint.sh
-tests/integration/run.sh
-tests/release-archive.sh
-composer lint
-composer test
-composer run release:test
+php tests/lint.php
+php tests/integration/run.php
+php tests/release-archive.php
+composer qa:lint
+composer qa:test
+composer qa:release-test
 composer check
 ```
 
@@ -292,8 +292,8 @@ The GitHub Actions release workflow runs lint, tests, builds `mini-s3-v1.0.0.zip
 To test packaging locally:
 
 ```bash
-scripts/build-release.sh v0.0.0-test
-tests/release-archive.sh
+php scripts/build-release.php v0.0.0-test
+php tests/release-archive.php
 ```
 
 ## Usage Examples
@@ -512,7 +512,7 @@ Run the included test script to verify your installation:
 ./test-s5cmd.sh
 
 # Run full integration suite (SigV4 header auth + presigned + multipart + ranges)
-./tests/integration/run.sh
+php tests/integration/run.php
 ```
 
 The test script validates:

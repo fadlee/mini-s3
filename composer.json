@@ -4,13 +4,13 @@
   "type": "project",
   "license": "MIT",
   "scripts": {
-    "lint": "tests/lint.sh",
-    "test": "tests/integration/run.sh",
-    "release:test": "tests/release-archive.sh",
+    "qa:lint": "php tests/lint.php",
+    "qa:test": "php tests/integration/run.php",
+    "qa:release-test": "php tests/release-archive.php",
     "check": [
-      "@lint",
-      "@test",
-      "@release:test"
+      "@qa:lint",
+      "@qa:test",
+      "@qa:release-test"
     ]
   },
   "require": {},
