@@ -167,6 +167,7 @@ The admin UI edits `config/config.php`. Environment variables still override run
 - `MINI_S3_PUBLIC_READ_ALL_BUCKETS`
 - `MINI_S3_AUTH_DEBUG_LOG`
 - `MINI_S3_ALLOW_HOST_CANDIDATE_FALLBACKS`
+- `MINI_S3_GITHUB_TOKEN`
 
 Example:
 ```bash
@@ -195,6 +196,7 @@ return [
     'PUBLIC_READ_ALL_BUCKETS' => false, // Set true to allow unsigned GET/HEAD for all buckets
     'ADMIN_USERNAME' => 'admin',
     'ADMIN_PASSWORD_HASH' => '',
+    'GITHUB_TOKEN' => '', // Optional GitHub token for higher release-check rate limits
 ];
 ```
 

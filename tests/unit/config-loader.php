@@ -57,13 +57,26 @@ function withEnv(array $env, callable $callback): void
 
 function tempProject(array $config): string
 {
-    $base = sys_get_temp_dir() . '/mini-s3-config-' . bin2hex(random_bytes(4));
+    $base = createTempDirectory('mini-s3-config-');
     mkdir($base . '/config', 0777, true);
     if ($config !== []) {
         file_put_contents($base . '/config/config.php', '<?php return ' . var_export($config, true) . ';');
     }
 
     return $base;
+}
+
+function createTempDirectory(string $prefix): string
+{
+    $parent = __DIR__ . '/../../data/.test-tmp';
+    if (!is_dir($parent) && !mkdir($parent, 0777, true) && !is_dir($parent)) {
+        throw new RuntimeException('Unable to create test temp parent directory');
+    }
+    $path = $parent . '/' . $prefix . bin2hex(random_bytes(6));
+    if (!mkdir($path, 0777, true) && !is_dir($path)) {
+        throw new RuntimeException('Unable to create test temp directory');
+    }
+    return $path;
 }
 
 $base = tempProject([
@@ -76,14 +89,17 @@ assertSameValue(['file-key' => 'file-secret'], $config['CREDENTIALS'], 'config f
 assertSameValue(true, $config['PUBLIC_READ_ALL_BUCKETS'], 'config file public read loads');
 assertSameValue('admin', $config['ADMIN_USERNAME'], 'admin username defaults for existing config');
 assertSameValue('$2y$10$abcdefghijklmnopqrstuuJ8CmYLcOeO9mRXuQzknW4f4mSb1zZ9K', $config['ADMIN_PASSWORD_HASH'], 'admin password hash loads');
+assertSameValue('', $config['GITHUB_TOKEN'], 'github token defaults empty');
 
 withEnv([
     'MINI_S3_CREDENTIALS_JSON' => '{"env-key":"env-secret"}',
     'MINI_S3_PUBLIC_READ_ALL_BUCKETS' => 'false',
+    'MINI_S3_GITHUB_TOKEN' => 'env-token',
 ], function () use ($base): void {
     $config = ConfigLoader::load($base);
     assertSameValue(['env-key' => 'env-secret'], $config['CREDENTIALS'], 'env credentials override file');
     assertSameValue(false, $config['PUBLIC_READ_ALL_BUCKETS'], 'env boolean override file');
+    assertSameValue('env-token', $config['GITHUB_TOKEN'], 'env github token override file');
 });
 
 withEnv(['MINI_S3_CREDENTIALS_JSON' => '{bad-json'], function () use ($base): void {
@@ -101,9 +117,11 @@ assertSameValue('admin', $defaultConfig['ADMIN_USERNAME'], 'admin username defau
 $usernameBase = tempProject([
     'CREDENTIALS' => ['username-key' => 'username-secret'],
     'ADMIN_USERNAME' => 'owner',
+    'GITHUB_TOKEN' => 'config-token',
 ]);
 $usernameConfig = ConfigLoader::load($usernameBase);
 assertSameValue('owner', $usernameConfig['ADMIN_USERNAME'], 'admin username loads from config');
+assertSameValue('config-token', $usernameConfig['GITHUB_TOKEN'], 'github token loads from config');
 
 if ($failures > 0) {
     exit(1);

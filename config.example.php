@@ -15,4 +15,5 @@ return [
     'PUBLIC_READ_ALL_BUCKETS' => true,
     'ADMIN_USERNAME' => 'admin',
     'ADMIN_PASSWORD_HASH' => '',
+    'GITHUB_TOKEN' => '',
 ];

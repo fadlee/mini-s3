@@ -59,6 +59,13 @@ $errorService = new AdminUpgradeService(__DIR__, sys_get_temp_dir(), __DIR__ . '
 $error = $errorService->checkLatest('v1.0.1');
 assertSameValue('error', $error['state'], 'invalid release tag returns error state');
 
+$rateLimitService = new AdminUpgradeService(__DIR__, sys_get_temp_dir(), __DIR__ . '/index.php', function (): array {
+    throw new RuntimeException('HTTP 403 rate limit exceeded');
+});
+$rateLimit = $rateLimitService->checkLatest('v1.0.1');
+assertSameValue('error', $rateLimit['state'], 'rate limit returns error state');
+assertContainsValue('rate limit exceeded', $rateLimit['message'], 'rate limit message is preserved');
+
 assertSameValue(0, $service->compareVersions('v1.0.0', '1.0.0'), 'same version with v prefix compares equal');
 assertSameValue(-1, $service->compareVersions('v1.0.0', 'v1.0.1'), 'older current version compares lower');
 assertSameValue(1, $service->compareVersions('v1.2.0', 'v1.1.9'), 'newer current version compares higher');
@@ -89,7 +96,7 @@ assertSameValue(false, $validation['valid'], 'non-php release index is rejected'
 $validation = $service->validateReleaseIndex("<?php\nclass AdminRouter {}\nclass S3Router {}\n", 'v1.0.2');
 assertSameValue(false, $validation['valid'], 'missing version constant is rejected');
 
-$workspace = sys_get_temp_dir() . '/mini-s3-upgrade-' . bin2hex(random_bytes(4));
+$workspace = createTempDirectory('mini-s3-upgrade-');
 $baseDir = $workspace . '/app';
 $dataDir = $baseDir . '/data';
 mkdir($dataDir, 0777, true);
@@ -126,7 +133,7 @@ $badResult = $badService->upgrade('v1.0.2', 'v1.0.3', 'https://example.test/mini
 assertSameValue(false, $badResult['ok'], 'upgrade rejects archive without exact index path');
 assertContainsValue("define('MINI_S3_VERSION', 'v1.0.2');", (string) file_get_contents($entryFile), 'entry file remains unchanged after rejected archive');
 
-$cacheWorkspace = sys_get_temp_dir() . '/mini-s3-upgrade-cache-' . bin2hex(random_bytes(4));
+$cacheWorkspace = createTempDirectory('mini-s3-upgrade-cache-');
 $cacheDataDir = $cacheWorkspace . '/data';
 mkdir($cacheDataDir, 0777, true);
 $fetchCount = 0;
@@ -155,7 +162,30 @@ assertSameValue(3, $fetchCount, 'forced cached status calls fetcher again');
 $cacheFile = $cacheDataDir . '/.upgrade-cache/latest.json';
 assertSameValue(true, is_file($cacheFile), 'cached status writes cache file');
 
-$cacheAfterUpgradeWorkspace = sys_get_temp_dir() . '/mini-s3-upgrade-cache-clear-' . bin2hex(random_bytes(4));
+$rateLimitCachedWorkspace = createTempDirectory('mini-s3-upgrade-rate-limit-');
+$rateLimitCachedDataDir = $rateLimitCachedWorkspace . '/data';
+mkdir($rateLimitCachedDataDir . '/.upgrade-cache', 0777, true);
+file_put_contents($rateLimitCachedDataDir . '/.upgrade-cache/latest.json', json_encode([
+    'cachedAt' => time(),
+    'status' => [
+        'state' => 'update_available',
+        'message' => 'Update available: v1.0.2',
+        'currentVersion' => 'v1.0.1',
+        'latestVersion' => 'v1.0.2',
+        'assetUrl' => 'https://example.test/mini-s3-v1.0.2.zip',
+    ],
+], JSON_UNESCAPED_SLASHES));
+$rateLimitFetchCount = 0;
+$rateLimitCachedService = new AdminUpgradeService($rateLimitCachedWorkspace, $rateLimitCachedDataDir, $rateLimitCachedWorkspace . '/index.php', function () use (&$rateLimitFetchCount): array {
+    $rateLimitFetchCount++;
+    throw new RuntimeException('HTTP 403 rate limit exceeded');
+});
+$rateLimitCached = $rateLimitCachedService->cachedStatus('v1.0.1', true);
+assertSameValue('update_available', $rateLimitCached['state'], 'forced refresh keeps prior cached status on rate limit');
+assertSameValue('v1.0.2', $rateLimitCached['latestVersion'], 'prior cached latest version is preserved on rate limit');
+assertSameValue(1, $rateLimitFetchCount, 'forced refresh still attempts fetch before falling back to cache');
+
+$cacheAfterUpgradeWorkspace = createTempDirectory('mini-s3-upgrade-cache-clear-');
 $cacheAfterUpgradeBaseDir = $cacheAfterUpgradeWorkspace . '/app';
 $cacheAfterUpgradeDataDir = $cacheAfterUpgradeBaseDir . '/data';
 mkdir($cacheAfterUpgradeDataDir . '/.upgrade-cache', 0777, true);
@@ -188,3 +218,16 @@ if ($failures > 0) {
 }
 
 echo "[PASS] AdminUpgradeService tests passed" . PHP_EOL;
+
+function createTempDirectory(string $prefix): string
+{
+    $parent = __DIR__ . '/../../data/.test-tmp';
+    if (!is_dir($parent) && !mkdir($parent, 0777, true) && !is_dir($parent)) {
+        throw new RuntimeException('Unable to create test temp parent directory');
+    }
+    $path = $parent . '/' . $prefix . bin2hex(random_bytes(6));
+    if (!mkdir($path, 0777, true) && !is_dir($path)) {
+        throw new RuntimeException('Unable to create test temp directory');
+    }
+    return $path;
+}

@@ -16,7 +16,8 @@ final class AdminUpgradeService
         private readonly string $dataDir,
         private readonly string $entryFile,
         private readonly mixed $metadataFetcher = null,
-        private readonly mixed $downloader = null
+        private readonly mixed $downloader = null,
+        private readonly string $githubToken = ''
     ) {
     }
 
@@ -79,14 +80,15 @@ final class AdminUpgradeService
 
     public function cachedStatus(string $currentVersion, bool $force = false): array
     {
-        if (!$force) {
-            $cached = $this->readCachedStatus();
-            if ($cached !== null && (string) ($cached['currentVersion'] ?? '') === $currentVersion) {
-                return $cached;
-            }
+        $cached = $this->readCachedStatus();
+        if (!$force && $cached !== null && (string) ($cached['currentVersion'] ?? '') === $currentVersion) {
+            return $cached;
         }
 
         $status = $this->checkLatest($currentVersion);
+        if (($status['state'] ?? '') === 'error' && $cached !== null && (string) ($cached['currentVersion'] ?? '') === $currentVersion) {
+            return $cached;
+        }
         $this->writeCachedStatus($status);
 
         return $status;
@@ -331,20 +333,58 @@ final class AdminUpgradeService
         return $this->dataDir . '/.upgrade-cache/latest.json';
     }
 
+    private function githubErrorMessage(string $body, string $statusLine): string
+    {
+        $decoded = json_decode($body, true);
+        $apiMessage = is_array($decoded) ? trim((string) ($decoded['message'] ?? '')) : '';
+        if ($apiMessage !== '') {
+            if (preg_match('/\s(\d{3})\s/', $statusLine, $matches) === 1) {
+                return 'HTTP ' . $matches[1] . ' ' . $apiMessage;
+            }
+            return $apiMessage;
+        }
+
+        return $statusLine;
+    }
+
     private function fetchLatestRelease(): array
     {
+        $headers = [
+            'User-Agent: mini-s3-admin-upgrade',
+            'Accept: application/vnd.github+json',
+        ];
+        if ($this->githubToken !== '') {
+            $headers[] = 'Authorization: Bearer ' . $this->githubToken;
+        }
+
         $context = stream_context_create([
             'http' => [
                 'method' => 'GET',
-                'header' => "User-Agent: mini-s3-admin-upgrade\r\nAccept: application/vnd.github+json\r\n",
+                'header' => implode("\r\n", $headers) . "\r\n",
                 'timeout' => 5,
+                'ignore_errors' => true,
             ],
         ]);
         $url = 'https://api.github.com/repos/' . self::REPO_OWNER . '/' . self::REPO_NAME . '/releases/latest';
-        $body = file_get_contents($url, false, $context);
+        $body = @file_get_contents($url, false, $context);
         if ($body === false) {
-            throw new \RuntimeException('request failed');
+            $error = error_get_last();
+            $message = trim((string) ($error['message'] ?? 'request failed'));
+            throw new \RuntimeException($message === '' ? 'request failed' : $message);
         }
+
+        $statusLine = '';
+        foreach ((array) ($http_response_header ?? []) as $headerLine) {
+            if (str_starts_with($headerLine, 'HTTP/')) {
+                $statusLine = $headerLine;
+                break;
+            }
+        }
+        if ($statusLine !== '' && !str_contains($statusLine, ' 200 ')) {
+            $message = $this->githubErrorMessage($body, $statusLine);
+            throw new \RuntimeException($message);
+        }
+
         $decoded = json_decode($body, true);
         if (!is_array($decoded)) {
             throw new \RuntimeException('invalid JSON response');

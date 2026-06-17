@@ -182,7 +182,7 @@ final class AdminRouter
             $entryFile = $this->baseDir . '/index.php';
         }
 
-        return new AdminUpgradeService($this->baseDir, (string) $config['DATA_DIR'], $entryFile);
+        return new AdminUpgradeService($this->baseDir, (string) $config['DATA_DIR'], $entryFile, null, null, (string) ($config['GITHUB_TOKEN'] ?? ''));
     }
 
     private function defaultValues(): array

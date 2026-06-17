@@ -23,6 +23,7 @@ final class ConfigLoader
             'PUBLIC_READ_ALL_BUCKETS' => true,
             'ADMIN_USERNAME' => 'admin',
             'ADMIN_PASSWORD_HASH' => '',
+            'GITHUB_TOKEN' => '',
         ];
 
         $modernConfigPath = $baseDir . '/config/config.php';
@@ -76,6 +77,7 @@ final class ConfigLoader
             $config['ADMIN_USERNAME'] = 'admin';
         }
         $config['ADMIN_PASSWORD_HASH'] = trim((string) ($config['ADMIN_PASSWORD_HASH'] ?? ''));
+        $config['GITHUB_TOKEN'] = trim((string) ($config['GITHUB_TOKEN'] ?? ''));
 
         $credentials = [];
         foreach ((array) ($config['CREDENTIALS'] ?? []) as $accessKey => $secretKey) {
@@ -114,6 +116,7 @@ final class ConfigLoader
         $stringMap = [
             'MINI_S3_DATA_DIR' => 'DATA_DIR',
             'MINI_S3_AUTH_DEBUG_LOG' => 'AUTH_DEBUG_LOG',
+            'MINI_S3_GITHUB_TOKEN' => 'GITHUB_TOKEN',
         ];
 
         foreach ($stringMap as $envName => $configKey) {
