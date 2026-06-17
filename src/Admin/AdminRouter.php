@@ -26,12 +26,12 @@ final class AdminRouter
             $configPath = $this->baseDir . '/config/config.php';
 
             if (!is_file($configPath)) {
-                $auth = new AdminAuth('');
+                $auth = new AdminAuth('admin', '');
                 $this->handleInstaller($renderer, $writer, $auth);
             }
 
             $config = ConfigLoader::load($this->baseDir);
-            $auth = new AdminAuth((string) ($config['ADMIN_PASSWORD_HASH'] ?? ''));
+            $auth = new AdminAuth((string) ($config['ADMIN_USERNAME'] ?? 'admin'), (string) ($config['ADMIN_PASSWORD_HASH'] ?? ''));
             $path = parse_url($this->uri, PHP_URL_PATH) ?: '/_';
 
             if ($path === '/_/logout') {
@@ -85,8 +85,8 @@ final class AdminRouter
             try {
                 $config = $writer->buildConfig($this->post);
                 $writer->writeInstallerConfig($config);
-                $loginAuth = new AdminAuth((string) $config['ADMIN_PASSWORD_HASH']);
-                $loginAuth->login((string) $this->post['admin_password']);
+                $loginAuth = new AdminAuth((string) $config['ADMIN_USERNAME'], (string) $config['ADMIN_PASSWORD_HASH']);
+                $loginAuth->login((string) $this->post['admin_username'], (string) $this->post['admin_password']);
                 $this->redirect('/_');
             } catch (RuntimeException $e) {
                 $this->html($renderer->installer($this->post + $values, [$e->getMessage()], $auth->csrfToken()), 400);
@@ -102,10 +102,10 @@ final class AdminRouter
             if (!$auth->verifyCsrfToken((string) ($this->post['csrf_token'] ?? ''))) {
                 $this->html($renderer->login('CSRF token is invalid', $auth->csrfToken()), 400);
             }
-            if ($auth->login((string) ($this->post['password'] ?? ''))) {
+            if ($auth->login((string) ($this->post['username'] ?? ''), (string) ($this->post['password'] ?? ''))) {
                 $this->redirect('/_');
             }
-            $this->html($renderer->login('Invalid login password', $auth->csrfToken()), 401);
+            $this->html($renderer->login('Invalid username or password', $auth->csrfToken()), 401);
         }
 
         $this->html($renderer->login('', $auth->csrfToken()));
@@ -188,6 +188,7 @@ final class AdminRouter
     private function defaultValues(): array
     {
         return [
+            'admin_username' => 'admin',
             'data_dir' => $this->baseDir . '/data',
             'max_request_size' => '104857600',
             'public_read_all_buckets' => true,
@@ -202,6 +203,7 @@ final class AdminRouter
         $accessKey = $credentials === [] ? '' : (string) array_key_first($credentials);
 
         return [
+            'admin_username' => (string) ($config['ADMIN_USERNAME'] ?? 'admin'),
             'data_dir' => (string) $config['DATA_DIR'],
             'access_key' => $accessKey,
             'secret_key' => $accessKey === '' ? '' : (string) $credentials[$accessKey],

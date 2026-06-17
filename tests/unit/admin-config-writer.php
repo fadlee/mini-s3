@@ -45,6 +45,7 @@ $dataDir = $base . '/data';
 
 $writer = new AdminConfigWriter($base);
 $config = $writer->buildConfig([
+    'admin_username' => 'owner',
     'admin_password' => 'secret-pass',
     'admin_password_confirm' => 'secret-pass',
     'data_dir' => $dataDir,
@@ -61,10 +62,12 @@ $config = $writer->buildConfig([
 assertSameValue($dataDir, $config['DATA_DIR'], 'data dir is normalized');
 assertSameValue(1048576, $config['MAX_REQUEST_SIZE'], 'max request size is integer');
 assertSameValue(['access-one' => 'secret-one'], $config['CREDENTIALS'], 'credentials are built');
+assertSameValue('owner', $config['ADMIN_USERNAME'], 'admin username is stored');
 assertSameValue(true, password_verify('secret-pass', $config['ADMIN_PASSWORD_HASH']), 'admin password is hashed');
 assertSameValue(true, $config['PUBLIC_READ_ALL_BUCKETS'], 'public read checkbox is parsed');
 
 $defaultPublicReadConfig = $writer->buildConfig([
+    'admin_username' => 'admin',
     'admin_password' => 'secret-pass',
     'admin_password_confirm' => 'secret-pass',
     'data_dir' => $dataDir,
@@ -73,13 +76,27 @@ $defaultPublicReadConfig = $writer->buildConfig([
 ]);
 assertSameValue(true, $defaultPublicReadConfig['PUBLIC_READ_ALL_BUCKETS'], 'public read defaults to true');
 
+$existingUsernameConfig = $writer->buildConfig([
+    'admin_password' => '',
+    'admin_password_confirm' => '',
+    'data_dir' => $dataDir,
+    'access_key' => 'access-one',
+    'secret_key' => 'secret-one',
+], [
+    'ADMIN_USERNAME' => 'existing-admin',
+    'ADMIN_PASSWORD_HASH' => $config['ADMIN_PASSWORD_HASH'],
+]);
+assertSameValue('existing-admin', $existingUsernameConfig['ADMIN_USERNAME'], 'admin username is preserved when omitted from existing config');
+
 $writer->writeInstallerConfig($config);
 assertTrueValue(is_file($base . '/config/config.php'), 'config file is written');
 $loaded = require $base . '/config/config.php';
 assertSameValue(['access-one' => 'secret-one'], $loaded['CREDENTIALS'], 'written config loads');
+assertSameValue('owner', $loaded['ADMIN_USERNAME'], 'written config includes admin username');
 
 assertThrowsMessage(fn() => $writer->writeInstallerConfig($config), 'already exists', 'installer refuses overwrite');
 assertThrowsMessage(fn() => $writer->buildConfig([
+    'admin_username' => 'owner',
     'admin_password' => 'one',
     'admin_password_confirm' => 'two',
     'data_dir' => $dataDir,
@@ -87,6 +104,15 @@ assertThrowsMessage(fn() => $writer->buildConfig([
     'secret_key' => 'secret-one',
 ]), 'match', 'password mismatch fails');
 assertThrowsMessage(fn() => $writer->buildConfig([
+    'admin_username' => '',
+    'admin_password' => 'secret-pass',
+    'admin_password_confirm' => 'secret-pass',
+    'data_dir' => $dataDir,
+    'access_key' => 'access-one',
+    'secret_key' => 'secret-one',
+]), 'Admin username', 'empty admin username fails');
+assertThrowsMessage(fn() => $writer->buildConfig([
+    'admin_username' => 'owner',
     'admin_password' => 'secret-pass',
     'admin_password_confirm' => 'secret-pass',
     'data_dir' => $dataDir,

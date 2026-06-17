@@ -16,7 +16,8 @@ final class AdminRenderer
         $errorHtml = $error === '' ? '' : '<div class="error">' . $this->e($error) . '</div>';
         $body = $errorHtml . '<form method="post" action="/_">'
             . '<input type="hidden" name="csrf_token" value="' . $this->e($csrfToken) . '">'
-            . '<label>Password<input type="password" name="password" required></label>'
+            . '<label>Username<input name="username" autocomplete="username" required></label>'
+            . '<label>Password<input type="password" name="password" autocomplete="current-password" required></label>'
             . '<button type="submit">Log in</button>'
             . '</form>';
 
@@ -56,6 +57,7 @@ final class AdminRenderer
 
         return $errorHtml . '<form method="post" action="' . $this->e($action) . '">'
             . '<input type="hidden" name="csrf_token" value="' . $this->e($csrfToken) . '">'
+            . '<label>Admin username<input name="admin_username" value="' . $this->e((string) ($values['admin_username'] ?? 'admin')) . '" required></label>'
             . '<label>' . $passwordLabel . '<input type="password" name="admin_password"' . $passwordRequired . '></label>'
             . '<label>Confirm admin password<input type="password" name="admin_password_confirm"' . $passwordRequired . '></label>'
             . '<label>Data directory<input name="data_dir" value="' . $this->e((string) ($values['data_dir'] ?? '')) . '" required></label>'

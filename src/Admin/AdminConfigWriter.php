@@ -29,6 +29,11 @@ final class AdminConfigWriter
             throw new RuntimeException('Secret key is required');
         }
 
+        $adminUsername = trim((string) ($input['admin_username'] ?? $existing['ADMIN_USERNAME'] ?? 'admin'));
+        if ($adminUsername === '') {
+            throw new RuntimeException('Admin username is required');
+        }
+
         $adminPasswordHash = trim((string) ($existing['ADMIN_PASSWORD_HASH'] ?? ''));
         $password = (string) ($input['admin_password'] ?? '');
         $passwordConfirm = (string) ($input['admin_password_confirm'] ?? '');
@@ -54,6 +59,7 @@ final class AdminConfigWriter
             'AUTH_DEBUG_LOG' => trim((string) ($input['auth_debug_log'] ?? '')),
             'ALLOW_HOST_CANDIDATE_FALLBACKS' => $this->checkbox($input, 'allow_host_candidate_fallbacks'),
             'PUBLIC_READ_ALL_BUCKETS' => $this->checkbox($input, 'public_read_all_buckets', (bool) ($existing['PUBLIC_READ_ALL_BUCKETS'] ?? true)),
+            'ADMIN_USERNAME' => $adminUsername,
             'ADMIN_PASSWORD_HASH' => $adminPasswordHash,
         ];
     }

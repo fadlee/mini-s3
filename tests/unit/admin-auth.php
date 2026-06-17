@@ -19,12 +19,14 @@ function assertSameValue(mixed $expected, mixed $actual, string $message): void
 
 $_SESSION = [];
 $hash = password_hash('admin-pass', PASSWORD_DEFAULT);
-$auth = new AdminAuth($hash);
+$auth = new AdminAuth('admin', $hash);
 
 assertSameValue(false, $auth->isAuthenticated(), 'new session is not authenticated');
-assertSameValue(false, $auth->login('wrong-pass'), 'wrong password is rejected');
-assertSameValue(false, $auth->isAuthenticated(), 'wrong login does not authenticate');
-assertSameValue(true, $auth->login('admin-pass'), 'right password is accepted');
+assertSameValue(false, $auth->login('wrong-admin', 'admin-pass'), 'wrong username is rejected');
+assertSameValue(false, $auth->isAuthenticated(), 'wrong username does not authenticate');
+assertSameValue(false, $auth->login('admin', 'wrong-pass'), 'wrong password is rejected');
+assertSameValue(false, $auth->isAuthenticated(), 'wrong password does not authenticate');
+assertSameValue(true, $auth->login('admin', 'admin-pass'), 'right username and password are accepted');
 assertSameValue(true, $auth->isAuthenticated(), 'right login authenticates');
 
 $token = $auth->csrfToken();

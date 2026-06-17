@@ -21,6 +21,7 @@ final class ConfigLoader
             'AUTH_DEBUG_LOG' => '',
             'ALLOW_HOST_CANDIDATE_FALLBACKS' => false,
             'PUBLIC_READ_ALL_BUCKETS' => true,
+            'ADMIN_USERNAME' => 'admin',
             'ADMIN_PASSWORD_HASH' => '',
         ];
 
@@ -52,6 +53,9 @@ final class ConfigLoader
                 if (defined('CREDENTIALS')) {
                     $legacy['CREDENTIALS'] = (array) constant('CREDENTIALS');
                 }
+                if (defined('ADMIN_USERNAME')) {
+                    $legacy['ADMIN_USERNAME'] = (string) constant('ADMIN_USERNAME');
+                }
 
                 $config = array_merge($config, $legacy);
             }
@@ -67,6 +71,10 @@ final class ConfigLoader
         $config['AUTH_DEBUG_LOG'] = trim((string) ($config['AUTH_DEBUG_LOG'] ?? ''));
         $config['ALLOW_HOST_CANDIDATE_FALLBACKS'] = (bool) ($config['ALLOW_HOST_CANDIDATE_FALLBACKS'] ?? false);
         $config['PUBLIC_READ_ALL_BUCKETS'] = (bool) ($config['PUBLIC_READ_ALL_BUCKETS'] ?? false);
+        $config['ADMIN_USERNAME'] = trim((string) ($config['ADMIN_USERNAME'] ?? 'admin'));
+        if ($config['ADMIN_USERNAME'] === '') {
+            $config['ADMIN_USERNAME'] = 'admin';
+        }
         $config['ADMIN_PASSWORD_HASH'] = trim((string) ($config['ADMIN_PASSWORD_HASH'] ?? ''));
 
         $credentials = [];

@@ -74,6 +74,7 @@ $base = tempProject([
 $config = ConfigLoader::load($base);
 assertSameValue(['file-key' => 'file-secret'], $config['CREDENTIALS'], 'config file credentials load');
 assertSameValue(true, $config['PUBLIC_READ_ALL_BUCKETS'], 'config file public read loads');
+assertSameValue('admin', $config['ADMIN_USERNAME'], 'admin username defaults for existing config');
 assertSameValue('$2y$10$abcdefghijklmnopqrstuuJ8CmYLcOeO9mRXuQzknW4f4mSb1zZ9K', $config['ADMIN_PASSWORD_HASH'], 'admin password hash loads');
 
 withEnv([
@@ -95,6 +96,14 @@ assertThrows(fn() => ConfigLoader::load($emptyBase), 'empty credentials fail clo
 $defaultBase = tempProject(['CREDENTIALS' => ['default-key' => 'default-secret']]);
 $defaultConfig = ConfigLoader::load($defaultBase);
 assertSameValue(true, $defaultConfig['PUBLIC_READ_ALL_BUCKETS'], 'public read defaults to true');
+assertSameValue('admin', $defaultConfig['ADMIN_USERNAME'], 'admin username defaults to admin');
+
+$usernameBase = tempProject([
+    'CREDENTIALS' => ['username-key' => 'username-secret'],
+    'ADMIN_USERNAME' => 'owner',
+]);
+$usernameConfig = ConfigLoader::load($usernameBase);
+assertSameValue('owner', $usernameConfig['ADMIN_USERNAME'], 'admin username loads from config');
 
 if ($failures > 0) {
     exit(1);

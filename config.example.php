@@ -13,5 +13,6 @@ return [
     'AUTH_DEBUG_LOG' => '',
     'ALLOW_HOST_CANDIDATE_FALLBACKS' => false,
     'PUBLIC_READ_ALL_BUCKETS' => true,
+    'ADMIN_USERNAME' => 'admin',
     'ADMIN_PASSWORD_HASH' => '',
 ];

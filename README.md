@@ -147,7 +147,7 @@ server {
 
 Mini S3 reserves the `/_` route prefix for its built-in installer and admin UI.
 
-If `config/config.php` does not exist, open `/_` in a browser to run the installer. The installer creates local config, sets an admin password, configures the data directory, and creates the first S3 access key and secret key.
+If `config/config.php` does not exist, open `/_` in a browser to run the installer. The installer creates local config, sets an admin username and password, configures the data directory, and creates the first S3 access key and secret key.
 
 ![Mini S3 installer](docs/screenshots/installer.png)
 
@@ -193,6 +193,8 @@ return [
     'AUTH_DEBUG_LOG' => '', // Optional, e.g. /tmp/mini-s3-auth-debug.log
     'ALLOW_HOST_CANDIDATE_FALLBACKS' => false, // Keep false unless your proxy rewrites Host
     'PUBLIC_READ_ALL_BUCKETS' => false, // Set true to allow unsigned GET/HEAD for all buckets
+    'ADMIN_USERNAME' => 'admin',
+    'ADMIN_PASSWORD_HASH' => '',
 ];
 ```
 

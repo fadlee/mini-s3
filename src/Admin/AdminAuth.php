@@ -10,8 +10,10 @@ final class AdminAuth
     private const CSRF_KEY = 'mini_s3_admin_csrf_token';
     private const FLASH_KEY = 'mini_s3_admin_flash';
 
-    public function __construct(private readonly string $passwordHash)
-    {
+    public function __construct(
+        private readonly string $username,
+        private readonly string $passwordHash
+    ) {
         if (session_status() !== PHP_SESSION_ACTIVE && PHP_SAPI !== 'cli') {
             session_start();
         }
@@ -27,9 +29,9 @@ final class AdminAuth
         return (bool) ($_SESSION[self::AUTH_KEY] ?? false);
     }
 
-    public function login(string $password): bool
+    public function login(string $username, string $password): bool
     {
-        if (!$this->isConfigured() || !password_verify($password, $this->passwordHash)) {
+        if (!$this->isConfigured() || !hash_equals($this->username, trim($username)) || !password_verify($password, $this->passwordHash)) {
             return false;
         }
 

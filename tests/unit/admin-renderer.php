@@ -64,6 +64,19 @@ assertContainsText('Check update', $html, 'check update button is rendered for r
 assertContainsText('action="/_/check-update"', $html, 'check update form posts to check route');
 assertContainsText('Upgrade ready', $html, 'flash message is rendered');
 
+$loginHtml = (new AdminRenderer())->login('', 'csrf-token');
+assertContainsText('name="username"', $loginHtml, 'login form includes username field');
+assertContainsText('name="password"', $loginHtml, 'login form includes password field');
+
+$configHtml = (new AdminRenderer())->config([
+    'admin_username' => 'owner',
+    'data_dir' => '/tmp/mini-s3-data',
+    'access_key' => 'client-key',
+    'secret_key' => 'client-secret',
+], [], 'csrf-token');
+assertContainsText('name="admin_username"', $configHtml, 'config form includes admin username field');
+assertContainsText('value="owner"', $configHtml, 'config form renders current admin username');
+
 $unavailableHtml = (new AdminRenderer())->dashboard([
     'data_dir' => '/tmp/mini-s3-data',
     'status' => 'ok',
