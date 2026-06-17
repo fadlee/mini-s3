@@ -145,12 +145,43 @@ assertSameValue(1, $fetchCount, 'first cached status calls fetcher');
 $cachedAgain = $cacheService->cachedStatus('v1.0.1');
 assertSameValue('update_available', $cachedAgain['state'], 'fresh cached status is reused');
 assertSameValue(1, $fetchCount, 'fresh cached status does not call fetcher again');
-$forced = $cacheService->cachedStatus('v1.0.1', true);
-assertSameValue('update_available', $forced['state'], 'forced cached status refresh still returns update status');
-assertSameValue(2, $fetchCount, 'forced cached status calls fetcher again');
+$cacheMissOnVersionChange = $cacheService->cachedStatus('v1.0.2');
+assertSameValue('up_to_date', $cacheMissOnVersionChange['state'], 'cached status refreshes when current version changes');
+assertSameValue(2, $fetchCount, 'current version change forces refetch');
+$forced = $cacheService->cachedStatus('v1.0.2', true);
+assertSameValue('up_to_date', $forced['state'], 'forced cached status refresh still returns latest status');
+assertSameValue(3, $fetchCount, 'forced cached status calls fetcher again');
 
 $cacheFile = $cacheDataDir . '/.upgrade-cache/latest.json';
 assertSameValue(true, is_file($cacheFile), 'cached status writes cache file');
+
+$cacheAfterUpgradeWorkspace = sys_get_temp_dir() . '/mini-s3-upgrade-cache-clear-' . bin2hex(random_bytes(4));
+$cacheAfterUpgradeBaseDir = $cacheAfterUpgradeWorkspace . '/app';
+$cacheAfterUpgradeDataDir = $cacheAfterUpgradeBaseDir . '/data';
+mkdir($cacheAfterUpgradeDataDir . '/.upgrade-cache', 0777, true);
+file_put_contents($cacheAfterUpgradeDataDir . '/.upgrade-cache/latest.json', json_encode([
+    'cachedAt' => time(),
+    'status' => [
+        'state' => 'update_available',
+        'message' => 'Update available: v1.0.2',
+        'currentVersion' => 'v1.0.1',
+        'latestVersion' => 'v1.0.2',
+        'assetUrl' => 'https://example.test/mini-s3-v1.0.2.zip',
+    ],
+], JSON_UNESCAPED_SLASHES));
+$cacheAfterUpgradeEntryFile = $cacheAfterUpgradeBaseDir . '/index.php';
+file_put_contents($cacheAfterUpgradeEntryFile, "<?php\ndefine('MINI_S3_VERSION', 'v1.0.1');\nclass AdminRouter {}\nclass S3Router {}\n");
+$cacheAfterUpgradeZipPath = $cacheAfterUpgradeWorkspace . '/mini-s3-v1.0.2.zip';
+$cacheAfterUpgradeZip = new ZipArchive();
+$cacheAfterUpgradeZip->open($cacheAfterUpgradeZipPath, ZipArchive::CREATE);
+$cacheAfterUpgradeZip->addFromString('mini-s3-v1.0.2/index.php', "<?php\ndefine('MINI_S3_VERSION', 'v1.0.2');\nclass AdminRouter {}\nclass S3Router {}\n");
+$cacheAfterUpgradeZip->close();
+$cacheAfterUpgradeService = new AdminUpgradeService($cacheAfterUpgradeBaseDir, $cacheAfterUpgradeDataDir, $cacheAfterUpgradeEntryFile, null, function (string $url, string $destination) use ($cacheAfterUpgradeZipPath): void {
+    copy($cacheAfterUpgradeZipPath, $destination);
+});
+$cacheAfterUpgradeResult = $cacheAfterUpgradeService->upgrade('v1.0.1', 'v1.0.2', 'https://example.test/mini-s3-v1.0.2.zip');
+assertSameValue(true, $cacheAfterUpgradeResult['ok'], 'upgrade succeeds when stale cache exists');
+assertSameValue(false, is_file($cacheAfterUpgradeDataDir . '/.upgrade-cache/latest.json'), 'upgrade clears cached update status after success');
 
 if ($failures > 0) {
     exit(1);

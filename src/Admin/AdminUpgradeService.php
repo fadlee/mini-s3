@@ -81,7 +81,7 @@ final class AdminUpgradeService
     {
         if (!$force) {
             $cached = $this->readCachedStatus();
-            if ($cached !== null) {
+            if ($cached !== null && (string) ($cached['currentVersion'] ?? '') === $currentVersion) {
                 return $cached;
             }
         }
@@ -205,6 +205,8 @@ final class AdminUpgradeService
                 return ['ok' => false, 'message' => $restored ? 'Upgrade failed and rollback succeeded.' : 'Upgrade failed and rollback failed. Restore backup manually.'];
             }
 
+            $this->clearCachedStatus();
+
             return ['ok' => true, 'message' => 'Mini S3 upgraded to ' . $latestVersion . '.', 'backupPath' => $backupPath];
         } catch (\Throwable $e) {
             return ['ok' => false, 'message' => $e->getMessage()];
@@ -317,6 +319,11 @@ final class AdminUpgradeService
             'cachedAt' => time(),
             'status' => $status,
         ], JSON_UNESCAPED_SLASHES));
+    }
+
+    private function clearCachedStatus(): void
+    {
+        @unlink($this->cachePath());
     }
 
     private function cachePath(): string
