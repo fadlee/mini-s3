@@ -6,6 +6,10 @@ namespace MiniS3\Admin;
 
 final class AdminRenderer
 {
+    private const ICON_RENAME = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>';
+    private const ICON_DELETE = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/></svg>';
+    private const ICON_DOWNLOAD = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12"/><path d="M7 10l5 5 5-5"/><path d="M5 21h14"/></svg>';
+
     public function installer(array $values, array $errors, string $csrfToken): string
     {
         return $this->layout('Install Mini S3', $this->form('/_', $values, $errors, $csrfToken, true), false);
@@ -155,8 +159,14 @@ final class AdminRenderer
             . '.files-table th, .files-table td { padding: 8px 10px; border-bottom: 1px solid #EAEAEA; text-align: left; vertical-align: middle; }'
             . '.files-table th { font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; color: #787774; }'
             . '.files-table tbody tr:hover { background: #FCFCFB; }'
-            . '.row-actions { display: flex; gap: 8px; flex-wrap: wrap; }'
+            . '.row-actions { display: flex; gap: 6px; flex-wrap: wrap; }'
             . '.row-actions button, .row-actions a { background: #F7F6F3; border: 1px solid #EAEAEA; color: #111111; font-weight: 500; font-size: 12px; padding: 6px 10px; border-radius: 6px; text-decoration: none; }'
+            . '.icon-btn { width: 30px; height: 30px; padding: 0; display: inline-flex; align-items: center; justify-content: center; }'
+            . '.icon-btn:hover { background: #EAEAEA; }'
+            . '.icon-btn.danger:hover { background: #FDEBEC; }'
+            . '[data-tooltip] { position: relative; }'
+            . '[data-tooltip]::after { content: attr(data-tooltip); position: absolute; bottom: calc(100% + 7px); left: 50%; transform: translateX(-50%) translateY(4px); background: #111111; color: #FFFFFF; font-size: 11px; font-weight: 500; padding: 4px 8px; border-radius: 4px; white-space: nowrap; opacity: 0; pointer-events: none; transition: opacity 0.15s ease, transform 0.15s ease; z-index: 50; }'
+            . '[data-tooltip]:hover::after { opacity: 1; transform: translateX(-50%) translateY(0); }'
             . '.preview-thumb { width: 48px; height: 48px; object-fit: cover; border-radius: 6px; border: 1px solid #EAEAEA; background: #F7F6F3; }'
             . '.dialog-shell { position: fixed; inset: 0; z-index: 40; overflow-y: auto; }'
             . '.dialog-overlay { position: fixed; inset: 0; background: rgba(17, 17, 17, 0.25); }'
@@ -211,8 +221,8 @@ final class AdminRenderer
                 . '<p class="bucket-meta">' . $this->e((string) ($bucket['object_count'] ?? 0)) . ' objects</p>'
                 . '<p class="bucket-meta">' . $this->e($this->formatBytes((int) ($bucket['total_bytes'] ?? 0))) . '</p>'
                 . '<div class="row-actions">'
-                . '<button type="button" x-on:click="renameBucket(' . $this->jsString($name) . ')">Rename</button>'
-                . '<button type="button" class="danger" x-on:click="deleteBucket(' . $this->jsString($name) . ')">Delete</button>'
+                . $this->iconButton(self::ICON_RENAME, 'Rename', 'x-on:click="renameBucket(' . $this->jsString($name) . ')"')
+                . $this->iconButton(self::ICON_DELETE, 'Delete', 'x-on:click="deleteBucket(' . $this->jsString($name) . ')"', 'danger')
                 . '</div></section>';
         }
 
@@ -243,8 +253,8 @@ final class AdminRenderer
                 . '<td>' . $this->e((string) ($folder['object_count'] ?? 0)) . ' items</td>'
                 . '<td>' . $this->e($this->formatDate((int) ($folder['modified'] ?? 0))) . '</td>'
                 . '<td><div class="row-actions">'
-                . '<button type="button" x-on:click="renameObject(' . $this->jsString($path) . ', ' . $this->jsString($name) . ')">Rename</button>'
-                . '<button type="button" class="danger" x-on:click="deleteObject(' . $this->jsString($path) . ')">Delete</button>'
+                . $this->iconButton(self::ICON_RENAME, 'Rename', 'x-on:click="renameObject(' . $this->jsString($path) . ', ' . $this->jsString($name) . ')"')
+                . $this->iconButton(self::ICON_DELETE, 'Delete', 'x-on:click="deleteObject(' . $this->jsString($path) . ')"', 'danger')
                 . '</div></td></tr>';
         }
 
@@ -264,9 +274,9 @@ final class AdminRenderer
                 . '<td>' . $this->e($this->formatBytes((int) ($file['size'] ?? 0))) . '</td>'
                 . '<td>' . $this->e($this->formatDate((int) ($file['modified'] ?? 0))) . '</td>'
                 . '<td><div class="row-actions">'
-                . '<a href="/_/files?bucket=' . rawurlencode($bucket) . '&path=' . rawurlencode($path) . '&download=1">Download</a>'
-                . '<button type="button" x-on:click="renameObject(' . $this->jsString($path) . ', ' . $this->jsString($name) . ')">Rename</button>'
-                . '<button type="button" class="danger" x-on:click="deleteObject(' . $this->jsString($path) . ')">Delete</button>'
+                . $this->iconButton(self::ICON_DOWNLOAD, 'Download', 'href="/_/files?bucket=' . rawurlencode($bucket) . '&path=' . rawurlencode($path) . '&download=1"', '', true)
+                . $this->iconButton(self::ICON_RENAME, 'Rename', 'x-on:click="renameObject(' . $this->jsString($path) . ', ' . $this->jsString($name) . ')"')
+                . $this->iconButton(self::ICON_DELETE, 'Delete', 'x-on:click="deleteObject(' . $this->jsString($path) . ')"', 'danger')
                 . '</div></td></tr>';
         }
 
@@ -462,6 +472,14 @@ final class AdminRenderer
             return "''";
         }
         return "'" . substr($encoded, 1, -1) . "'";
+    }
+
+    private function iconButton(string $icon, string $label, string $attrs, string $class = '', bool $asLink = false): string
+    {
+        $class = trim('icon-btn ' . $class);
+        $tag = $asLink ? 'a' : 'button';
+        $type = $asLink ? '' : ' type="button"';
+        return '<' . $tag . $type . ' class="' . $this->e($class) . '" data-tooltip="' . $this->e($label) . '" aria-label="' . $this->e($label) . '" ' . $attrs . '>' . $icon . '</' . $tag . '>';
     }
 
     private function e(string $value): string
