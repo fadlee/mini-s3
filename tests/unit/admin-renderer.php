@@ -77,6 +77,27 @@ $configHtml = (new AdminRenderer())->config([
 assertContainsText('name="admin_username"', $configHtml, 'config form includes admin username field');
 assertContainsText('value="owner"', $configHtml, 'config form renders current admin username');
 
+$filesHtml = (new AdminRenderer())->files([
+    ['name' => 'photos', 'object_count' => 2, 'total_bytes' => 1024],
+], [
+    'folders' => [
+        ['name' => 'nested', 'path' => 'nested', 'object_count' => 1, 'modified' => 1700000000],
+    ],
+    'files' => [
+        ['name' => 'cover.png', 'path' => 'cover.png', 'size' => 12, 'modified' => 1700000000, 'mime' => 'image/png', 'is_image' => true],
+    ],
+], 'photos', '', 'csrf-token', 'Ready');
+assertContainsText('href="/_/files"', $filesHtml, 'files page renders breadcrumb root');
+assertContainsText('x-data="miniS3Explorer(', $filesHtml, 'files page initializes Alpine explorer');
+assertContainsText('x-on:click="openUpload()"', $filesHtml, 'files page renders upload action');
+assertContainsText('cover.png', $filesHtml, 'files page renders file name');
+assertContainsText('download=1', $filesHtml, 'files page renders download link');
+assertContainsText('x-model="search"', $filesHtml, 'files page renders Alpine search binding');
+assertContainsText('x-dialog x-model="dialogOpen"', $filesHtml, 'files page renders Alpine dialog');
+assertContainsText('renameObject(\'cover.png\', \'cover.png\')', $filesHtml, 'files page renders Alpine rename handler');
+assertContainsText('function miniS3Explorer(csrf,bucket,prefix,summary)', $filesHtml, 'files page renders Alpine component factory');
+assertContainsText('New bucket', $filesHtml, 'files page renders create bucket action');
+
 $unavailableHtml = (new AdminRenderer())->dashboard([
     'data_dir' => '/tmp/mini-s3-data',
     'status' => 'ok',

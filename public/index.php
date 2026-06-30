@@ -9,6 +9,7 @@ require_once BASE_PATH . '/src/Admin/AdminAuth.php';
 require_once BASE_PATH . '/src/Admin/AdminConfigWriter.php';
 require_once BASE_PATH . '/src/Admin/AdminStats.php';
 require_once BASE_PATH . '/src/Admin/AdminUpgradeService.php';
+require_once BASE_PATH . '/src/Admin/AdminFileExplorer.php';
 require_once BASE_PATH . '/src/Admin/AdminRenderer.php';
 require_once BASE_PATH . '/src/Admin/AdminRouter.php';
 require_once BASE_PATH . '/src/Auth/AuthException.php';
@@ -36,7 +37,8 @@ try {
             BASE_PATH,
             (string) ($_SERVER['REQUEST_METHOD'] ?? 'GET'),
             $requestUri,
-            $_POST
+            $_POST,
+            $_FILES
         );
         $adminRouter->handle();
     }

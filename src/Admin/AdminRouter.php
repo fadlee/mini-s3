@@ -10,11 +10,14 @@ use Throwable;
 
 final class AdminRouter
 {
+    private const DOWNLOAD_QUERY_KEY = 'download';
+
     public function __construct(
         private readonly string $baseDir,
         private readonly string $method,
         private readonly string $uri,
-        private readonly array $post
+        private readonly array $post,
+        private readonly array $files = []
     ) {
     }
 
@@ -49,6 +52,10 @@ final class AdminRouter
 
             if ($path === '/_/config') {
                 $this->handleConfig($renderer, $writer, $auth, $config);
+            }
+
+            if ($path === '/_/files') {
+                $this->handleFiles($renderer, $auth, $config);
             }
 
             if ($path === '/_/upgrade') {
@@ -175,6 +182,173 @@ final class AdminRouter
         $this->redirect('/_');
     }
 
+    private function handleFiles(AdminRenderer $renderer, AdminAuth $auth, array $config): never
+    {
+        $explorer = new AdminFileExplorer((string) $config['DATA_DIR']);
+        $action = trim((string) ($this->post['action'] ?? ''));
+        $bucket = trim((string) ($_GET['bucket'] ?? $this->post['bucket'] ?? ''));
+        $prefix = trim((string) ($_GET['prefix'] ?? $this->post['prefix'] ?? ''), '/');
+
+        if ($this->method === 'GET' && isset($_GET[self::DOWNLOAD_QUERY_KEY])) {
+            $objectPath = trim((string) ($_GET['path'] ?? ''), '/');
+            $download = (string) $_GET[self::DOWNLOAD_QUERY_KEY] === '1';
+            $this->streamFile($explorer, $bucket, $objectPath, $download);
+        }
+
+        if ($this->method === 'POST') {
+            if (!$auth->verifyCsrfToken((string) ($this->post['csrf_token'] ?? ''))) {
+                $this->json(['ok' => false, 'message' => 'CSRF token is invalid.'], 400);
+            }
+
+            try {
+                $result = match ($action) {
+                    'create_bucket' => $this->createBucketAction($explorer),
+                    'rename_bucket' => $this->renameBucketAction($explorer),
+                    'delete_bucket' => $this->deleteBucketAction($explorer),
+                    'create_folder' => $this->createFolderAction($explorer),
+                    'rename_object' => $this->renameObjectAction($explorer),
+                    'delete_object' => $this->deleteObjectAction($explorer),
+                    'bulk_delete' => $this->bulkDeleteAction($explorer),
+                    'upload' => $this->uploadAction($explorer),
+                    default => throw new RuntimeException('Unknown action'),
+                };
+                $this->json(['ok' => true] + $result);
+            } catch (RuntimeException $e) {
+                $this->json(['ok' => false, 'message' => $e->getMessage()], 400);
+            }
+        }
+
+        try {
+            $body = $renderer->files(
+                $explorer->listBuckets(),
+                $bucket === '' ? ['folders' => [], 'files' => []] : $explorer->listObjects($bucket, $prefix),
+                $bucket,
+                $prefix,
+                $auth->csrfToken(),
+                $auth->consumeFlash()
+            );
+        } catch (RuntimeException $e) {
+            $auth->setFlash($e->getMessage());
+            $this->redirect('/_/files');
+        }
+
+        $this->html($body);
+    }
+
+    private function createBucketAction(AdminFileExplorer $explorer): array
+    {
+        $name = trim((string) ($this->post['name'] ?? ''));
+        $explorer->createBucket($name);
+
+        return [
+            'message' => 'Bucket created.',
+            'redirect' => '/_/files?bucket=' . rawurlencode($name),
+        ];
+    }
+
+    private function renameBucketAction(AdminFileExplorer $explorer): array
+    {
+        $bucket = trim((string) ($this->post['bucket'] ?? ''));
+        $name = trim((string) ($this->post['name'] ?? ''));
+        $explorer->renameBucket($bucket, $name);
+
+        return [
+            'message' => 'Bucket renamed.',
+            'redirect' => '/_/files?bucket=' . rawurlencode($name),
+        ];
+    }
+
+    private function deleteBucketAction(AdminFileExplorer $explorer): array
+    {
+        $bucket = trim((string) ($this->post['bucket'] ?? ''));
+        $explorer->deleteBucket($bucket);
+
+        return [
+            'message' => 'Bucket deleted.',
+            'redirect' => '/_/files',
+        ];
+    }
+
+    private function createFolderAction(AdminFileExplorer $explorer): array
+    {
+        $bucket = trim((string) ($this->post['bucket'] ?? ''));
+        $path = trim((string) ($this->post['path'] ?? ''), '/');
+        $explorer->createFolder($bucket, $path);
+
+        return [
+            'message' => 'Folder created.',
+            'redirect' => '/_/files?bucket=' . rawurlencode($bucket) . '&prefix=' . rawurlencode($path),
+        ];
+    }
+
+    private function renameObjectAction(AdminFileExplorer $explorer): array
+    {
+        $bucket = trim((string) ($this->post['bucket'] ?? ''));
+        $oldPath = trim((string) ($this->post['path'] ?? ''), '/');
+        $name = trim((string) ($this->post['name'] ?? ''));
+        $renamed = $explorer->rename($bucket, $oldPath, $name);
+        $parentPrefix = dirname($renamed['path']);
+        $parentPrefix = $parentPrefix === '.' ? '' : $parentPrefix;
+
+        return [
+            'message' => 'Item renamed.',
+            'redirect' => '/_/files?bucket=' . rawurlencode($bucket) . ($parentPrefix === '' ? '' : '&prefix=' . rawurlencode($parentPrefix)),
+        ];
+    }
+
+    private function deleteObjectAction(AdminFileExplorer $explorer): array
+    {
+        $bucket = trim((string) ($this->post['bucket'] ?? ''));
+        $path = trim((string) ($this->post['path'] ?? ''), '/');
+        $parentPrefix = dirname($path);
+        $parentPrefix = $parentPrefix === '.' ? '' : $parentPrefix;
+        $explorer->deleteObject($bucket, $path);
+
+        return [
+            'message' => 'Item deleted.',
+            'redirect' => '/_/files?bucket=' . rawurlencode($bucket) . ($parentPrefix === '' ? '' : '&prefix=' . rawurlencode($parentPrefix)),
+        ];
+    }
+
+    private function bulkDeleteAction(AdminFileExplorer $explorer): array
+    {
+        $bucket = trim((string) ($this->post['bucket'] ?? ''));
+        $items = $this->post['items'] ?? [];
+        if (!is_array($items) || $items === []) {
+            throw new RuntimeException('No items selected');
+        }
+
+        foreach ($items as $item) {
+            $explorer->deleteObject($bucket, trim((string) $item, '/'));
+        }
+
+        $prefix = trim((string) ($this->post['prefix'] ?? ''), '/');
+
+        return [
+            'message' => 'Selected items deleted.',
+            'redirect' => '/_/files?bucket=' . rawurlencode($bucket) . ($prefix === '' ? '' : '&prefix=' . rawurlencode($prefix)),
+        ];
+    }
+
+    private function uploadAction(AdminFileExplorer $explorer): array
+    {
+        $file = $this->files['file'] ?? null;
+        if (!is_array($file)) {
+            throw new RuntimeException('No file uploaded');
+        }
+
+        $bucket = trim((string) ($this->post['bucket'] ?? ''));
+        $prefix = trim((string) ($this->post['prefix'] ?? ''), '/');
+        $uploadedPath = $explorer->uploadFile($bucket, $prefix, $file);
+        $redirectPrefix = dirname($uploadedPath);
+        $redirectPrefix = $redirectPrefix === '.' ? '' : $redirectPrefix;
+
+        return [
+            'message' => 'File uploaded.',
+            'redirect' => '/_/files?bucket=' . rawurlencode($bucket) . ($redirectPrefix === '' ? '' : '&prefix=' . rawurlencode($redirectPrefix)),
+        ];
+    }
+
     private function upgradeService(array $config): AdminUpgradeService
     {
         $entryFile = (string) ($_SERVER['SCRIPT_FILENAME'] ?? '');
@@ -229,6 +403,34 @@ final class AdminRouter
         http_response_code($status);
         header('Content-Type: text/html; charset=UTF-8');
         echo $html;
+        exit;
+    }
+
+    private function json(array $payload, int $status = 200): never
+    {
+        http_response_code($status);
+        header('Content-Type: application/json; charset=UTF-8');
+        echo json_encode($payload, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+        exit;
+    }
+
+    private function streamFile(AdminFileExplorer $explorer, string $bucket, string $objectPath, bool $download): never
+    {
+        try {
+            $info = $explorer->objectInfo($bucket, $objectPath);
+            $fullPath = $explorer->objectFullPath($bucket, $objectPath);
+        } catch (RuntimeException $e) {
+            $this->html('<!doctype html><title>Not found</title><p>' . htmlspecialchars($e->getMessage(), ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . '</p>', 404);
+        }
+
+        http_response_code(200);
+        header('Content-Type: ' . (string) $info['mime']);
+        header('Content-Length: ' . (string) $info['size']);
+        header('X-Content-Type-Options: nosniff');
+        if ($download) {
+            header('Content-Disposition: attachment; filename="' . rawurlencode((string) $info['name']) . '"');
+        }
+        readfile($fullPath);
         exit;
     }
 
