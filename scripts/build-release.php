@@ -19,6 +19,7 @@ $sourceFiles = [
     'src/Admin/AdminConfigWriter.php',
     'src/Admin/AdminStats.php',
     'src/Admin/AdminUpgradeService.php',
+    'src/Admin/AdminFileExplorer.php',
     'src/Admin/AdminRenderer.php',
     'src/Admin/AdminRouter.php',
     'src/Auth/AuthException.php',
