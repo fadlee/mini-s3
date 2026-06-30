@@ -106,7 +106,7 @@ final class AdminRenderer
             . '<style>'
             . 'body { font-family: "SF Pro Display", "Geist Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; margin: 0; background: #FBFBFA; color: #111111; -webkit-font-smoothing: antialiased; }'
             . '[x-cloak] { display: none !important; }'
-            . 'header { background: #FFFFFF; border-bottom: 1px solid #EAEAEA; padding: 18px 24px; display: flex; gap: 20px; align-items: center; justify-content: space-between; flex-wrap: wrap; }'
+            . 'header { position: sticky; top: 0; z-index: 30; background: #FFFFFF; border-bottom: 1px solid #EAEAEA; padding: 18px 24px; display: flex; gap: 20px; align-items: center; justify-content: space-between; flex-wrap: wrap; }'
             . 'header strong { font-size: 16px; font-weight: 600; color: #111111; letter-spacing: -0.01em; }'
             . 'header nav { display: flex; gap: 18px; }'
             . 'header a { color: #787774; text-decoration: none; font-size: 14px; font-weight: 500; transition: color 0.2s ease, text-decoration 0.2s ease; }'
