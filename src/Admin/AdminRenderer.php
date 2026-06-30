@@ -168,6 +168,7 @@ final class AdminRenderer
             . '.files-table th, .files-table td { padding: 8px 10px; border-bottom: 1px solid #EAEAEA; text-align: left; vertical-align: middle; }'
             . '.files-table th { font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; color: #787774; }'
             . '.files-table tbody tr:hover { background: #FCFCFB; }'
+            . '.files-table tbody tr.row-clickable { cursor: pointer; }'
             . '.row-actions { display: flex; gap: 6px; flex-wrap: wrap; }'
             . '.row-actions button, .row-actions a { background: #F7F6F3; border: 1px solid #EAEAEA; color: #111111; font-weight: 500; font-size: 12px; padding: 6px 10px; border-radius: 6px; text-decoration: none; }'
             . '.icon-btn { width: 30px; height: 30px; padding: 0; display: inline-flex; align-items: center; justify-content: center; box-sizing: border-box; }'
@@ -257,13 +258,14 @@ final class AdminRenderer
         foreach ($folders as $folder) {
             $path = (string) ($folder['path'] ?? '');
             $name = (string) ($folder['name'] ?? '');
-            $html .= '<tr data-searchable="' . $this->e(strtolower($name)) . '">'
-                . '<td><input type="checkbox" value="' . $this->e($path) . '" x-model="selectedItems"></td>'
-                . '<td><a href="/_/files?bucket=' . rawurlencode($bucket) . '&prefix=' . rawurlencode($path) . '">' . $this->e($name) . '</a></td>'
+            $folderUrl = '/_/files?bucket=' . rawurlencode($bucket) . '&prefix=' . rawurlencode($path);
+            $html .= '<tr class="row-clickable" data-searchable="' . $this->e(strtolower($name)) . '" x-on:click="window.location.href=' . $this->jsString($folderUrl) . '">'
+                . '<td x-on:click.stop><input type="checkbox" value="' . $this->e($path) . '" x-model="selectedItems"></td>'
+                . '<td><a href="' . $folderUrl . '">' . $this->e($name) . '</a></td>'
                 . '<td>-</td><td>Folder</td>'
                 . '<td>' . $this->e((string) ($folder['object_count'] ?? 0)) . ' items</td>'
                 . '<td>' . $this->e($this->formatDate((int) ($folder['modified'] ?? 0))) . '</td>'
-                . '<td><div class="row-actions">'
+                . '<td x-on:click.stop><div class="row-actions">'
                 . $this->iconButton(self::ICON_RENAME, 'Rename', 'x-on:click="renameObject(' . $this->jsString($path) . ', ' . $this->jsString($name) . ')"')
                 . $this->iconButton(self::ICON_DELETE, 'Delete', 'x-on:click="deleteObject(' . $this->jsString($path) . ')"', 'danger')
                 . '</div></td></tr>';
@@ -275,17 +277,18 @@ final class AdminRenderer
             $preview = '-';
             if (!empty($file['is_image'])) {
                 $previewUrl = '/_/files?bucket=' . rawurlencode($bucket) . '&path=' . rawurlencode($path) . '&download=0';
-                $preview = '<a href="' . $previewUrl . '" target="_blank"><img class="preview-thumb" src="' . $previewUrl . '" alt="' . $this->e($name) . '"></a>';
+                $preview = '<a href="' . $previewUrl . '" target="_blank" x-on:click.stop><img class="preview-thumb" src="' . $previewUrl . '" alt="' . $this->e($name) . '"></a>';
             }
-            $html .= '<tr data-searchable="' . $this->e(strtolower($name)) . '">'
-                . '<td><input type="checkbox" value="' . $this->e($path) . '" x-model="selectedItems"></td>'
+            $downloadUrl = '/_/files?bucket=' . rawurlencode($bucket) . '&path=' . rawurlencode($path) . '&download=1';
+            $html .= '<tr class="row-clickable" data-searchable="' . $this->e(strtolower($name)) . '" x-on:click="window.location.href=' . $this->jsString($downloadUrl) . '">'
+                . '<td x-on:click.stop><input type="checkbox" value="' . $this->e($path) . '" x-model="selectedItems"></td>'
                 . '<td>' . $this->e($name) . '</td>'
                 . '<td>' . $preview . '</td>'
                 . '<td>' . $this->e((string) ($file['mime'] ?? 'file')) . '</td>'
                 . '<td>' . $this->e($this->formatBytes((int) ($file['size'] ?? 0))) . '</td>'
                 . '<td>' . $this->e($this->formatDate((int) ($file['modified'] ?? 0))) . '</td>'
-                . '<td><div class="row-actions">'
-                . $this->iconButton(self::ICON_DOWNLOAD, 'Download', 'href="/_/files?bucket=' . rawurlencode($bucket) . '&path=' . rawurlencode($path) . '&download=1"', '', true)
+                . '<td x-on:click.stop><div class="row-actions">'
+                . $this->iconButton(self::ICON_DOWNLOAD, 'Download', 'href="' . $downloadUrl . '"', '', true)
                 . $this->iconButton(self::ICON_RENAME, 'Rename', 'x-on:click="renameObject(' . $this->jsString($path) . ', ' . $this->jsString($name) . ')"')
                 . $this->iconButton(self::ICON_DELETE, 'Delete', 'x-on:click="deleteObject(' . $this->jsString($path) . ')"', 'danger')
                 . '</div></td></tr>';
