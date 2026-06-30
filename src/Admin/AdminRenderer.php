@@ -285,7 +285,7 @@ final class AdminRenderer
             . '<h2 x-dialog:title x-text="dialogTitle"></h2>'
             . '<div class="mt-2 muted"><p x-text="dialogMessage"></p></div>'
             . '</div>'
-            . '<label x-show="!dialogShowFile && !dialogIsConfirm" x-cloak>Name<input x-ref="dialogNameInput" x-model="dialogName"></label>'
+            . '<label x-show="!dialogShowFile && !dialogIsConfirm" x-cloak>Name<input x-ref="dialogNameInput" x-model="dialogName" x-on:keydown.enter="submitDialog()"></label>'
             . '<label x-show="dialogShowFile" x-cloak>File<input type="file" x-ref="uploadFile"></label>'
             . '<div class="dialog-actions">'
             . '<button type="button" class="dialog-secondary" x-on:click="$dialog.close()">Cancel</button>'
