@@ -165,6 +165,7 @@ final class AdminRenderer
             . '.dialog-close { position: absolute; right: 12px; top: 12px; background: transparent; color: #787774; padding: 6px; }'
             . '.dialog-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 18px; }'
             . '.dialog-secondary { background: transparent; color: #111111; border: 1px solid #EAEAEA; }'
+            . '.dialog-secondary:hover { background: #F7F6F3; color: #111111; }'
             . '.status-line { margin-bottom: 16px; font-size: 14px; }'
             . '.status-line.error-text { color: #9F2F2D; }'
             . '@media (max-width: 720px) { main { padding: 0 16px; } .files-table thead { display: none; } .files-table, .files-table tbody, .files-table tr, .files-table td { display: block; width: 100%; } .files-table tr { padding: 12px 0; } .files-table td { border-bottom: 0; padding: 6px 0; } }'
