@@ -287,7 +287,7 @@ final class AdminRenderer
             . '<label x-show="dialogShowFile" x-cloak>File<input type="file" x-ref="uploadFile"></label>'
             . '<div class="dialog-actions">'
             . '<button type="button" class="dialog-secondary" x-on:click="$dialog.close()">Cancel</button>'
-            . '<button type="button" x-on:click="submitDialog()" x-bind:disabled="busy" x-text="busy ? \"Working...\" : \"Confirm\""></button>'
+            . '<button type="button" x-on:click="submitDialog()" x-bind:disabled="busy" x-text="busy ? \'Working...\' : \'Confirm\'"></button>'
             . '</div>'
             . '</div></div></div>';
     }
