@@ -235,8 +235,8 @@ final class AdminRenderer
         $folders = (array) ($listing['folders'] ?? []);
         $files = (array) ($listing['files'] ?? []);
         $html = '<div class="status-line muted" x-bind:class="statusError ? \'error-text\' : \'\'" x-text="statusMessage"></div>';
-        $html .= '<div class="row-actions" style="margin-bottom:12px;"><button type="button" class="danger" x-on:click="bulkDelete()">Delete selected</button></div>';
-        $html .= '<div class="files-table-wrap"><table class="files-table"><thead><tr><th></th><th>Name</th><th>Preview</th><th>Type</th><th>Size</th><th>Modified</th><th>Actions</th></tr></thead><tbody>';
+        $html .= '<div class="row-actions" style="margin-bottom:12px;"><button type="button" class="danger" x-bind:disabled="selectedItems.length===0" x-on:click="bulkDelete()">Delete selected<template x-if="selectedItems.length"><span x-text="\' (\' + selectedItems.length + \')\'"></span></template></button></div>';
+        $html .= '<div class="files-table-wrap"><table class="files-table"><thead><tr><th><input type="checkbox" x-bind:checked="allSelected" x-on:change="toggleSelectAll($event.target.checked)" aria-label="Select all"></th><th>Name</th><th>Preview</th><th>Type</th><th>Size</th><th>Modified</th><th>Actions</th></tr></thead><tbody>';
 
         if ($prefix !== '') {
             $parent = dirname($prefix);
@@ -316,6 +316,9 @@ final class AdminRenderer
             . 'init(){const key="miniS3:"+this.bucket+":"+this.prefix;const saved=sessionStorage.getItem(key);if(saved){try{const s=JSON.parse(saved);if(typeof s.search==="string"){this.search=s.search;this.$nextTick(()=>this.filterList());}if(typeof s.scrollY==="number"){this.$nextTick(()=>window.scrollTo(0,s.scrollY));}}catch(e){}sessionStorage.removeItem(key);}},'
             . 'saveState(){sessionStorage.setItem("miniS3:"+this.bucket+":"+this.prefix,JSON.stringify({search:this.search,scrollY:window.scrollY}));},'
             . 'filterList(){const q=this.search.trim().toLowerCase();document.querySelectorAll("[data-searchable]").forEach((el)=>{el.classList.toggle("hidden",q!==""&&!String(el.dataset.searchable||"").includes(q));});},'
+            . 'visibleCheckboxes(){return Array.from(document.querySelectorAll(".files-table tbody tr:not(.hidden) input[type=checkbox]"));},'
+            . 'get allSelected(){const boxes=this.visibleCheckboxes();return boxes.length>0&&boxes.every((b)=>this.selectedItems.includes(b.value));},'
+            . 'toggleSelectAll(checked){const values=this.visibleCheckboxes().map((b)=>b.value);if(checked){this.selectedItems=Array.from(new Set([...this.selectedItems,...values]));}else{this.selectedItems=this.selectedItems.filter((v)=>!values.includes(v));}},'
             . 'setStatus(message,isError=false){this.statusMessage=message;this.statusError=isError;},'
             . 'openDialog(title,message,action,path,name,showFile){this.dialogIsConfirm=false;this.dialogConfirmPayload=null;this.dialogTitle=title;this.dialogMessage=message||"";this.dialogAction=action;this.dialogPath=path||"";this.dialogName=name||"";this.dialogShowFile=showFile;this.dialogOpen=true;this.busy=false;if(!showFile){this.$nextTick(()=>{const el=this.$refs.dialogNameInput;if(el){el.focus();el.select();}});}},'
             . 'openConfirm(title,message,payload){this.dialogIsConfirm=true;this.dialogConfirmPayload=payload;this.dialogTitle=title;this.dialogMessage=message||"";this.dialogAction="";this.dialogPath="";this.dialogName="";this.dialogShowFile=false;this.dialogOpen=true;this.busy=false;},'
