@@ -277,9 +277,9 @@ just incorrect:
 - **SigV4 canonical request building** (`SigV4Authenticator`) — custom
   hand-rolled implementation (not using an AWS SDK), including the
   `hostCandidates()` fallback logic for reverse-proxy deployments.
-  Currently has **zero PHP unit-test coverage** — it's only exercised
-  end-to-end via `tests/integration/run.php` + `tests/integration/sigv4.php`
-  (spins up `php -S`, signs requests, asserts HTTP status/body).
+  PHP unit-test coverage now exists in `tests/unit/sigv4-authenticator.php`
+  (46 assertions). The integration suite (`tests/integration/run.php` +
+  `tests/integration/sigv4.php`) remains the end-to-end parity contract.
   Before porting: extend that integration harness to also drive a Go
   server binary with the *same* `sigv4.php` signing helper and assert
   identical outcomes (status code + XML error code on rejection), for
@@ -311,12 +311,18 @@ just incorrect:
   PHP test file maps to a Go test file with the same scenarios:
   `admin-auth.php`, `admin-config-writer.php`, `admin-file-explorer.php`,
   `admin-renderer.php`, `admin-stats.php`, `admin-upgrade-service.php`,
-  `config-loader.php`, `file-storage.php`, `request-validator.php`.
-  Note PHP itself is missing unit tests for `SigV4Authenticator`,
-  `S3Router`, `S3Response`, `RequestContext`, `AuthException` — adding
-  focused PHP unit tests for these *first* (cheap, fast feedback) is
-  recommended before/alongside porting them, rather than relying solely
-  on the slower integration suite for day-to-day iteration.
+  `config-loader.php`, `file-storage.php`, `request-validator.php`,
+  `sigv4-authenticator.php`.
+  Note PHP itself is missing unit tests for `S3Router`, `S3Response`,
+  `RequestContext`, `AuthException` — adding focused PHP unit tests for
+  these *first* (cheap, fast feedback) is recommended before/alongside
+  porting them, rather than relying solely on the slower integration
+  suite for day-to-day iteration. (`SigV4Authenticator` previously lacked
+  unit tests too, but now has `tests/unit/sigv4-authenticator.php` with
+  46 assertions covering header auth, presigned URLs, clock skew,
+  credential scope, SignedHeaders, legacy mode, host fallbacks, and
+  debug logging — use this as the template for the Go port's test
+  scenarios.)
 - **Cross-version integration parity test**: extend
   `tests/integration/run.php` (or add a sibling runner) to start both
   `php -S` and the Go binary against the same `DATA_DIR`/config-equivalent

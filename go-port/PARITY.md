@@ -37,6 +37,13 @@ No PHP unit tests exist for this class — coverage is via
 `tests/integration/run.php` + `tests/integration/sigv4.php` only. See
 PLAN.md "Security-critical ports" before marking any row below `[x]`.
 
+> **Update 2026-07-01:** PHP unit tests now exist in
+> `tests/unit/sigv4-authenticator.php` (46 assertions covering header auth,
+> presigned URLs, clock skew, credential scope validation, SignedHeaders
+> validation, legacy access-key-only mode, host candidate fallbacks, and
+> auth debug logging). The integration suite remains the end-to-end parity
+> contract, but day-to-day iteration now has fast unit feedback.
+
 | Feature                              | PHP | Go | Notes |
 |--------------------------------------|-----|----|-------|
 | Authorization header SigV4 verify    | [x] | [ ] | |
@@ -115,3 +122,4 @@ PLAN.md "Security-critical ports" before marking any row below `[x]`.
 |------|---------|-----|----|-------|
 | 2026-07-01 | (plan created) | — | — | go-port/ folder + PLAN.md + PARITY.md |
 | 2026-07-01 | (plan reviewed for gaps) | — | — | Read full SigV4Authenticator, AdminFileExplorer, AdminUpgradeService, AdminRouter, ConfigLoader, build-release.php, README, CI workflow. Fixed env var prefix (`MINI_S3_*` not `MINIS3_`), added self-upgrade checksum/asset-naming/re-exec design, flagged 2 open decisions (versioning scheme, session persistence), added security-critical-ports + cross-version integration test strategy. |
+| 2026-07-01 | SigV4Authenticator PHP unit tests | [x] | — | Added `tests/unit/sigv4-authenticator.php` (46 assertions). Covers header auth happy path + rejection (bad sig, wrong host, unknown key, missing headers, clock skew, malformed auth, credential scope, SignedHeaders validation), presigned URL happy path + rejection (expired, future, bad expires range, missing params, wrong algorithm), legacy access-key-only mode, host candidate fallbacks (X-Forwarded-Host, SERVER_NAME, default-port variant), and auth debug log writing. Fills the "zero PHP unit-test coverage" gap flagged in PLAN.md. |
