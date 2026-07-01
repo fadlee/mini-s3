@@ -51,8 +51,9 @@ func Load(configPath string) (*Config, error) {
 	}
 
 	data, err := os.ReadFile(path)
+	fileMissing := err != nil && os.IsNotExist(err)
 	if err != nil {
-		if !os.IsNotExist(err) {
+		if !fileMissing {
 			return nil, fmt.Errorf("read config: %w", err)
 		}
 		// No config file — use defaults + env only.
@@ -68,8 +69,13 @@ func Load(configPath string) (*Config, error) {
 
 	normalize(cfg)
 
-	if err := validate(cfg); err != nil {
-		return nil, err
+	// Skip validation when the config file doesn't exist yet: the admin
+	// installer needs the server to start with empty credentials so the
+	// user can configure them via the web UI on first run.
+	if !fileMissing {
+		if err := validate(cfg); err != nil {
+			return nil, err
+		}
 	}
 
 	return cfg, nil
