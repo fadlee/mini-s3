@@ -23,7 +23,14 @@ COPY binaries/mini-s3-linux-${TARGETARCH} /usr/local/bin/mini-s3
 RUN chmod +x /usr/local/bin/mini-s3 && \
     setcap 'cap_net_bind_service=+ep' /usr/local/bin/mini-s3
 
-# Default config lives in /etc/mini-s3; data in /data.
+# Create data and config directories with correct ownership so the
+# non-root user can read/write even without a host volume mount.
+RUN mkdir -p /data /etc/mini-s3 && \
+    chown -R mini-s3:mini-s3 /data /etc/mini-s3
+
+# Default data_dir for the installer when no config exists yet.
+ENV MINI_S3_DATA_DIR=/data
+
 EXPOSE 80
 VOLUME ["/data", "/etc/mini-s3"]
 

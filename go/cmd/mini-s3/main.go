@@ -38,7 +38,7 @@ func main() {
 			resolvedConfigPath = "config.yaml"
 		}
 	}
-	baseDir := filepath.Dir(filepath.Dir(resolvedConfigPath))
+	baseDir := filepath.Dir(resolvedConfigPath)
 
 	// Load config (may fail if config doesn't exist yet — that's OK for installer).
 	cfg, err := config.Load(resolvedConfigPath)

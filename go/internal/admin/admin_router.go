@@ -508,9 +508,13 @@ func (r *AdminRouter) getUpgradeService(cfg *config.Config) *AdminUpgradeService
 }
 
 func (r *AdminRouter) defaultInstallerValues() map[string]string {
+	dataDir := filepath.Join(r.baseDir, "data")
+	if v := os.Getenv("MINI_S3_DATA_DIR"); v != "" {
+		dataDir = v
+	}
 	return map[string]string{
 		"admin_username":         "admin",
-		"data_dir":               filepath.Join(r.baseDir, "data"),
+		"data_dir":               dataDir,
 		"max_request_size":       "104857600",
 		"public_read_all_buckets": "true",
 		"clock_skew_seconds":     "900",
