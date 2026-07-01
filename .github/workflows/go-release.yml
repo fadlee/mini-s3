@@ -1,0 +1,161 @@
+name: Go Release
+
+on:
+  push:
+    tags:
+      - 'go-v*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version tag (e.g. go-v1.0.0)'
+        required: true
+
+permissions:
+  contents: write
+  packages: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        goos: [linux, darwin, windows]
+        goarch: [amd64, arm64]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.26'
+
+      - name: Determine version
+        id: version
+        run: |
+          if [ -n "${{ github.event.inputs.version }}" ]; then
+            echo "tag=${{ github.event.inputs.version }}" >> $GITHUB_OUTPUT
+            echo "version=${{ github.event.inputs.version }}" >> $GITHUB_OUTPUT
+          else
+            echo "tag=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+            echo "version=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Build binary
+        working-directory: go
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          CGO_ENABLED: 0
+        run: |
+          VERSION=${{ steps.version.outputs.version }}
+          # Strip leading 'v' for the ldflags value
+          CLEAN_VERSION="${VERSION#v}"
+          EXT=""
+          if [ "$GOOS" = "windows" ]; then EXT=".exe"; fi
+          OUTDIR="/tmp/release"
+          mkdir -p "$OUTDIR"
+          BINARY_NAME="mini-s3-${VERSION}-${GOOS}-${GOARCH}${EXT}"
+          go build -trimpath -ldflags "-s -w -X main.Version=${VERSION}" \
+            -o "$OUTDIR/${BINARY_NAME}" ./cmd/mini-s3
+          echo "binary_name=${BINARY_NAME}" >> $GITHUB_OUTPUT
+          echo "binary_path=$OUTDIR/${BINARY_NAME}" >> $GITHUB_OUTPUT
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: mini-s3-${{ steps.version.outputs.version }}-${{ matrix.goos }}-${{ matrix.goarch }}
+          path: /tmp/release/mini-s3-*
+
+  checksums:
+    needs: release
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Determine version
+        id: version
+        run: |
+          if [ -n "${{ github.event.inputs.version }}" ]; then
+            echo "version=${{ github.event.inputs.version }}" >> $GITHUB_OUTPUT
+            echo "tag=${{ github.event.inputs.version }}" >> $GITHUB_OUTPUT
+          else
+            echo "version=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+            echo "tag=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: /tmp/artifacts
+          merge-multiple: true
+
+      - name: Generate checksums
+        run: |
+          cd /tmp/artifacts
+          # Generate SHA256 checksums for all binaries
+          sha256sum mini-s3-* > checksums-sha256.txt
+          # Display for logging
+          cat checksums-sha256.txt
+
+      - name: Create release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.version.outputs.tag }}
+          name: ${{ steps.version.outputs.version }}
+          generate_release_notes: true
+          files: |
+            /tmp/artifacts/mini-s3-*
+            /tmp/artifacts/checksums-sha256.txt
+
+  docker:
+    needs: release
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Determine version
+        id: version
+        run: |
+          if [ -n "${{ github.event.inputs.version }}" ]; then
+            TAG="${{ github.event.inputs.version }}"
+          else
+            TAG="${GITHUB_REF#refs/tags/}"
+          fi
+          echo "tag=${TAG}" >> $GITHUB_OUTPUT
+          # Strip optional "go-v" prefix for the image tag (e.g. go-v1.0.0 -> 1.0.0)
+          IMAGE_TAG="${TAG#go-v}"
+          echo "image_tag=${IMAGE_TAG}" >> $GITHUB_OUTPUT
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract image name
+        id: image
+        run: |
+          REPO_OWNER="${GITHUB_REPOSITORY_OWNER,,}"
+          echo "name=ghcr.io/${REPO_OWNER}/mini-s3" >> $GITHUB_OUTPUT
+
+      - name: Build and push image
+        uses: docker/build-push-action@v6
+        with:
+          context: ./go
+          file: ./go/Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: true
+          build-args: |
+            VERSION=${{ steps.version.outputs.tag }}
+          tags: |
+            ${{ steps.image.outputs.name }}:${{ steps.version.outputs.image_tag }}
+            ${{ steps.image.outputs.name }}:${{ steps.version.outputs.image_tag }}-scratch
+            ${{ steps.image.outputs.name }}:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
