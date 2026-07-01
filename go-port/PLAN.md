@@ -173,22 +173,45 @@ stronger pipeline:
      `<exe>.old` on next start.
 6. **Restart — self re-exec as the primary mechanism** (not
    supervisor-dependent by default, to avoid the multi-second-or-more
-   downtime / extra ops burden PHP never had): the running process
-   spawns the freshly-swapped binary as a child with the same args/env
-   (`os.StartProcess`/`exec.Command` + re-exec), waits for the child's
-   listener to come up (e.g. child signals readiness on a pipe or by
-   successfully binding), then the parent calls
-   `http.Server.Shutdown(ctx)` and exits. Expected downtime: roughly
-   the time to bind a new listener on the same port (typically
-   sub-second on Unix with `SO_REUSEPORT`/`SO_REUSEADDR`; on Windows,
-   slightly longer since the old listener must fully close first).
+   downtime / extra ops burden PHP never had). The exact ordering
+   differs by OS because of port-binding constraints:
+
+   - **Unix (linux/darwin):** parent spawns the freshly-swapped binary
+     as a child with the same args/env (`os.StartProcess`/`exec.Command`
+     + re-exec), child binds the same port using `SO_REUSEPORT`/
+     `SO_REUSEADDR` while the parent is still listening, child signals
+     readiness on a pipe once it is accepting, then the parent calls
+     `http.Server.Shutdown(ctx)` and exits. Downtime: effectively none
+     (both listeners are briefly active; the kernel load-balances new
+     connections to whichever is up).
+
+   - **Windows:** two processes cannot bind the same port at once
+     (no `SO_REUSEPORT`), so the "spawn child, wait for it to bind,
+     then shut down parent" ordering is a deadlock — the child cannot
+     bind until the parent releases the port, but the parent won't
+     release until the child signals ready. The Windows sequence must
+     be **close-then-spawn**: after the file swap, the parent calls
+     `http.Server.Shutdown(ctx)` to close its listener *first*, then
+     spawns the child with the same args/env, the child binds the
+     now-free port and serves, and the parent exits once the child is
+     up (or immediately after spawning, relying on the child's bind).
+     Downtime: the gap between the parent closing the listener and the
+     child finishing `net.Listen` — typically tens of ms on localhost,
+     longer if the port is in `TIME_WAIT` (mitigated by setting
+     `SO_LINGER`/`SO_REUSEADDR` on the parent listener where available).
+     This is the "brief reconnect window" the README must document.
+
    Document this trade-off plainly in README: **Go upgrade has a brief
-   reconnect window; PHP upgrade has none.**
+   reconnect window on Windows (and effectively none on Unix with
+   `SO_REUSEPORT`); PHP upgrade has none.**
    - Also support `--upgrade-exit-code-only` (or similar flag) for
      operators who run under systemd/launchd/Docker with
      `Restart=always` and prefer the supervisor to do the restart
      instead of self re-exec. Keep this as a documented fallback, not
-     the default.
+     the default. On Windows this is the recommended path for
+     operators who cannot tolerate even the brief close-then-spawn
+     gap (e.g. run under a supervisor/NSSM that restarts the process
+     after the parent exits with the upgrade exit code).
 7. **Cache GitHub status** — same as PHP: `<DATA_DIR>/.upgrade-cache/latest.json`,
    6h TTL, same `state` values (`unavailable`, `unknown`, `up_to_date`,
    `update_available`, `error`).
