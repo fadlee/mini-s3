@@ -1,0 +1,15 @@
+# Build artifacts
+*.exe
+mini-s3
+mini-s3.exe
+
+# Test & dev
+**/*_test.go
+**/*.test
+
+# Editor / OS
+.git
+.gitignore
+.idea
+.vscode
+.DS_Store

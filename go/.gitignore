@@ -1,0 +1,8 @@
+# Build artifacts
+mini-s3
+mini-s3.exe
+*.exe
+
+# Local config / data
+config.yaml
+data/
