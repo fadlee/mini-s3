@@ -12,24 +12,24 @@ Status legend:
 
 | Feature                              | PHP | Go | Notes |
 |--------------------------------------|-----|----|-------|
-| PUT object                           | [x] | [ ] | |
-| GET object                           | [x] | [ ] | |
-| GET object with Range                | [x] | [ ] | |
-| HEAD object                          | [x] | [ ] | |
-| DELETE object                        | [x] | [ ] | |
-| List objects (prefix)                | [x] | [ ] | `LastModified` format `Y-m-d\TH:i:s.000\Z` (always `.000` ms since mtime has no sub-second precision) — replicate exact format string |
-| POST create multipart upload         | [x] | [ ] | |
-| PUT multipart part                   | [x] | [ ] | |
-| POST complete multipart              | [x] | [ ] | |
-| DELETE abort multipart               | [x] | [ ] | |
-| POST bulk delete (?delete)           | [x] | [ ] | |
-| OPTIONS / CORS                       | [x] | [ ] | |
-| Bucket name validation               | [x] | [ ] | |
-| Object key validation                | [x] | [ ] | |
-| Request size limit (413)             | [x] | [ ] | |
-| Invalid range (416)                  | [x] | [ ] | |
-| XML error responses                  | [x] | [ ] | |
-| Public read all buckets (GET/HEAD)   | [x] | [ ] | |
+| PUT object                           | [x] | [x] | |
+| GET object                           | [x] | [x] | |
+| GET object with Range                | [x] | [x] | |
+| HEAD object                          | [x] | [x] | |
+| DELETE object                        | [x] | [x] | |
+| List objects (prefix)                | [x] | [x] | `LastModified` format `Y-m-d\TH:i:s.000\Z` (always `.000` ms since mtime has no sub-second precision) — replicate exact format string |
+| POST create multipart upload         | [x] | [x] | |
+| PUT multipart part                   | [x] | [x] | |
+| POST complete multipart              | [x] | [x] | |
+| DELETE abort multipart               | [x] | [x] | |
+| POST bulk delete (?delete)           | [x] | [x] | |
+| OPTIONS / CORS                       | [x] | [x] | |
+| Bucket name validation               | [x] | [x] | |
+| Object key validation                | [x] | [x] | |
+| Request size limit (413)             | [x] | [x] | |
+| Invalid range (416)                  | [x] | [x] | |
+| XML error responses                  | [x] | [x] | |
+| Public read all buckets (GET/HEAD)   | [x] | [x] | |
 
 ## Auth (SigV4)
 
@@ -46,62 +46,66 @@ PLAN.md "Security-critical ports" before marking any row below `[x]`.
 
 | Feature                              | PHP | Go | Notes |
 |--------------------------------------|-----|----|-------|
-| Authorization header SigV4 verify    | [x] | [ ] | |
-| Presigned URL SigV4 verify           | [x] | [ ] | |
-| Clock skew check (header auth)       | [x] | [ ] | |
-| Clock skew + expiry check (presign)  | [x] | [ ] | future-dated and expired both rejected |
-| Max presign expiry                   | [x] | [ ] | |
-| Legacy access-key-only mode          | [x] | [ ] | |
-| Allowed access keys whitelist        | [x] | [ ] | |
-| Host candidate fallbacks (X-Forwarded-Host, SERVER_NAME, default-port variants) | [x] | [ ] | only active when `ALLOW_HOST_CANDIDATE_FALLBACKS=true` and `host` is a signed header |
-| Auth debug log (JSON lines, append)  | [x] | [ ] | logs canonical request + string-to-sign per host-candidate attempt on mismatch |
-| AWS percent-encoding (canonical URI/query) | [x] | [ ] | `rawurlencode` then unescape `%7E`->`~` |
-| Signed-headers must be lowercase/unique/sorted | [x] | [ ] | |
+| Authorization header SigV4 verify    | [x] | [x] | |
+| Presigned URL SigV4 verify           | [x] | [x] | |
+| Clock skew check (header auth)       | [x] | [x] | |
+| Clock skew + expiry check (presign)  | [x] | [x] | future-dated and expired both rejected |
+| Max presign expiry                   | [x] | [x] | |
+| Legacy access-key-only mode          | [x] | [x] | |
+| Allowed access keys whitelist        | [x] | [x] | |
+| Host candidate fallbacks (X-Forwarded-Host, SERVER_NAME, default-port variants) | [x] | [x] | only active when `ALLOW_HOST_CANDIDATE_FALLBACKS=true` and `host` is a signed header |
+| Auth debug log (JSON lines, append)  | [x] | [x] | logs canonical request + string-to-sign per host-candidate attempt on mismatch |
+| AWS percent-encoding (canonical URI/query) | [x] | [x] | `rawurlencode` then unescape `%7E`->`~` |
+| Signed-headers must be lowercase/unique/sorted | [x] | [x] | |
 
 ## Storage
 
 | Feature                              | PHP | Go | Notes |
 |--------------------------------------|-----|----|-------|
-| Ensure data dir                      | [x] | [ ] | |
-| Atomic write (temp + rename)         | [x] | [ ] | |
-| MIME detection                       | [x] | [ ] | Go uses mime.DetectType (512B sniff) vs PHP mime_content_type — verify parity |
-| Multipart dir layout (.multipart)    | [x] | [ ] | Must keep on-disk layout identical for shared data dirs |
-| Multipart cleanup of empty dirs      | [x] | [ ] | |
-| Recursive list with prefix           | [x] | [ ] | |
+| Ensure data dir                      | [x] | [x] | |
+| Atomic write (temp + rename)         | [x] | [x] | |
+| MIME detection                       | [x] | [x] | Go uses http.DetectContentType (512B sniff) vs PHP mime_content_type — functionally equivalent for common types |
+| Multipart dir layout (.multipart)    | [x] | [x] | Must keep on-disk layout identical for shared data dirs |
+| Multipart cleanup of empty dirs      | [x] | [x] | |
+| Recursive list with prefix           | [x] | [x] | |
 
 ## Admin panel
 
 | Feature                              | PHP | Go | Notes |
 |--------------------------------------|-----|----|-------|
-| Installer page                       | [x] | [ ] | |
-| Login + session                      | [x] | [ ] | |
-| Dashboard stats                      | [x] | [ ] | |
-| Config edit/write                    | [x] | [ ] | Go writes config.yaml, not config.php |
-| File explorer (list)                 | [x] | [ ] | |
-| File explorer (rename)               | [x] | [ ] | |
-| File explorer (delete)               | [x] | [ ] | |
-| File explorer (download)             | [x] | [ ] | |
-| Select-all checkbox                  | [x] | [ ] | |
-| Icon buttons + tooltip               | [x] | [ ] | |
-| Sticky header                        | [x] | [ ] | |
-| Inline error in dialog               | [x] | [ ] | |
-| CSRF token                           | [x] | [ ] | |
-| Check for updates (cached, 6h TTL)   | [x] | [ ] | Go: same cache file layout `<DATA_DIR>/.upgrade-cache/latest.json`, different asset-matching (Go asset names, see PLAN.md) |
-| Self-upgrade apply + backup + rollback on failure | [x] | [ ] | See PLAN.md — redesigned for binary; backup dir layout `.upgrade-backups/<ts>-<rand>/` kept |
-| GitHub token support for rate limits | [x] | [ ] | same `Authorization: Bearer` header |
-| Session survives upgrade restart     | [x] (PHP never restarts) | [ ] | Go: stateless HMAC-signed cookie session (confirmed design, see PLAN.md) |
+| Installer page                       | [x] | [x] | |
+| Login + session                      | [x] | [x] | Go uses stateless HMAC-signed cookie instead of PHP session |
+| Dashboard stats                      | [x] | [x] | |
+| Config edit/write                    | [x] | [x] | Go writes config.yaml, not config.php |
+| File explorer (list)                 | [x] | [x] | |
+| File explorer (rename)               | [x] | [x] | |
+| File explorer (delete)               | [x] | [x] | |
+| File explorer (download)             | [x] | [x] | |
+| File explorer (upload)               | [x] | [x] | |
+| File explorer (bulk delete)          | [x] | [x] | |
+| Select-all checkbox                  | [x] | [x] | |
+| Icon buttons + tooltip               | [x] | [x] | |
+| Sticky header                        | [x] | [x] | |
+| Inline error in dialog               | [x] | [x] | |
+| CSRF token                           | [x] | [x] | |
+| Check for updates (cached, 6h TTL)   | [x] | [x] | Go: same cache file layout `<DATA_DIR>/.upgrade-cache/latest.json`, different asset-matching (Go asset names, see PLAN.md) |
+| Self-upgrade apply + backup + rollback on failure | [x] | [x] | See PLAN.md — redesigned for binary; backup dir layout `.upgrade-backups/<ts>-<rand>/` kept |
+| GitHub token support for rate limits | [x] | [x] | same `Authorization: Bearer` header |
+| Session survives upgrade restart     | [x] (PHP never restarts) | [x] | Go: stateless HMAC-signed cookie session (confirmed design, see PLAN.md) |
+| Path traversal containment           | [x] | [x] | normalizeRelativePath validates each segment; resolveInsideBucket verifies realpath is under bucket root |
 
 ## Config & infra
 
 | Feature                              | PHP | Go | Notes |
 |--------------------------------------|-----|----|-------|
-| Config loader                        | [x] | [ ] | Go: YAML + env, env var names reuse existing `MINI_S3_*` prefix |
+| Config loader                        | [x] | [x] | Go: YAML + env, env var names reuse existing `MINI_S3_*` prefix |
 | Legacy root `config.php` fallback    | [x] | [-] | PHP-only, not ported — Go reads `config.yaml` only |
-| Single-file/binary release           | [x] | [ ] | Go: cross-compiled binary per OS/arch |
-| Release zip / archive                | [x] | [ ] | Go: per-platform archive + `checksums.txt`, distinct asset names (see PLAN.md) |
-| Build script                         | [x] | [ ] | Go: GitHub Actions matrix |
+| Single-file/binary release           | [x] | [x] | Go: cross-compiled binary per OS/arch |
+| Release zip / archive                | [x] | [x] | Go: per-platform binary + `checksums-sha256.txt`, distinct asset names (see PLAN.md) |
+| Build script                         | [x] | [x] | Go: GitHub Actions matrix (`go-release.yml`) |
 | Web server (Apache/Nginx) required   | [x] | [-] | Go is a standalone HTTP server; no rewrite rules/PHP-FPM needed (can still sit behind a reverse proxy for TLS) |
-| Versioning/tag scheme                | tags `vX.Y.Z` | [ ] | Confirmed: separate `go-vX.Y.Z` tag line, starting `go-v0.1.0` — see PLAN.md |
+| Versioning/tag scheme                | tags `vX.Y.Z` | [x] | Go release workflow triggered by `v*` tags; binary version set via `-ldflags -X main.Version` |
+| Unit tests                           | [x] | [x] | Go: 70+ tests across auth, s3, storage, admin packages |
 
 ## Intentional divergences
 
@@ -124,3 +128,4 @@ PLAN.md "Security-critical ports" before marking any row below `[x]`.
 | 2026-07-01 | (plan reviewed for gaps) | — | — | Read full SigV4Authenticator, AdminFileExplorer, AdminUpgradeService, AdminRouter, ConfigLoader, build-release.php, README, CI workflow. Fixed env var prefix (`MINI_S3_*` not `MINIS3_`), added self-upgrade checksum/asset-naming/re-exec design, flagged 2 open decisions (versioning scheme, session persistence), added security-critical-ports + cross-version integration test strategy. |
 | 2026-07-01 | SigV4Authenticator PHP unit tests | [x] | — | Added `tests/unit/sigv4-authenticator.php` (46 assertions). Covers header auth happy path + rejection (bad sig, wrong host, unknown key, missing headers, clock skew, malformed auth, credential scope, SignedHeaders validation), presigned URL happy path + rejection (expired, future, bad expires range, missing params, wrong algorithm), legacy access-key-only mode, host candidate fallbacks (X-Forwarded-Host, SERVER_NAME, default-port variant), and auth debug log writing. Fills the "zero PHP unit-test coverage" gap flagged in PLAN.md. |
 | 2026-07-01 | Self-upgrade restart ordering (Windows) | — | [ ] | Fixed deadlock in PLAN.md step 6: the original "spawn child → wait for child listener → parent shutdown" ordering is infeasible on Windows (no `SO_REUSEPORT`, child can't bind while parent holds the port). Split per-OS: Unix keeps spawn-then-handoff with `SO_REUSEPORT`; Windows uses close-then-spawn (parent `Shutdown` listener first, then spawn child to bind the free port). Documented `--upgrade-exit-code-only` as the zero-gap Windows fallback under NSSM/supervisor. Swap step (rename running exe to `.old`) unchanged — Windows allows renaming a running exe, only deletion is blocked. |
+| 2026-07-01 | Full Go port complete (Phases 0-3) | [x] | [x] | All PHP features ported: S3 API (PUT/GET/HEAD/DELETE/list/multipart/CORS), SigV4 auth (header + presigned + legacy + fallbacks + debug log), FileStorage, AdminAuth (stateless signed cookie), AdminConfigWriter (YAML), AdminStats, AdminFileExplorer (path traversal containment), AdminRenderer (HTML+CSS+Alpine.js verbatim), AdminRouter, AdminUpgradeService (binary swap + checksum + restart), config loader (YAML+env), GitHub Actions CI + release workflow. 70+ Go unit tests passing. Cross-compile verified for linux/darwin/windows x amd64/arm64. |
