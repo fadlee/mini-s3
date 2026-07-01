@@ -97,9 +97,10 @@ func (r *AdminRouter) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 }
 
 func (r *AdminRouter) handleInstaller(w http.ResponseWriter, req *http.Request, renderer *AdminRenderer, writer *AdminConfigWriter) {
-	// Installer auth: no password configured, so use a temporary auth
-	// with empty hash. CSRF token is generated fresh.
-	tempAuth := NewAdminAuth("admin", "", randomToken(32))
+	// Installer auth: no password configured yet, so use a temporary auth
+	// with a stable per-process secret (not a fresh random per request —
+	// otherwise the signed cookie from GET won't verify on POST).
+	tempAuth := NewAdminAuth("admin", "", getInstallerSecret())
 	values := r.defaultInstallerValues()
 	csrfToken := tempAuth.EnsureCSRFToken(w, req)
 

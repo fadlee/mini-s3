@@ -3,8 +3,10 @@ package admin
 import (
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -657,4 +659,96 @@ func TestConfigWriterInstallerConfigAlreadyExists(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error when config already exists")
 	}
+}
+
+// TestInstallerCSRFRoundTrip verifies the full installer flow: GET the form
+// (which sets a signed CSRF cookie), then POST the form with the CSRF token
+// and cookie. This reproduces the "CSRF token is invalid" bug that occurred
+// when the installer generated a fresh random secret on every request.
+func TestInstallerCSRFRoundTrip(t *testing.T) {
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, "config.yaml")
+	router := NewAdminRouter(configPath, dir, "test")
+	dataDir := filepath.Join(dir, "data")
+
+	// Step 1: GET the installer form — should set a session cookie with CSRF token
+	getReq := httptest.NewRequest("GET", "/_", nil)
+	getRR := httptest.NewRecorder()
+	router.ServeHTTP(getRR, getReq)
+
+	if getRR.Code != http.StatusOK {
+		t.Fatalf("expected 200 on installer GET, got %d", getRR.Code)
+	}
+
+	// Extract CSRF token from the rendered form
+	body := getRR.Body.String()
+	csrfToken := extractCSRFToken(t, body)
+	if csrfToken == "" {
+		t.Fatal("expected CSRF token in installer form")
+	}
+
+	// Collect cookies from GET response
+	cookies := getRR.Result().Cookies()
+	if len(cookies) == 0 {
+		t.Fatal("expected session cookie to be set on GET")
+	}
+
+	// Step 2: POST the installer form with the CSRF token + cookie
+	form := url.Values{}
+	form.Set("csrf_token", csrfToken)
+	form.Set("admin_username", "admin")
+	form.Set("admin_password", "testpass123")
+	form.Set("admin_password_confirm", "testpass123")
+	form.Set("data_dir", dataDir)
+	form.Set("access_key", "AKIATEST")
+	form.Set("secret_key", "secret123")
+	form.Set("max_request_size", "104857600")
+	form.Set("public_read_all_buckets", "true")
+	form.Set("clock_skew_seconds", "900")
+	form.Set("max_presign_expires", "604800")
+
+	postReq := httptest.NewRequest("POST", "/_", strings.NewReader(form.Encode()))
+	postReq.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	for _, c := range cookies {
+		postReq.AddCookie(c)
+	}
+
+	postRR := httptest.NewRecorder()
+	router.ServeHTTP(postRR, postReq)
+
+	// Should redirect to /_ (302) on success, not 400 with CSRF error
+	if postRR.Code == http.StatusBadRequest {
+		t.Fatalf("installer POST returned 400 (CSRF failed): %s", postRR.Body.String())
+	}
+	if postRR.Code != http.StatusFound {
+		t.Fatalf("expected 302 redirect after install, got %d: %s", postRR.Code, postRR.Body.String())
+	}
+
+	// Verify config file was created
+	if _, err := os.Stat(configPath); err != nil {
+		t.Fatalf("config file was not created: %v", err)
+	}
+}
+
+// extractCSRFToken pulls the CSRF token value out of a rendered hidden input.
+func extractCSRFToken(t *testing.T, htmlBody string) string {
+	t.Helper()
+	// Look for name="csrf_token" value="..."
+	idx := strings.Index(htmlBody, `name="csrf_token"`)
+	if idx == -1 {
+		return ""
+	}
+	// Find the value attribute after this position
+	rest := htmlBody[idx:]
+	valIdx := strings.Index(rest, `value="`)
+	if valIdx == -1 {
+		return ""
+	}
+	valStart := valIdx + len(`value="`)
+	rest = rest[valStart:]
+	endIdx := strings.Index(rest, `"`)
+	if endIdx == -1 {
+		return ""
+	}
+	return rest[:endIdx]
 }
