@@ -19,6 +19,7 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version: '1.26'
+          cache-dependency-path: go/go.sum
       - name: Vet
         working-directory: go
         run: go vet ./...
@@ -40,6 +41,7 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version: '1.26'
+          cache-dependency-path: go/go.sum
       - name: Cross-compile ${{ matrix.goos }}/${{ matrix.goarch }}
         working-directory: go
         env:
