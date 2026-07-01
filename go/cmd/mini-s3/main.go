@@ -19,7 +19,7 @@ import (
 var Version = "dev"
 
 func main() {
-	addr := flag.String("addr", ":9000", "listen address (host:port)")
+	addr := flag.String("addr", ":80", "listen address (host:port)")
 	configPath := flag.String("config", "", "path to config.yaml (default: alongside executable)")
 	showVersion := flag.Bool("version", false, "print version and exit")
 	flag.Parse()

@@ -1,15 +1,10 @@
-# Build artifacts
+# Build artifacts (local dev builds — not for image)
+/mini-s3
+/mini-s3.exe
 *.exe
-mini-s3
-mini-s3.exe
 
-# Test & dev
-**/*_test.go
-**/*.test
-
-# Editor / OS
-.git
-.gitignore
-.idea
-.vscode
-.DS_Store
+# The image uses pre-built binaries staged at binaries/ by the release
+# workflow. Ignore everything else under go/ to keep the build context small.
+*
+!binaries/
+!Dockerfile

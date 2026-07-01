@@ -126,6 +126,25 @@ jobs:
           IMAGE_TAG="${TAG#go-v}"
           echo "image_tag=${IMAGE_TAG}" >> $GITHUB_OUTPUT
 
+      - name: Download linux binaries from release job
+        uses: actions/download-artifact@v4
+        with:
+          path: /tmp/artifacts
+          merge-multiple: true
+          pattern: mini-s3-${{ steps.version.outputs.tag }}-linux-*
+
+      - name: Stage binaries for buildx context
+        run: |
+          # buildx sets TARGETARCH=amd64|arm64 per platform; the Dockerfile
+          # COPYs binaries/mini-s3-linux-${TARGETARCH}. Stage both arches
+          # under go/binaries/ with a stable, arch-suffixed name.
+          mkdir -p go/binaries
+          VERSION="${{ steps.version.outputs.tag }}"
+          cp "/tmp/artifacts/mini-s3-${VERSION}-linux-amd64" go/binaries/mini-s3-linux-amd64
+          cp "/tmp/artifacts/mini-s3-${VERSION}-linux-arm64" go/binaries/mini-s3-linux-arm64
+          chmod +x go/binaries/mini-s3-linux-*
+          ls -la go/binaries/
+
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
 
@@ -156,7 +175,7 @@ jobs:
             VERSION=${{ steps.version.outputs.tag }}
           tags: |
             ${{ steps.image.outputs.name }}:${{ steps.version.outputs.image_tag }}
-            ${{ steps.image.outputs.name }}:${{ steps.version.outputs.image_tag }}-scratch
+            ${{ steps.image.outputs.name }}:${{ steps.version.outputs.image_tag }}-alpine
             ${{ steps.image.outputs.name }}:latest
           cache-from: type=gha
           cache-to: type=gha,mode=max

@@ -1,35 +1,33 @@
 # syntax=docker/dockerfile:1
 
-# Build stage
-FROM golang:1.26-alpine AS builder
+# Alpine-based runtime image for mini-s3.
+# Uses pre-built binaries from the release workflow (no Go toolchain here).
+# buildx sets TARGETARCH automatically per platform (amd64 / arm64).
+FROM alpine:3.20
 
-WORKDIR /src
-
-# Cache deps first
-COPY go.mod go.sum ./
-RUN go mod download
-
-# Copy source
-COPY . .
-
+ARG TARGETARCH
 ARG VERSION=dev
-ENV CGO_ENABLED=0 GOOS=linux
 
-RUN go build -trimpath \
-      -ldflags "-s -w -X main.Version=${VERSION}" \
-      -o /out/mini-s3 ./cmd/mini-s3
+# ca-certificates for HTTPS (self-upgrade fetches GitHub releases);
+# tzdata for correct local timestamps in logs;
+# libcap provides setcap so the non-root binary can bind to port 80.
+RUN apk add --no-cache ca-certificates tzdata libcap
 
-# Runtime stage: minimal static image
-FROM scratch
+# Non-root user (matches the uid used by distroless-style images).
+RUN addgroup -S -g 65532 mini-s3 && \
+    adduser -S -D -H -u 65532 -G mini-s3 mini-s3
 
-# Non-root user (65532:65532 — distroless-style uid)
-COPY --from=builder /out/mini-s3 /usr/local/bin/mini-s3
+# Copy the pre-built binary matching the target arch.
+# The workflow stages binaries at binaries/mini-s3-linux-<arch>.
+COPY binaries/mini-s3-linux-${TARGETARCH} /usr/local/bin/mini-s3
+RUN chmod +x /usr/local/bin/mini-s3 && \
+    setcap 'cap_net_bind_service=+ep' /usr/local/bin/mini-s3
 
 # Default config lives in /etc/mini-s3; data in /data.
-# Both are overridable via --config / --addr flags or env vars.
-EXPOSE 9000
+EXPOSE 80
+VOLUME ["/data", "/etc/mini-s3"]
 
-# VOLUME ["/data", "/etc/mini-s3"]
+USER mini-s3
 
 ENTRYPOINT ["/usr/local/bin/mini-s3"]
-CMD ["--addr", ":9000", "--config", "/etc/mini-s3/config.yaml"]
+CMD ["--addr", ":80", "--config", "/etc/mini-s3/config.yaml"]
