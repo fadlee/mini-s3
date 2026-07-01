@@ -1,6 +1,6 @@
-# Build artifacts
-mini-s3
-mini-s3.exe
+# Build artifacts (only at go/ root, not cmd/mini-s3/ directory)
+/mini-s3
+/mini-s3.exe
 *.exe
 
 # Local config / data
