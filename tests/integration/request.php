@@ -92,5 +92,12 @@ if ($root === false) {
     exit(1);
 }
 
-chdir($root);
-require $root . '/public/index.php';
+$entrypoint = getenv('MINI_S3_ENTRYPOINT');
+$entrypoint = is_string($entrypoint) && $entrypoint !== '' ? $entrypoint : $root . '/public/index.php';
+if (!is_file($entrypoint)) {
+    fwrite(STDERR, "Entry point not found: {$entrypoint}\n");
+    exit(1);
+}
+
+chdir(dirname($entrypoint));
+require $entrypoint;

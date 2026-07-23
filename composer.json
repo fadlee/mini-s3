@@ -5,10 +5,12 @@
   "license": "MIT",
   "scripts": {
     "qa:lint": "php tests/lint.php",
+    "qa:unit": "for f in tests/unit/*.php; do php \"$f\" || exit 1; done",
     "qa:test": "php tests/integration/run.php",
     "qa:release-test": "php tests/release-archive.php",
     "check": [
       "@qa:lint",
+      "@qa:unit",
       "@qa:test",
       "@qa:release-test"
     ]

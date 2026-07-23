@@ -25,22 +25,14 @@ jobs:
           php-version: "8.2"
           tools: none
 
-      - name: Run lint
-        run: php tests/lint.php
-
-      - name: Run unit tests
-        run: |
-          php tests/unit/config-loader.php
-          php tests/unit/request-validator.php
-
-      - name: Run integration tests
-        run: php tests/integration/run.php
+      - name: Run checks
+        run: composer check
 
       - name: Build release archive
         run: php scripts/build-release.php "$GITHUB_REF_NAME"
 
       - name: Verify release archive
-        run: php tests/release-archive.php
+        run: php tests/release-archive.php "$GITHUB_REF_NAME"
 
       - name: Create GitHub Release
         env:
