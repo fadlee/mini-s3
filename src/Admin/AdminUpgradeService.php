@@ -27,6 +27,7 @@ final class AdminUpgradeService
             $metadata = $this->metadataFetcher === null
                 ? $this->fetchLatestRelease()
                 : ($this->metadataFetcher)();
+            $release = $this->selectLatestPhpRelease($metadata);
         } catch (\Throwable $e) {
             return [
                 'state' => 'error',
@@ -37,17 +38,17 @@ final class AdminUpgradeService
             ];
         }
 
-        $latestTag = $this->releaseTag($metadata);
-        if ($latestTag === null) {
+        if ($release === null) {
             return [
                 'state' => 'error',
-                'message' => 'Latest GitHub release does not have a valid version tag.',
+                'message' => 'Latest GitHub release does not include a valid PHP release zip.',
                 'currentVersion' => $currentVersion,
                 'latestVersion' => null,
                 'assetUrl' => null,
             ];
         }
 
+        $latestTag = $this->releaseTag($release);
         if ($this->compareVersions($currentVersion, $latestTag) >= 0) {
             return [
                 'state' => 'up_to_date',
@@ -58,7 +59,7 @@ final class AdminUpgradeService
             ];
         }
 
-        $assetUrl = $this->assetUrl($metadata, $latestTag);
+        $assetUrl = $this->assetUrl($release, $latestTag);
         if ($assetUrl === null) {
             return [
                 'state' => 'error',
@@ -145,6 +146,43 @@ final class AdminUpgradeService
         }
 
         return null;
+    }
+
+    private function selectLatestPhpRelease(array $metadata): ?array
+    {
+        if (array_key_exists('tag_name', $metadata)) {
+            return $this->isPhpRelease($metadata) ? $metadata : null;
+        }
+
+        $latestRelease = null;
+        $latestTag = null;
+        foreach ($metadata as $release) {
+            if (!is_array($release) || !$this->isPhpRelease($release)) {
+                continue;
+            }
+
+            $tag = $this->releaseTag($release);
+            if ($tag === null) {
+                continue;
+            }
+
+            if ($latestTag === null || $this->compareVersions($latestTag, $tag) < 0) {
+                $latestRelease = $release;
+                $latestTag = $tag;
+            }
+        }
+
+        return $latestRelease;
+    }
+
+    private function isPhpRelease(array $metadata): bool
+    {
+        $tag = $this->releaseTag($metadata);
+        if ($tag === null) {
+            return false;
+        }
+
+        return $this->assetUrl($metadata, $tag) !== null;
     }
 
     public function validateReleaseIndex(string $code, string $expectedVersion): array
@@ -365,7 +403,7 @@ final class AdminUpgradeService
                 'ignore_errors' => true,
             ],
         ]);
-        $url = 'https://api.github.com/repos/' . self::REPO_OWNER . '/' . self::REPO_NAME . '/releases/latest';
+        $url = 'https://api.github.com/repos/' . self::REPO_OWNER . '/' . self::REPO_NAME . '/releases?per_page=20';
         $body = @file_get_contents($url, false, $context);
         if ($body === false) {
             $error = error_get_last();

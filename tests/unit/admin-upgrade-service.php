@@ -53,6 +53,27 @@ assertSameValue('update_available', $update['state'], 'newer latest release is a
 assertSameValue('v1.0.2', $update['latestVersion'], 'latest version is included for available update');
 assertSameValue('https://example.test/mini-s3-v1.0.2.zip', $update['assetUrl'], 'asset url is included for available update');
 
+
+$mixedReleaseService = new AdminUpgradeService(__DIR__, sys_get_temp_dir(), __DIR__ . '/index.php', function (): array {
+    return [
+        [
+            'tag_name' => 'go-v1.0.0',
+            'assets' => [
+                ['name' => 'mini-s3-go-v1.0.0-linux-amd64', 'browser_download_url' => 'https://example.test/mini-s3-go-v1.0.0-linux-amd64'],
+            ],
+        ],
+        [
+            'tag_name' => 'v1.4.1',
+            'assets' => [
+                ['name' => 'mini-s3-v1.4.1.zip', 'browser_download_url' => 'https://example.test/mini-s3-v1.4.1.zip'],
+            ],
+        ],
+    ];
+});
+$mixedRelease = $mixedReleaseService->checkLatest('v1.4.0');
+assertSameValue('update_available', $mixedRelease['state'], 'PHP updater skips Go releases and selects latest PHP zip release');
+assertSameValue('v1.4.1', $mixedRelease['latestVersion'], 'PHP release tag is selected from mixed release list');
+assertSameValue('https://example.test/mini-s3-v1.4.1.zip', $mixedRelease['assetUrl'], 'PHP release asset is selected from mixed release list');
 $errorService = new AdminUpgradeService(__DIR__, sys_get_temp_dir(), __DIR__ . '/index.php', function (): array {
     return ['tag_name' => 'latest', 'assets' => []];
 });
