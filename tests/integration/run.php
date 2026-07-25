@@ -186,6 +186,28 @@ file_put_contents($tmpDir . '/too-large.bin', 'x');
 signedRequest($phpBin, $sigv4Helper, $requestHelper, $accessKey, $secretKey, $signBaseUrl, $signHost, 'PUT', '/' . $testBucket . '/too-large.bin', $tmpDir . '/too-large.bin', $tmpDir . '/too-large.body', $tmpDir . '/too-large.meta', ['Content-Length: 104857601']);
 assertEq('413', metaStatus($tmpDir . '/too-large.meta', $phpBin), 'Oversized request should be rejected');
 
+file_put_contents($tmpDir . '/chunked-ok.txt', '1234');
+putenv('MINI_S3_MAX_REQUEST_SIZE=4');
+signedRequest($phpBin, $sigv4Helper, $requestHelper, $accessKey, $secretKey, $signBaseUrl, $signHost, 'PUT', '/' . $testBucket . '/chunked-ok.txt', $tmpDir . '/chunked-ok.txt', $tmpDir . '/chunked-ok.body', $tmpDir . '/chunked-ok.meta', ['Transfer-Encoding: chunked']);
+assertEq('200', metaStatus($tmpDir . '/chunked-ok.meta', $phpBin), 'Chunked upload within streamed size limit should succeed');
+signedRequest($phpBin, $sigv4Helper, $requestHelper, $accessKey, $secretKey, $signBaseUrl, $signHost, 'GET', '/' . $testBucket . '/chunked-ok.txt', null, $tmpDir . '/chunked-get.body', $tmpDir . '/chunked-get.meta');
+assertEq('200', metaStatus($tmpDir . '/chunked-get.meta', $phpBin), 'Chunked upload object GET should succeed');
+assertSameFile($tmpDir . '/chunked-ok.txt', $tmpDir . '/chunked-get.body', 'Chunked upload body differs from uploaded body');
+
+file_put_contents($tmpDir . '/chunked-too-large.txt', '12345');
+signedRequest($phpBin, $sigv4Helper, $requestHelper, $accessKey, $secretKey, $signBaseUrl, $signHost, 'PUT', '/' . $testBucket . '/chunked-too-large.txt', $tmpDir . '/chunked-too-large.txt', $tmpDir . '/chunked-too-large.body', $tmpDir . '/chunked-too-large.meta', ['Transfer-Encoding: chunked']);
+assertEq('413', metaStatus($tmpDir . '/chunked-too-large.meta', $phpBin), 'Chunked upload exceeding streamed size limit should be rejected');
+
+signedRequest($phpBin, $sigv4Helper, $requestHelper, $accessKey, $secretKey, $signBaseUrl, $signHost, 'POST', '/' . $testBucket . '/chunked-part.bin?uploads', null, $tmpDir . '/chunked-part-init.body', $tmpDir . '/chunked-part-init.meta');
+assertEq('200', metaStatus($tmpDir . '/chunked-part-init.meta', $phpBin), 'Chunked multipart init should succeed');
+$chunkedUploadId = extractXmlValue($tmpDir . '/chunked-part-init.body', 'UploadId');
+if ($chunkedUploadId === '') {
+    fail('UploadId not found from chunked multipart init');
+}
+signedRequest($phpBin, $sigv4Helper, $requestHelper, $accessKey, $secretKey, $signBaseUrl, $signHost, 'PUT', '/' . $testBucket . '/chunked-part.bin?partNumber=1&uploadId=' . rawurlencode($chunkedUploadId), $tmpDir . '/chunked-too-large.txt', $tmpDir . '/chunked-part-too-large.body', $tmpDir . '/chunked-part-too-large.meta', ['Transfer-Encoding: chunked']);
+assertEq('413', metaStatus($tmpDir . '/chunked-part-too-large.meta', $phpBin), 'Chunked multipart part exceeding streamed size limit should be rejected');
+putenv('MINI_S3_MAX_REQUEST_SIZE=104857600');
+
 signedRequest($phpBin, $sigv4Helper, $requestHelper, $accessKey, $secretKey, $signBaseUrl, $signHost, 'GET', '/' . $testBucket . '/multi.bin', null, $tmpDir . '/range-valid.body', $tmpDir . '/range-valid.meta', ['Range: bytes=0-3']);
 assertEq('206', metaStatus($tmpDir . '/range-valid.meta', $phpBin), 'Valid range request should return 206');
 assertEq('4', (string) filesize($tmpDir . '/range-valid.body'), 'Valid range response body length should be 4');

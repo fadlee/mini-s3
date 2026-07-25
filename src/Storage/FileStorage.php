@@ -111,11 +111,11 @@ final class FileStorage
         return $stream;
     }
 
-    public function putObjectFromInput(string $bucket, string $key): void
+    public function putObjectFromInput(string $bucket, string $key, int $maxBytes): void
     {
         $filePath = $this->objectPath($bucket, $key);
         $this->ensureDirectory(dirname($filePath));
-        $this->copyInputToAtomicFile($filePath);
+        $this->copyInputToAtomicFile($filePath, $maxBytes);
     }
 
     public function deleteObject(string $bucket, string $key): void
@@ -146,7 +146,7 @@ final class FileStorage
         return is_dir($this->multipartDir($bucket, $key, $uploadId));
     }
 
-    public function putMultipartPartFromInput(string $bucket, string $key, string $uploadId, int $partNumber): string
+    public function putMultipartPartFromInput(string $bucket, string $key, string $uploadId, int $partNumber, int $maxBytes): string
     {
         $uploadDir = $this->multipartDir($bucket, $key, $uploadId);
         if (!is_dir($uploadDir)) {
@@ -154,7 +154,7 @@ final class FileStorage
         }
 
         $partPath = $uploadDir . '/' . $partNumber;
-        $this->copyInputToAtomicFile($partPath);
+        $this->copyInputToAtomicFile($partPath, $maxBytes);
 
         return $partPath;
     }
@@ -226,7 +226,7 @@ final class FileStorage
         $this->cleanupMultipartUpload($bucket, $key, $uploadId);
     }
 
-    private function copyInputToAtomicFile(string $targetPath): void
+    private function copyInputToAtomicFile(string $targetPath, int $maxBytes): void
     {
         $inputStream = PHP_SAPI === 'cli' ? 'php://stdin' : 'php://input';
         $input = fopen($inputStream, 'rb');
@@ -241,15 +241,38 @@ final class FileStorage
             throw new RuntimeException('Failed to write file');
         }
 
-        $copied = stream_copy_to_stream($input, $output);
+        $totalBytes = 0;
+        $chunkSize = 8 * 1024 * 1024;
+
+        try {
+            while (!feof($input)) {
+                $buffer = fread($input, $chunkSize);
+                if ($buffer === false) {
+                    throw new RuntimeException('Failed to read request body');
+                }
+                if ($buffer === '') {
+                    continue;
+                }
+
+                $totalBytes += strlen($buffer);
+                if ($totalBytes > $maxBytes) {
+                    throw new RuntimeException('Request body exceeds maximum size');
+                }
+
+                $written = fwrite($output, $buffer);
+                if ($written === false || $written !== strlen($buffer)) {
+                    throw new RuntimeException('Failed to write file');
+                }
+            }
+        } catch (RuntimeException $e) {
+            fclose($output);
+            fclose($input);
+            @unlink($tmpPath);
+            throw $e;
+        }
 
         fclose($output);
         fclose($input);
-
-        if ($copied === false) {
-            @unlink($tmpPath);
-            throw new RuntimeException('Failed to write file');
-        }
 
         if (!rename($tmpPath, $targetPath)) {
             @unlink($tmpPath);

@@ -15,6 +15,9 @@
       "@qa:release-test"
     ]
   },
-  "require": {},
+  "require": {
+    "ext-simplexml": "*",
+    "ext-zip": "*"
+  },
   "require-dev": {}
 }

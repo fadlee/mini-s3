@@ -117,13 +117,27 @@ final class S3Router
                 $this->response->error(404, 'NoSuchUpload', 'Upload ID not found', $this->resource($bucket, $key));
             }
 
-            $partPath = $this->storage->putMultipartPartFromInput($bucket, $key, $uploadId, (int) $partNumber);
+            try {
+                $partPath = $this->storage->putMultipartPartFromInput($bucket, $key, $uploadId, (int) $partNumber, $this->maxRequestSize);
+            } catch (RuntimeException $e) {
+                if ($e->getMessage() === 'Request body exceeds maximum size') {
+                    $this->response->error(413, 'EntityTooLarge', 'Request too large');
+                }
+                throw $e;
+            }
             header('ETag: ' . md5_file($partPath));
             http_response_code(200);
             exit;
         }
 
-        $this->storage->putObjectFromInput($bucket, $key);
+        try {
+            $this->storage->putObjectFromInput($bucket, $key, $this->maxRequestSize);
+        } catch (RuntimeException $e) {
+            if ($e->getMessage() === 'Request body exceeds maximum size') {
+                $this->response->error(413, 'EntityTooLarge', 'Request too large');
+            }
+            throw $e;
+        }
         http_response_code(200);
         exit;
     }

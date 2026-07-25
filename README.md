@@ -37,6 +37,7 @@ You can also combine this with Cloudflare's CDN for faster and more stable perfo
 ### Requirements
 
 - PHP 8.0+
+- PHP extensions: SimpleXML (`php8.2-xml` on Debian/Ubuntu) and ZipArchive (`php8.2-zip` on Debian/Ubuntu)
 - Apache/Nginx (with mod_rewrite enabled)
 
 ### Installation
