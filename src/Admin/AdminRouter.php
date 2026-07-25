@@ -54,6 +54,10 @@ final class AdminRouter
                 $this->handleConfig($renderer, $writer, $auth, $config);
             }
 
+            if ($path === '/_/security') {
+                $this->handleSecurity($renderer, $writer, $auth, $config);
+            }
+
             if ($path === '/_/files') {
                 $this->handleFiles($renderer, $auth, $config);
             }
@@ -136,6 +140,36 @@ final class AdminRouter
         }
 
         $this->html($renderer->config($values, [], $auth->csrfToken()));
+    }
+
+    private function handleSecurity(AdminRenderer $renderer, AdminConfigWriter $writer, AdminAuth $auth, array $config): never
+    {
+        $values = $this->accountValuesFromConfig($config);
+        if ($this->method === 'POST') {
+            if (!$auth->verifyCsrfToken((string) ($this->post['csrf_token'] ?? ''))) {
+                $this->html($renderer->security($this->post + $values, ['CSRF token is invalid'], $auth->csrfToken(), ''), 400);
+            }
+
+            $currentPassword = (string) ($this->post['current_password'] ?? '');
+            $currentHash = (string) ($config['ADMIN_PASSWORD_HASH'] ?? '');
+            if ($currentHash === '' || !password_verify($currentPassword, $currentHash)) {
+                $this->html($renderer->security($this->post + $values, ['Current password is invalid'], $auth->csrfToken(), ''), 401);
+            }
+
+            try {
+                $newConfig = $writer->buildAdminAccountConfig($this->post, $config);
+                $writer->writeConfig($newConfig);
+                if (PHP_SAPI !== 'cli') {
+                    session_regenerate_id(true);
+                }
+                $auth->setFlash('Admin account updated.');
+                $this->redirect('/_/security');
+            } catch (RuntimeException $e) {
+                $this->html($renderer->security($this->post + $values, [$e->getMessage()], $auth->csrfToken(), ''), 400);
+            }
+        }
+
+        $this->html($renderer->security($values, [], $auth->csrfToken(), $auth->consumeFlash()));
     }
 
     private function handleCheckUpdate(AdminAuth $auth, array $config): never
@@ -387,6 +421,13 @@ final class AdminRouter
             'allow_host_candidate_fallbacks' => (bool) $config['ALLOW_HOST_CANDIDATE_FALLBACKS'],
             'clock_skew_seconds' => (string) $config['CLOCK_SKEW_SECONDS'],
             'max_presign_expires' => (string) $config['MAX_PRESIGN_EXPIRES'],
+        ];
+    }
+
+    private function accountValuesFromConfig(array $config): array
+    {
+        return [
+            'admin_username' => (string) ($config['ADMIN_USERNAME'] ?? 'admin'),
         ];
     }
 

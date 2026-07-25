@@ -87,6 +87,29 @@ $existingUsernameConfig = $writer->buildConfig([
     'ADMIN_PASSWORD_HASH' => $config['ADMIN_PASSWORD_HASH'],
 ]);
 assertSameValue('existing-admin', $existingUsernameConfig['ADMIN_USERNAME'], 'admin username is preserved when omitted from existing config');
+$runtimeOnlyConfig = $writer->buildConfig([
+    'data_dir' => $dataDir,
+    'access_key' => 'access-two',
+    'secret_key' => 'secret-two',
+], $config);
+assertSameValue('owner', $runtimeOnlyConfig['ADMIN_USERNAME'], 'runtime config save preserves existing admin username');
+assertSameValue($config['ADMIN_PASSWORD_HASH'], $runtimeOnlyConfig['ADMIN_PASSWORD_HASH'], 'runtime config save preserves existing admin password hash');
+
+$renamedAccountConfig = $writer->buildAdminAccountConfig([
+    'admin_username' => 'new-owner',
+    'new_password' => '',
+    'new_password_confirm' => '',
+], $config);
+assertSameValue('new-owner', $renamedAccountConfig['ADMIN_USERNAME'], 'admin account update stores username');
+assertSameValue($config['ADMIN_PASSWORD_HASH'], $renamedAccountConfig['ADMIN_PASSWORD_HASH'], 'admin account update preserves password when new password is blank');
+
+$newPasswordConfig = $writer->buildAdminAccountConfig([
+    'admin_username' => 'new-owner',
+    'new_password' => 'new-secret-pass',
+    'new_password_confirm' => 'new-secret-pass',
+], $config);
+assertSameValue(true, password_verify('new-secret-pass', $newPasswordConfig['ADMIN_PASSWORD_HASH']), 'admin account update hashes new password');
+
 
 $writer->writeInstallerConfig($config);
 assertTrueValue(is_file($base . '/config/config.php'), 'config file is written');

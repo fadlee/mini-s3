@@ -12,7 +12,7 @@ final class AdminRenderer
 
     public function installer(array $values, array $errors, string $csrfToken): string
     {
-        return $this->layout('Install Mini S3', $this->form('/_', $values, $errors, $csrfToken, true), false);
+        return $this->layout('Install Mini S3', $this->installerForm('/_', $values, $errors, $csrfToken), false);
     }
 
     public function login(string $error, string $csrfToken): string
@@ -46,7 +46,12 @@ final class AdminRenderer
 
     public function config(array $values, array $errors, string $csrfToken): string
     {
-        return $this->layout('Config', $this->form('/_/config', $values, $errors, $csrfToken, false), true);
+        return $this->layout('Config', $this->configForm($values, $errors, $csrfToken), true);
+    }
+
+    public function security(array $values, array $errors, string $csrfToken, string $flashMessage): string
+    {
+        return $this->layout('Security', $this->flashMessage($flashMessage) . $this->securityForm($values, $errors, $csrfToken), true);
     }
 
     public function files(array $buckets, array $listing, string $currentBucket, string $currentPrefix, string $csrfToken, string $flashMessage): string
@@ -71,22 +76,44 @@ final class AdminRenderer
         return $this->layout('Files', $body, true);
     }
 
-    private function form(string $action, array $values, array $errors, string $csrfToken, bool $installer): string
+    private function installerForm(string $action, array $values, array $errors, string $csrfToken): string
     {
-        $errorHtml = '';
-        foreach ($errors as $error) {
-            $errorHtml .= '<div class="error">' . $this->e((string) $error) . '</div>';
-        }
-
-        $passwordLabel = $installer ? 'Admin password' : 'New admin password';
-        $passwordRequired = $installer ? ' required' : '';
-
-        return $errorHtml . '<form method="post" action="' . $this->e($action) . '">'
+        return $this->errorHtml($errors) . '<form method="post" action="' . $this->e($action) . '">'
             . '<input type="hidden" name="csrf_token" value="' . $this->e($csrfToken) . '">'
             . '<label><span class="field-label">Admin username</span><input name="admin_username" value="' . $this->e((string) ($values['admin_username'] ?? 'admin')) . '" required></label>'
-            . '<label><span class="field-label">' . $passwordLabel . '</span><input type="password" name="admin_password"' . $passwordRequired . '></label>'
-            . '<label><span class="field-label">Confirm admin password</span><input type="password" name="admin_password_confirm"' . $passwordRequired . '></label>'
-            . '<label><span class="field-label">Data directory</span><input name="data_dir" value="' . $this->e((string) ($values['data_dir'] ?? '')) . '" required></label>'
+            . '<label><span class="field-label">Admin password</span><input type="password" name="admin_password" required></label>'
+            . '<label><span class="field-label">Confirm admin password</span><input type="password" name="admin_password_confirm" required></label>'
+            . $this->runtimeConfigFields($values)
+            . '<button type="submit">Save</button>'
+            . '</form>';
+    }
+
+    private function configForm(array $values, array $errors, string $csrfToken): string
+    {
+        return $this->errorHtml($errors) . '<form method="post" action="/_/config">'
+            . '<input type="hidden" name="csrf_token" value="' . $this->e($csrfToken) . '">'
+            . '<p class="muted">Admin username and password are managed separately on the Security page.</p>'
+            . $this->runtimeConfigFields($values)
+            . '<button type="submit">Save config</button>'
+            . '</form>';
+    }
+
+    private function securityForm(array $values, array $errors, string $csrfToken): string
+    {
+        return $this->errorHtml($errors) . '<form method="post" action="/_/security">'
+            . '<input type="hidden" name="csrf_token" value="' . $this->e($csrfToken) . '">'
+            . '<label><span class="field-label">Admin username</span><input name="admin_username" value="' . $this->e((string) ($values['admin_username'] ?? 'admin')) . '" required></label>'
+            . '<label><span class="field-label">Current password</span><input type="password" name="current_password" autocomplete="current-password" required></label>'
+            . '<label><span class="field-label">New password</span><input type="password" name="new_password" autocomplete="new-password"></label>'
+            . '<label><span class="field-label">Confirm new password</span><input type="password" name="new_password_confirm" autocomplete="new-password"></label>'
+            . '<p class="muted">Leave new password blank to keep the current password.</p>'
+            . '<button type="submit">Save admin account</button>'
+            . '</form>';
+    }
+
+    private function runtimeConfigFields(array $values): string
+    {
+        return '<label><span class="field-label">Data directory</span><input name="data_dir" value="' . $this->e((string) ($values['data_dir'] ?? '')) . '" required></label>'
             . '<label><span class="field-label">Access key</span><input name="access_key" value="' . $this->e((string) ($values['access_key'] ?? '')) . '" required></label>'
             . '<label><span class="field-label">Secret key</span><input type="password" name="secret_key" value="' . $this->e((string) ($values['secret_key'] ?? '')) . '" required></label>'
             . '<label class="checkbox-label"><input type="checkbox" name="public_read_all_buckets" value="1"' . $this->checked($values, 'public_read_all_buckets') . '> Public read all buckets</label>'
@@ -96,14 +123,22 @@ final class AdminRenderer
             . '<label class="checkbox-label"><input type="checkbox" name="allow_host_candidate_fallbacks" value="1"' . $this->checked($values, 'allow_host_candidate_fallbacks') . '> Allow host candidate fallbacks</label>'
             . '<label><span class="field-label">Clock skew seconds</span><input type="number" min="1" name="clock_skew_seconds" value="' . $this->e((string) ($values['clock_skew_seconds'] ?? '900')) . '"></label>'
             . '<label><span class="field-label">Max presign expires</span><input type="number" min="1" name="max_presign_expires" value="' . $this->e((string) ($values['max_presign_expires'] ?? '604800')) . '"></label>'
-            . '</details>'
-            . '<button type="submit">Save</button>'
-            . '</form>';
+            . '</details>';
+    }
+
+    private function errorHtml(array $errors): string
+    {
+        $html = '';
+        foreach ($errors as $error) {
+            $html .= '<div class="error">' . $this->e((string) $error) . '</div>';
+        }
+
+        return $html;
     }
 
     private function layout(string $title, string $body, bool $nav): string
     {
-        $navigation = $nav ? '<nav><a href="/_">Dashboard</a><a href="/_/files">Files</a><a href="/_/config">Config</a><a href="/_/logout">Logout</a></nav>' : '';
+        $navigation = $nav ? '<nav><a href="/_">Dashboard</a><a href="/_/files">Files</a><a href="/_/config">Config</a><a href="/_/security">Security</a><a href="/_/logout">Logout</a></nav>' : '';
 
         return '<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">'
             . '<title>' . $this->e($title) . '</title>'

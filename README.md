@@ -152,7 +152,7 @@ If `config/config.php` does not exist, open `/_` in a browser to run the install
 
 ![Mini S3 installer](docs/screenshots/installer.png)
 
-After installation, open `/_` to log in. The admin dashboard shows bucket count, object count, total storage size, and data directory status. Use `/_/config` to edit local config values.
+After installation, open `/_` to log in. The admin dashboard shows bucket count, object count, total storage size, and data directory status. Use `/_/config` to edit runtime/S3 config values, and `/_/security` to update the admin username or password.
 
 ![Mini S3 admin dashboard](docs/screenshots/admin-dashboard.png)
 

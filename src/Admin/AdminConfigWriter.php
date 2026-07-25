@@ -29,19 +29,24 @@ final class AdminConfigWriter
             throw new RuntimeException('Secret key is required');
         }
 
-        $adminUsername = trim((string) ($input['admin_username'] ?? $existing['ADMIN_USERNAME'] ?? 'admin'));
-        if ($adminUsername === '') {
-            throw new RuntimeException('Admin username is required');
-        }
-
         $adminPasswordHash = trim((string) ($existing['ADMIN_PASSWORD_HASH'] ?? ''));
-        $password = (string) ($input['admin_password'] ?? '');
-        $passwordConfirm = (string) ($input['admin_password_confirm'] ?? '');
-        if ($password !== '' || $passwordConfirm !== '' || $adminPasswordHash === '') {
+        if ($adminPasswordHash === '') {
+            $adminUsername = trim((string) ($input['admin_username'] ?? $existing['ADMIN_USERNAME'] ?? 'admin'));
+            if ($adminUsername === '') {
+                throw new RuntimeException('Admin username is required');
+            }
+
+            $password = (string) ($input['admin_password'] ?? '');
+            $passwordConfirm = (string) ($input['admin_password_confirm'] ?? '');
             if ($password === '' || $password !== $passwordConfirm) {
                 throw new RuntimeException('Admin passwords must match');
             }
             $adminPasswordHash = password_hash($password, PASSWORD_DEFAULT);
+        } else {
+            $adminUsername = trim((string) ($existing['ADMIN_USERNAME'] ?? 'admin'));
+            if ($adminUsername === '') {
+                $adminUsername = 'admin';
+            }
         }
 
         $maxRequestSize = $this->positiveInt($input['max_request_size'] ?? 100 * 1024 * 1024, 'Max request size');
@@ -62,6 +67,34 @@ final class AdminConfigWriter
             'ADMIN_USERNAME' => $adminUsername,
             'ADMIN_PASSWORD_HASH' => $adminPasswordHash,
         ];
+    }
+
+    public function buildAdminAccountConfig(array $input, array $existing): array
+    {
+        $adminUsername = trim((string) ($input['admin_username'] ?? ''));
+        if ($adminUsername === '') {
+            throw new RuntimeException('Admin username is required');
+        }
+
+        $adminPasswordHash = trim((string) ($existing['ADMIN_PASSWORD_HASH'] ?? ''));
+        if ($adminPasswordHash === '') {
+            throw new RuntimeException('Admin password is not configured');
+        }
+
+        $password = (string) ($input['new_password'] ?? '');
+        $passwordConfirm = (string) ($input['new_password_confirm'] ?? '');
+        if ($password !== '' || $passwordConfirm !== '') {
+            if ($password === '' || $password !== $passwordConfirm) {
+                throw new RuntimeException('New admin passwords must match');
+            }
+            $adminPasswordHash = password_hash($password, PASSWORD_DEFAULT);
+        }
+
+        $config = $existing;
+        $config['ADMIN_USERNAME'] = $adminUsername;
+        $config['ADMIN_PASSWORD_HASH'] = $adminPasswordHash;
+
+        return $config;
     }
 
     public function writeInstallerConfig(array $config): void

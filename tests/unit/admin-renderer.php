@@ -74,8 +74,20 @@ $configHtml = (new AdminRenderer())->config([
     'access_key' => 'client-key',
     'secret_key' => 'client-secret',
 ], [], 'csrf-token');
-assertContainsText('name="admin_username"', $configHtml, 'config form includes admin username field');
-assertContainsText('value="owner"', $configHtml, 'config form renders current admin username');
+assertContainsText('Admin username and password are managed separately on the Security page.', $configHtml, 'config form points admin account changes to security page');
+assertNotContainsText('name="admin_username"', $configHtml, 'config form does not include admin username field');
+assertNotContainsText('name="admin_password"', $configHtml, 'config form does not include admin password field');
+assertContainsText('name="data_dir"', $configHtml, 'config form includes data directory field');
+
+$securityHtml = (new AdminRenderer())->security([
+    'admin_username' => 'owner',
+], [], 'csrf-token', 'Saved');
+assertContainsText('action="/_/security"', $securityHtml, 'security form posts to security route');
+assertContainsText('name="admin_username"', $securityHtml, 'security form includes admin username field');
+assertContainsText('value="owner"', $securityHtml, 'security form renders current admin username');
+assertContainsText('name="current_password"', $securityHtml, 'security form requires current password');
+assertContainsText('name="new_password"', $securityHtml, 'security form includes new password field');
+assertContainsText('Saved', $securityHtml, 'security page renders flash message');
 
 $filesHtml = (new AdminRenderer())->files([
     ['name' => 'photos', 'object_count' => 2, 'total_bytes' => 1024],
