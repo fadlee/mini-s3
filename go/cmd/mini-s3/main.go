@@ -42,15 +42,17 @@ func main() {
 
 	// Load config (may fail if config doesn't exist yet — that's OK for installer).
 	cfg, err := config.Load(resolvedConfigPath)
-	configReady := true
 	if err != nil {
-		// If config doesn't exist, only the admin installer is available.
 		if !os.IsNotExist(err) && !isNotExist(err) {
 			log.Fatalf("config: %v", err)
 		}
-		configReady = false
 		cfg = config.Defaults()
 	}
+	// Config.Load intentionally permits a missing file for the installer. S3
+	// must remain closed until credentials are configured, including env-only
+	// deployments that do not use a config file.
+	configReady := len(cfg.Credentials) > 0 ||
+		(cfg.AllowLegacyAccessKeyOnly && len(cfg.AllowedAccessKeys) > 0)
 
 	log.Printf("mini-s3 %s starting on %s (data_dir=%s)", Version, *addr, cfg.DataDir)
 

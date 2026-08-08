@@ -70,9 +70,6 @@ func ScanStats(dataDir string) Stats {
 			if d.IsDir() {
 				return nil
 			}
-			if strings.HasPrefix(d.Name(), ".") {
-				return nil
-			}
 			info, err := d.Info()
 			if err != nil {
 				return nil
