@@ -3,6 +3,7 @@ package storage
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -12,6 +13,8 @@ import (
 )
 
 const multipartRoot = ".multipart"
+
+var ErrRequestTooLarge = errors.New("request body exceeds maximum size")
 
 // FileStorage implements filesystem-backed object storage, mirroring
 // MiniS3\Storage\FileStorage from the PHP reference.
@@ -122,6 +125,9 @@ func (s *FileStorage) ObjectMetadata(bucket, key string) (*ObjectMetadata, error
 			return nil, nil
 		}
 		return nil, err
+	}
+	if !info.Mode().IsRegular() {
+		return nil, nil
 	}
 	return &ObjectMetadata{
 		Size:     info.Size(),

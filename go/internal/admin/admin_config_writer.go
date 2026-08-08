@@ -31,8 +31,8 @@ type ConfigInput struct {
 	AdminPassword               string
 	AdminPasswordConfirm        string
 	MaxRequestSize              string
-	ClockSkewSeconds             string
-	MaxPresignExpires            string
+	ClockSkewSeconds            string
+	MaxPresignExpires           string
 	AuthDebugLog                string
 	AllowHostCandidateFallbacks string
 	PublicReadAllBuckets        string
@@ -102,8 +102,8 @@ func (w *AdminConfigWriter) BuildConfig(input ConfigInput, existing *config.Conf
 		Credentials:                 map[string]string{accessKey: secretKey},
 		AllowLegacyAccessKeyOnly:    false,
 		AllowedAccessKeys:           []string{},
-		ClockSkewSeconds:             clockSkewSeconds,
-		MaxPresignExpires:            maxPresignExpires,
+		ClockSkewSeconds:            clockSkewSeconds,
+		MaxPresignExpires:           maxPresignExpires,
 		AuthDebugLog:                strings.TrimSpace(input.AuthDebugLog),
 		AllowHostCandidateFallbacks: checkbox(input.AllowHostCandidateFallbacks),
 		PublicReadAllBuckets:        checkboxDefault(input.PublicReadAllBuckets, existing == nil || existing.PublicReadAllBuckets),
@@ -150,6 +150,31 @@ func (w *AdminConfigWriter) WriteConfig(cfg *config.Config) error {
 		return fmt.Errorf("config file cannot be saved: %w", err)
 	}
 	return nil
+}
+
+// BuildAdminAccountConfig updates the admin username and optionally password.
+func (w *AdminConfigWriter) BuildAdminAccountConfig(input ConfigInput, existing *config.Config) (*config.Config, error) {
+	if existing == nil || strings.TrimSpace(existing.Admin.PasswordHash) == "" {
+		return nil, fmt.Errorf("admin password is not configured")
+	}
+	username := strings.TrimSpace(input.AdminUsername)
+	if username == "" {
+		return nil, fmt.Errorf("admin username is required")
+	}
+	updated := *existing
+	updated.Admin = existing.Admin
+	updated.Admin.Username = username
+	if input.AdminPassword != "" || input.AdminPasswordConfirm != "" {
+		if input.AdminPassword == "" || input.AdminPassword != input.AdminPasswordConfirm {
+			return nil, fmt.Errorf("new admin passwords must match")
+		}
+		h, err := hashPassword(input.AdminPassword)
+		if err != nil {
+			return nil, fmt.Errorf("failed to hash password: %w", err)
+		}
+		updated.Admin.PasswordHash = h
+	}
+	return &updated, nil
 }
 
 // ConfigPath returns the path to the config file.

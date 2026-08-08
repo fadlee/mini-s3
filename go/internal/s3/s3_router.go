@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/xml"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -20,20 +21,20 @@ import (
 // S3Router dispatches S3-compatible HTTP requests, mirroring
 // MiniS3\S3\S3Router from the PHP reference.
 type S3Router struct {
-	storage             *storage.FileStorage
-	validator           *RequestValidator
-	authenticator       *auth.SigV4Authenticator
-	maxRequestSize      int64
+	storage              *storage.FileStorage
+	validator            *RequestValidator
+	authenticator        *auth.SigV4Authenticator
+	maxRequestSize       int64
 	publicReadAllBuckets bool
 }
 
 // New creates an S3Router.
 func New(st *storage.FileStorage, authenticator *auth.SigV4Authenticator, maxRequestSize int64, publicReadAllBuckets bool) *S3Router {
 	return &S3Router{
-		storage:             st,
-		validator:           &RequestValidator{},
-		authenticator:       authenticator,
-		maxRequestSize:      maxRequestSize,
+		storage:              st,
+		validator:            &RequestValidator{},
+		authenticator:        authenticator,
+		maxRequestSize:       maxRequestSize,
 		publicReadAllBuckets: publicReadAllBuckets,
 	}
 }
@@ -66,6 +67,9 @@ func (r *S3Router) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 		resp.XMLError(413, "EntityTooLarge", "Request too large", "")
 		return
 	}
+	// Enforce the limit while reading as well as from Content-Length. This
+	// covers chunked requests and clients that send an inaccurate length.
+	ctx.Request().Body = http.MaxBytesReader(resp.Writer(), ctx.Request().Body, r.maxRequestSize)
 
 	if !r.isPublicRead(method) {
 		if err := r.authenticator.Authenticate(ctx); err != nil {
@@ -132,6 +136,10 @@ func (r *S3Router) handlePut(ctx *minihttp.RequestContext, resp *S3Response, buc
 		partNum := atoiSafe(partNumber)
 		partPath, err := r.storage.PutMultipartPart(bucket, key, uploadID, partNum, ctx.Request().Body)
 		if err != nil {
+			if isBodyTooLarge(err) {
+				resp.XMLError(413, "EntityTooLarge", "Request too large", r.resource(bucket, key))
+				return
+			}
 			resp.XMLError(500, "InternalError", "Internal server error", r.resource(bucket, key))
 			return
 		}
@@ -143,6 +151,10 @@ func (r *S3Router) handlePut(ctx *minihttp.RequestContext, resp *S3Response, buc
 	}
 
 	if err := r.storage.PutObject(bucket, key, ctx.Request().Body); err != nil {
+		if isBodyTooLarge(err) {
+			resp.XMLError(413, "EntityTooLarge", "Request too large", r.resource(bucket, key))
+			return
+		}
 		resp.XMLError(500, "InternalError", "Internal server error", r.resource(bucket, key))
 		return
 	}
@@ -176,6 +188,10 @@ func (r *S3Router) handlePost(ctx *minihttp.RequestContext, resp *S3Response, bu
 
 func (r *S3Router) handleBulkDelete(ctx *minihttp.RequestContext, resp *S3Response, bucket, key string) {
 	body, err := io.ReadAll(ctx.Request().Body)
+	if isBodyTooLarge(err) {
+		resp.XMLError(413, "EntityTooLarge", "Request too large", r.resource(bucket, key))
+		return
+	}
 	if err != nil || strings.TrimSpace(string(body)) == "" {
 		resp.XMLError(400, "MalformedXML", "The XML you provided was not well-formed or did not validate against our published schema.", r.resource(bucket, key))
 		return
@@ -226,6 +242,10 @@ func (r *S3Router) handleCompleteMultipart(ctx *minihttp.RequestContext, resp *S
 	}
 
 	body, err := io.ReadAll(ctx.Request().Body)
+	if isBodyTooLarge(err) {
+		resp.XMLError(413, "EntityTooLarge", "Request too large", r.resource(bucket, key))
+		return
+	}
 	if err != nil || strings.TrimSpace(string(body)) == "" {
 		resp.XMLError(400, "MalformedXML", "The XML you provided was not well-formed or did not validate against our published schema.", r.resource(bucket, key))
 		return
@@ -404,6 +424,11 @@ func (r *S3Router) validateBucketAndKey(method, bucket, key string, resp *S3Resp
 func (r *S3Router) isOversizedRequest(ctx *minihttp.RequestContext) bool {
 	contentLength := ctx.GetHeader("content-length")
 	return r.validator.IsOversizedRequest(contentLength, r.maxRequestSize)
+}
+
+func isBodyTooLarge(err error) bool {
+	var maxErr *http.MaxBytesError
+	return errors.As(err, &maxErr)
 }
 
 func (r *S3Router) extractBucketAndKey(ctx *minihttp.RequestContext) (string, string) {

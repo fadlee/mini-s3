@@ -18,8 +18,8 @@ type Config struct {
 	Credentials                 map[string]string `yaml:"credentials"`
 	AllowedAccessKeys           []string          `yaml:"allowed_access_keys"`
 	AllowLegacyAccessKeyOnly    bool              `yaml:"allow_legacy_access_key_only"`
-	ClockSkewSeconds             int               `yaml:"clock_skew_seconds"`
-	MaxPresignExpires            int               `yaml:"max_presign_expires"`
+	ClockSkewSeconds            int               `yaml:"clock_skew_seconds"`
+	MaxPresignExpires           int               `yaml:"max_presign_expires"`
 	AuthDebugLog                string            `yaml:"auth_debug_log"`
 	AllowHostCandidateFallbacks bool              `yaml:"allow_host_candidate_fallbacks"`
 	PublicReadAllBuckets        bool              `yaml:"public_read_all_buckets"`
@@ -29,9 +29,9 @@ type Config struct {
 
 // AdminConfig holds admin-panel-specific settings.
 type AdminConfig struct {
-	Username       string `yaml:"username"`
-	PasswordHash   string `yaml:"password_hash"`
-	SessionSecret  string `yaml:"session_secret"`
+	Username      string `yaml:"username"`
+	PasswordHash  string `yaml:"password_hash"`
+	SessionSecret string `yaml:"session_secret"`
 }
 
 // Load reads config.yaml from baseDir, applies environment overrides, and
@@ -69,6 +69,10 @@ func Load(configPath string) (*Config, error) {
 
 	normalize(cfg)
 
+	if !fileMissing && cfg.Admin.PasswordHash != "" && cfg.Admin.SessionSecret == "" {
+		return nil, fmt.Errorf("misconfiguration: admin session_secret is required when admin password_hash is configured")
+	}
+
 	// Skip validation when the config file doesn't exist yet: the admin
 	// installer needs the server to start with empty credentials so the
 	// user can configure them via the web UI on first run.
@@ -88,16 +92,16 @@ func Defaults() *Config {
 
 func defaults() *Config {
 	return &Config{
-		DataDir:                  "./data",
-		MaxRequestSize:           100 * 1024 * 1024,
-		Credentials:              map[string]string{},
-		AllowedAccessKeys:        []string{},
-		AllowLegacyAccessKeyOnly: false,
-		ClockSkewSeconds:         900,
-		MaxPresignExpires:        604800,
-		AuthDebugLog:             "",
+		DataDir:                     "./data",
+		MaxRequestSize:              100 * 1024 * 1024,
+		Credentials:                 map[string]string{},
+		AllowedAccessKeys:           []string{},
+		AllowLegacyAccessKeyOnly:    false,
+		ClockSkewSeconds:            900,
+		MaxPresignExpires:           604800,
+		AuthDebugLog:                "",
 		AllowHostCandidateFallbacks: false,
-		PublicReadAllBuckets:     true,
+		PublicReadAllBuckets:        true,
 		Admin: AdminConfig{
 			Username:      "admin",
 			PasswordHash:  "",

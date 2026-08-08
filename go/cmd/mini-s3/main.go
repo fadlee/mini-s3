@@ -42,11 +42,13 @@ func main() {
 
 	// Load config (may fail if config doesn't exist yet — that's OK for installer).
 	cfg, err := config.Load(resolvedConfigPath)
+	configReady := true
 	if err != nil {
-		// If config doesn't exist, the admin installer will handle it.
+		// If config doesn't exist, only the admin installer is available.
 		if !os.IsNotExist(err) && !isNotExist(err) {
 			log.Fatalf("config: %v", err)
 		}
+		configReady = false
 		cfg = config.Defaults()
 	}
 
@@ -63,6 +65,14 @@ func main() {
 		cfg.AllowHostCandidateFallbacks,
 	)
 	s3Router := s3.New(st, authenticator, cfg.MaxRequestSize, cfg.PublicReadAllBuckets)
+	var s3Handler http.Handler = s3Router
+	if !configReady {
+		s3Handler = http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			w.Header().Set("Content-Type", "application/xml")
+			w.WriteHeader(http.StatusServiceUnavailable)
+			fmt.Fprint(w, `<?xml version="1.0" encoding="UTF-8"?><Error><Code>ServiceUnavailable</Code><Message>Mini S3 is not configured</Message></Error>`)
+		})
+	}
 
 	// Admin router handles /_ paths; everything else goes to S3.
 	adminRouter := admin.NewAdminRouter(resolvedConfigPath, baseDir, Version)
@@ -70,7 +80,7 @@ func main() {
 	mux := http.NewServeMux()
 	mux.Handle("/_", adminRouter)
 	mux.Handle("/_/", adminRouter)
-	mux.Handle("/", s3Router)
+	mux.Handle("/", s3Handler)
 
 	server := &http.Server{
 		Addr:    *addr,

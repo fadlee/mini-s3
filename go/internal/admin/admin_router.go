@@ -15,9 +15,9 @@ import (
 
 // AdminRouter handles all admin panel HTTP routes.
 type AdminRouter struct {
-	configPath    string
-	baseDir       string
-	version       string
+	configPath     string
+	baseDir        string
+	version        string
 	upgradeService *AdminUpgradeService
 }
 
@@ -85,6 +85,8 @@ func (r *AdminRouter) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	switch path {
 	case "/_/config":
 		r.handleConfig(w, req, renderer, writer, auth, cfg)
+	case "/_/security":
+		r.handleSecurity(w, req, renderer, writer, auth, cfg)
 	case "/_/files":
 		r.handleFiles(w, req, renderer, auth, cfg)
 	case "/_/upgrade":
@@ -156,6 +158,39 @@ func (r *AdminRouter) handleLogin(w http.ResponseWriter, req *http.Request, rend
 	}
 
 	r.html(w, renderer.Login("", csrfToken), http.StatusOK)
+}
+
+func (r *AdminRouter) handleSecurity(w http.ResponseWriter, req *http.Request, renderer *AdminRenderer, writer *AdminConfigWriter, auth *AdminAuth, cfg *config.Config) {
+	csrfToken := auth.EnsureCSRFToken(w, req)
+	values := map[string]interface{}{"admin_username": cfg.Admin.Username}
+	if req.Method != http.MethodPost {
+		r.html(w, renderer.Security(values, nil, csrfToken, auth.ConsumeFlash(w, req)), http.StatusOK)
+		return
+	}
+	if err := req.ParseForm(); err != nil {
+		r.html(w, renderer.Security(values, []string{"Invalid form data"}, csrfToken, ""), http.StatusBadRequest)
+		return
+	}
+	if !auth.VerifyCSRFToken(req, req.FormValue("csrf_token")) {
+		r.html(w, renderer.Security(mergeValuesInterface(values, req.Form), []string{"CSRF token is invalid"}, csrfToken, ""), http.StatusBadRequest)
+		return
+	}
+	if !verifyPassword(cfg.Admin.PasswordHash, req.FormValue("current_password")) {
+		r.html(w, renderer.Security(mergeValuesInterface(values, req.Form), []string{"Current password is invalid"}, csrfToken, ""), http.StatusUnauthorized)
+		return
+	}
+	input := configInputFromSecurityForm(req.Form)
+	updated, err := writer.BuildAdminAccountConfig(input, cfg)
+	if err != nil {
+		r.html(w, renderer.Security(mergeValuesInterface(values, req.Form), []string{err.Error()}, csrfToken, ""), http.StatusBadRequest)
+		return
+	}
+	if err := writer.WriteConfig(updated); err != nil {
+		r.html(w, renderer.Security(mergeValuesInterface(values, req.Form), []string{err.Error()}, csrfToken, ""), http.StatusBadRequest)
+		return
+	}
+	auth.SetFlash(w, req, "Admin account updated.")
+	r.redirect(w, req, "/_/security")
 }
 
 func (r *AdminRouter) handleConfig(w http.ResponseWriter, req *http.Request, renderer *AdminRenderer, writer *AdminConfigWriter, auth *AdminAuth, cfg *config.Config) {
@@ -513,12 +548,12 @@ func (r *AdminRouter) defaultInstallerValues() map[string]string {
 		dataDir = v
 	}
 	return map[string]string{
-		"admin_username":         "admin",
-		"data_dir":               dataDir,
-		"max_request_size":       "104857600",
+		"admin_username":          "admin",
+		"data_dir":                dataDir,
+		"max_request_size":        "104857600",
 		"public_read_all_buckets": "true",
-		"clock_skew_seconds":     "900",
-		"max_presign_expires":    "604800",
+		"clock_skew_seconds":      "900",
+		"max_presign_expires":     "604800",
 	}
 }
 
@@ -552,6 +587,14 @@ func (r *AdminRouter) redirect(w http.ResponseWriter, req *http.Request, path st
 
 // --- helpers ---
 
+func configInputFromSecurityForm(form url.Values) ConfigInput {
+	return ConfigInput{
+		AdminUsername:        form.Get("admin_username"),
+		AdminPassword:        form.Get("new_password"),
+		AdminPasswordConfirm: form.Get("new_password_confirm"),
+	}
+}
+
 func configInputFromForm(form url.Values) ConfigInput {
 	return ConfigInput{
 		DataDir:                     form.Get("data_dir"),
@@ -561,8 +604,8 @@ func configInputFromForm(form url.Values) ConfigInput {
 		AdminPassword:               form.Get("admin_password"),
 		AdminPasswordConfirm:        form.Get("admin_password_confirm"),
 		MaxRequestSize:              form.Get("max_request_size"),
-		ClockSkewSeconds:             form.Get("clock_skew_seconds"),
-		MaxPresignExpires:            form.Get("max_presign_expires"),
+		ClockSkewSeconds:            form.Get("clock_skew_seconds"),
+		MaxPresignExpires:           form.Get("max_presign_expires"),
 		AuthDebugLog:                form.Get("auth_debug_log"),
 		AllowHostCandidateFallbacks: form.Get("allow_host_candidate_fallbacks"),
 		PublicReadAllBuckets:        form.Get("public_read_all_buckets"),
@@ -578,16 +621,16 @@ func valuesFromConfig(cfg *config.Config) map[string]interface{} {
 		break
 	}
 	return map[string]interface{}{
-		"admin_username":                cfg.Admin.Username,
-		"data_dir":                      cfg.DataDir,
-		"access_key":                    accessKey,
-		"secret_key":                    secretKey,
-		"max_request_size":              fmt.Sprintf("%d", cfg.MaxRequestSize),
-		"public_read_all_buckets":       cfg.PublicReadAllBuckets,
-		"auth_debug_log":                cfg.AuthDebugLog,
+		"admin_username":                 cfg.Admin.Username,
+		"data_dir":                       cfg.DataDir,
+		"access_key":                     accessKey,
+		"secret_key":                     secretKey,
+		"max_request_size":               fmt.Sprintf("%d", cfg.MaxRequestSize),
+		"public_read_all_buckets":        cfg.PublicReadAllBuckets,
+		"auth_debug_log":                 cfg.AuthDebugLog,
 		"allow_host_candidate_fallbacks": cfg.AllowHostCandidateFallbacks,
-		"clock_skew_seconds":            fmt.Sprintf("%d", cfg.ClockSkewSeconds),
-		"max_presign_expires":           fmt.Sprintf("%d", cfg.MaxPresignExpires),
+		"clock_skew_seconds":             fmt.Sprintf("%d", cfg.ClockSkewSeconds),
+		"max_presign_expires":            fmt.Sprintf("%d", cfg.MaxPresignExpires),
 	}
 }
 

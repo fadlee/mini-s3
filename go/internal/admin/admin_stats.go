@@ -4,15 +4,16 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 )
 
 // Stats holds filesystem statistics about the data directory.
 type Stats struct {
-	DataDir      string `json:"data_dir"`
-	Status       string `json:"status"`
-	BucketCount  int    `json:"bucket_count"`
-	ObjectCount  int    `json:"object_count"`
-	TotalBytes   int64  `json:"total_bytes"`
+	DataDir     string `json:"data_dir"`
+	Status      string `json:"status"`
+	BucketCount int    `json:"bucket_count"`
+	ObjectCount int    `json:"object_count"`
+	TotalBytes  int64  `json:"total_bytes"`
 }
 
 // ScanStats scans the data directory and returns statistics.
@@ -69,6 +70,9 @@ func ScanStats(dataDir string) Stats {
 			if d.IsDir() {
 				return nil
 			}
+			if strings.HasPrefix(d.Name(), ".") {
+				return nil
+			}
 			info, err := d.Info()
 			if err != nil {
 				return nil
@@ -98,7 +102,7 @@ func ListBuckets(dataDir string) []BucketInfo {
 
 	var buckets []BucketInfo
 	for _, entry := range entries {
-		if !entry.IsDir() || entry.Name() == ".multipart" {
+		if !entry.IsDir() || entry.Name() == ".multipart" || strings.HasPrefix(entry.Name(), ".") {
 			continue
 		}
 

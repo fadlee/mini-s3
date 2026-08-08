@@ -71,6 +71,30 @@ func (r *AdminRenderer) ConfigPage(values map[string]interface{}, errors []strin
 	return r.layout("Config", r.formInterface("/_/config", values, errors, csrfToken, false), true)
 }
 
+// Security renders the admin account page.
+func (r *AdminRenderer) Security(values map[string]interface{}, errors []string, csrfToken, flashMessage string) string {
+	var b strings.Builder
+	b.WriteString(r.flashMessage(flashMessage))
+	for _, errMsg := range errors {
+		b.WriteString(`<div class="error">`)
+		b.WriteString(r.e(errMsg))
+		b.WriteString(`</div>`)
+	}
+	b.WriteString(`<form method="post" action="/_/security">`)
+	b.WriteString(`<input type="hidden" name="csrf_token" value="`)
+	b.WriteString(r.e(csrfToken))
+	b.WriteString(`">`)
+	b.WriteString(`<label><span class="field-label">Admin username</span><input name="admin_username" value="`)
+	b.WriteString(r.e(getStr(values, "admin_username", "admin")))
+	b.WriteString(`" required></label>`)
+	b.WriteString(`<label><span class="field-label">Current password</span><input type="password" name="current_password" autocomplete="current-password" required></label>`)
+	b.WriteString(`<label><span class="field-label">New password</span><input type="password" name="new_password" autocomplete="new-password"></label>`)
+	b.WriteString(`<label><span class="field-label">Confirm new password</span><input type="password" name="new_password_confirm" autocomplete="new-password"></label>`)
+	b.WriteString(`<p class="muted">Leave new password blank to keep the current password.</p>`)
+	b.WriteString(`<button type="submit">Save admin account</button></form>`)
+	return r.layout("Security", b.String(), true)
+}
+
 // Files renders the file explorer page.
 func (r *AdminRenderer) Files(buckets []BucketInfo, listing *ListObjectsResult, currentBucket, currentPrefix, csrfToken, flashMessage string) string {
 	folderCount := 0
@@ -203,7 +227,7 @@ func (r *AdminRenderer) layout(title, body string, nav bool) string {
 	var b strings.Builder
 	navigation := ""
 	if nav {
-		navigation = `<nav><a href="/_">Dashboard</a><a href="/_/files">Files</a><a href="/_/config">Config</a><a href="/_/logout">Logout</a></nav>`
+		navigation = `<nav><a href="/_">Dashboard</a><a href="/_/files">Files</a><a href="/_/config">Config</a><a href="/_/security">Security</a><a href="/_/logout">Logout</a></nav>`
 	}
 	b.WriteString(`<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">`)
 	b.WriteString(`<title>`)

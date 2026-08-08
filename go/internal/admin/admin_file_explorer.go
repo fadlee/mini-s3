@@ -184,6 +184,9 @@ func (e *AdminFileExplorer) DeleteObject(bucket, objectPath string) error {
 
 // DeleteBucket deletes a bucket and all its contents.
 func (e *AdminFileExplorer) DeleteBucket(bucket string) error {
+	if err := e.validateSegmentName(bucket); err != nil {
+		return err
+	}
 	path := e.bucketPath(bucket)
 	if _, err := os.Stat(path); os.IsNotExist(err) {
 		return fmt.Errorf("bucket not found: %s", bucket)
@@ -238,6 +241,9 @@ func (e *AdminFileExplorer) Rename(bucket, oldPath, newName string) (*RenameResu
 
 // RenameBucket renames a bucket.
 func (e *AdminFileExplorer) RenameBucket(oldName, newName string) error {
+	if err := e.validateSegmentName(oldName); err != nil {
+		return err
+	}
 	if err := e.validateSegmentName(newName); err != nil {
 		return err
 	}
@@ -481,7 +487,7 @@ func (e *AdminFileExplorer) cleanupEmptyParents(startDir, stopAt string) {
 // --- package-level helpers ---
 
 func deleteDirectoryRecursive(path string) error {
-	info, err := os.Stat(path)
+	info, err := os.Lstat(path)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return nil
@@ -496,6 +502,12 @@ func deleteDirectoryRecursive(path string) error {
 		return err
 	}
 	for _, entry := range entries {
+		if entry.Type()&os.ModeSymlink != 0 {
+			if err := os.Remove(filepath.Join(path, entry.Name())); err != nil {
+				return err
+			}
+			continue
+		}
 		if err := deleteDirectoryRecursive(filepath.Join(path, entry.Name())); err != nil {
 			return err
 		}
