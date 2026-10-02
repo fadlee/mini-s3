@@ -382,7 +382,7 @@ func (r *S3Router) handleListObjects(ctx *minihttp.RequestContext, resp *S3Respo
 	}
 	options := ListingOptions{Version: version, Prefix: prefix, Delimiter: delimiter, MaxKeys: maxKeys, EncodingType: encodingType, Marker: marker, StartAfter: startAfter, ContinuationToken: token}
 	if version == 2 && page.Truncated && maxKeys > 0 {
-		options.NextContinuationToken = encodeListingToken(listingToken{Version: 1, Bucket: bucket, Prefix: valueOf(prefix), Delimiter: valueOf(delimiter), After: page.Last})
+		options.NextContinuationToken = encodeListingToken(listingToken{Version: 2, Bucket: bucket, Prefix: valueOf(prefix), Delimiter: valueOf(delimiter), After: page.Last})
 	}
 	resp.ListObjects(page, bucket, options)
 }
@@ -415,6 +415,9 @@ type listingToken struct {
 }
 
 func encodeListingToken(token listingToken) string {
+	token.Prefix = base64.RawURLEncoding.EncodeToString([]byte(token.Prefix))
+	token.Delimiter = base64.RawURLEncoding.EncodeToString([]byte(token.Delimiter))
+	token.After = base64.RawURLEncoding.EncodeToString([]byte(token.After))
 	data, _ := json.Marshal(token)
 	return base64.RawURLEncoding.EncodeToString(data)
 }
@@ -432,14 +435,24 @@ func decodeListingToken(token, bucket, prefix, delimiter string) (string, bool) 
 	if json.Unmarshal(data, &value) != nil {
 		return "", false
 	}
-	var after string
-	if raw, ok := decoded["after"]; !ok || json.Unmarshal(raw, &after) != nil {
+	var after *string
+	if raw, ok := decoded["after"]; !ok || json.Unmarshal(raw, &after) != nil || after == nil {
 		return "", false
 	}
-	if value.Version != 1 || value.Bucket != bucket || value.Prefix != prefix || value.Delimiter != delimiter {
+	if value.Version != 2 || value.Bucket != bucket {
 		return "", false
 	}
-	return value.After, true
+	decode := func(encoded string) (string, bool) {
+		bytes, err := base64.RawURLEncoding.Strict().DecodeString(encoded)
+		return string(bytes), err == nil && base64.RawURLEncoding.EncodeToString(bytes) == encoded
+	}
+	decodedPrefix, prefixOK := decode(value.Prefix)
+	decodedDelimiter, delimiterOK := decode(value.Delimiter)
+	decodedAfter, afterOK := decode(value.After)
+	if !prefixOK || !delimiterOK || !afterOK || decodedPrefix != prefix || decodedDelimiter != delimiter {
+		return "", false
+	}
+	return decodedAfter, true
 }
 
 func (r *S3Router) handleGet(ctx *minihttp.RequestContext, resp *S3Response, bucket, key string) {

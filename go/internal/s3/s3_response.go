@@ -54,30 +54,31 @@ type ListingOptions struct {
 // ListObjects sends a ListBucketResult XML response.
 func (r *S3Response) ListObjects(page storage.ListPage, bucket string, options ListingOptions) {
 	type contents struct {
-		Key          string `xml:"Key"`
-		LastModified string `xml:"LastModified"`
-		Size         int64  `xml:"Size"`
-		StorageClass string `xml:"StorageClass"`
+		XMLName      xml.Name `xml:"Contents"`
+		Key          string   `xml:"Key"`
+		LastModified string   `xml:"LastModified"`
+		Size         int64    `xml:"Size"`
+		StorageClass string   `xml:"StorageClass"`
 	}
 	type commonPrefix struct {
-		Prefix string `xml:"Prefix"`
+		XMLName xml.Name `xml:"CommonPrefixes"`
+		Prefix  string   `xml:"Prefix"`
 	}
 	type listResult struct {
-		XMLName               xml.Name       `xml:"ListBucketResult"`
-		Name                  string         `xml:"Name"`
-		Prefix                *string        `xml:"Prefix,omitempty"`
-		Delimiter             *string        `xml:"Delimiter,omitempty"`
-		Marker                *string        `xml:"Marker,omitempty"`
-		NextMarker            *string        `xml:"NextMarker,omitempty"`
-		MaxKeys               int            `xml:"MaxKeys"`
-		EncodingType          string         `xml:"EncodingType,omitempty"`
-		IsTruncated           bool           `xml:"IsTruncated"`
-		Contents              []contents     `xml:"Contents"`
-		CommonPrefixes        []commonPrefix `xml:"CommonPrefixes"`
-		KeyCount              *int           `xml:"KeyCount,omitempty"`
-		StartAfter            *string        `xml:"StartAfter,omitempty"`
-		ContinuationToken     *string        `xml:"ContinuationToken,omitempty"`
-		NextContinuationToken *string        `xml:"NextContinuationToken,omitempty"`
+		XMLName               xml.Name `xml:"ListBucketResult"`
+		Name                  string   `xml:"Name"`
+		Prefix                *string  `xml:"Prefix,omitempty"`
+		Delimiter             *string  `xml:"Delimiter,omitempty"`
+		Marker                *string  `xml:"Marker,omitempty"`
+		NextMarker            *string  `xml:"NextMarker,omitempty"`
+		MaxKeys               int      `xml:"MaxKeys"`
+		EncodingType          string   `xml:"EncodingType,omitempty"`
+		IsTruncated           bool     `xml:"IsTruncated"`
+		Entries               []any    `xml:",any"`
+		KeyCount              *int     `xml:"KeyCount,omitempty"`
+		StartAfter            *string  `xml:"StartAfter,omitempty"`
+		ContinuationToken     *string  `xml:"ContinuationToken,omitempty"`
+		NextContinuationToken *string  `xml:"NextContinuationToken,omitempty"`
 	}
 	escape := func(s string) string {
 		if options.EncodingType == "url" {
@@ -98,11 +99,11 @@ func (r *S3Response) ListObjects(page storage.ListPage, bucket string, options L
 	}
 	for _, entry := range page.Entries {
 		if entry.File == nil {
-			resp.CommonPrefixes = append(resp.CommonPrefixes, commonPrefix{Prefix: escape(entry.Prefix)})
+			resp.Entries = append(resp.Entries, commonPrefix{Prefix: escape(entry.Prefix)})
 			continue
 		}
 		f := entry.File
-		resp.Contents = append(resp.Contents, contents{Key: escape(f.Key), LastModified: formatLastModified(f.Timestamp), Size: f.Size, StorageClass: "STANDARD"})
+		resp.Entries = append(resp.Entries, contents{Key: escape(f.Key), LastModified: formatLastModified(f.Timestamp), Size: f.Size, StorageClass: "STANDARD"})
 	}
 	r.sendXML(resp, http.StatusOK)
 }
@@ -117,9 +118,9 @@ func escapedPointer(value *string, escape func(string) string) *string {
 func percentEncodeListing(value string) string {
 	const hex = "0123456789ABCDEF"
 	var out strings.Builder
-	for i := 0; i < len(value); i++ {
+	for i := range len(value) {
 		b := value[i]
-		if b >= 'A' && b <= 'Z' || b >= 'a' && b <= 'z' || b >= '0' && b <= '9' || strings.ContainsRune("-_.~/", rune(b)) {
+		if b >= 'A' && b <= 'Z' || b >= 'a' && b <= 'z' || b >= '0' && b <= '9' || b == '-' || b == '_' || b == '.' || b == '~' {
 			out.WriteByte(b)
 		} else {
 			out.WriteByte('%')

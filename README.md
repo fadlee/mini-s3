@@ -24,6 +24,11 @@ cannot be represented in XML. Invalid listing arguments return HTTP 400
 `max-keys` to continue. Pagination reflects current storage, not a snapshot.
 `fetch-owner` is not implemented.
 
+The Go server preserves the mixed object/common-prefix order and URL-encodes
+slashes as `%2F`. Its V2 listing cursors use a byte-preserving token format,
+including for non-UTF-8 keys in URL mode. Tokens from `go-v1.1.0` are rejected;
+restart a listing without a continuation token after upgrading.
+
 
 ## TLDR
 
