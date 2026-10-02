@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 )
 
@@ -42,6 +43,87 @@ type FileInfo struct {
 	Key       string
 	Size      int64
 	Timestamp int64
+}
+
+// ListEntry is either an object or a common-prefix group.
+type ListEntry struct {
+	File   *FileInfo
+	Prefix string
+}
+
+// ListPage is one deterministic object-listing page.
+type ListPage struct {
+	Entries   []ListEntry
+	Truncated bool
+	Last      string
+}
+
+// ListPage lists objects and delimiter groups in lexical order.
+func (s *FileStorage) ListPage(bucket, prefix, delimiter string, maxKeys int, after *string) (ListPage, error) {
+	files, err := s.ListFiles(bucket, prefix)
+	if err != nil {
+		return ListPage{}, err
+	}
+	sort.Slice(files, func(i, j int) bool { return files[i].Key < files[j].Key })
+	entries := make([]ListEntry, 0, len(files))
+	groups := make(map[string]bool)
+	for i := range files {
+		file := &files[i]
+		name := file.Key
+		if delimiter != "" {
+			suffix := strings.TrimPrefix(file.Key, prefix)
+			if at := strings.Index(suffix, delimiter); at >= 0 {
+				name = prefix + suffix[:at+len(delimiter)]
+				if groups[name] {
+					continue
+				}
+				groups[name] = true
+				entries = append(entries, ListEntry{Prefix: name})
+				continue
+			}
+		}
+		entries = append(entries, ListEntry{File: file})
+	}
+	filtered := entries[:0]
+	for _, entry := range entries {
+		name := entry.Prefix
+		if entry.File != nil {
+			name = entry.File.Key
+		}
+		if after != nil && name <= *after {
+			continue
+		}
+		filtered = append(filtered, entry)
+	}
+	entries = filtered
+	sort.Slice(entries, func(i, j int) bool {
+		a, b := entries[i].Prefix, entries[j].Prefix
+		if entries[i].File != nil {
+			a = entries[i].File.Key
+		}
+		if entries[j].File != nil {
+			b = entries[j].File.Key
+		}
+		return a < b
+	})
+	page := ListPage{}
+	if maxKeys == 0 {
+		page.Truncated = len(entries) > 0
+		return page, nil
+	}
+	if len(entries) > maxKeys {
+		page.Truncated = true
+		entries = entries[:maxKeys]
+	}
+	page.Entries = entries
+	if len(entries) > 0 {
+		last := entries[len(entries)-1]
+		page.Last = last.Prefix
+		if last.File != nil {
+			page.Last = last.File.Key
+		}
+	}
+	return page, nil
 }
 
 // ListFiles recursively lists files in a bucket, optionally filtered by prefix.

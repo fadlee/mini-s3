@@ -3,7 +3,9 @@ package s3
 import (
 	"crypto/md5"
 	"crypto/rand"
+	"encoding/base64"
 	"encoding/hex"
+	"encoding/json"
 	"encoding/xml"
 	"errors"
 	"fmt"
@@ -11,7 +13,9 @@ import (
 	"net/http"
 	"os"
 	"sort"
+	"strconv"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/fadlee/mini-s3/internal/auth"
 	minihttp "github.com/fadlee/mini-s3/internal/http"
@@ -297,15 +301,150 @@ func (r *S3Router) handleCompleteMultipart(ctx *minihttp.RequestContext, resp *S
 	resp.CompleteMultipartUpload(bucket, key, uploadID, ctx.GetHost(), scheme)
 }
 
-func (r *S3Router) handleGet(ctx *minihttp.RequestContext, resp *S3Response, bucket, key string) {
-	if key == "" {
-		prefix := ctx.GetQueryParam("prefix")
-		files, err := r.storage.ListFiles(bucket, prefix)
-		if err != nil {
-			resp.XMLError(500, "InternalError", "Internal server error", r.resource(bucket, key))
+func (r *S3Router) handleListObjects(ctx *minihttp.RequestContext, resp *S3Response, bucket string) {
+	names := []string{"list-type", "prefix", "delimiter", "max-keys", "encoding-type", "marker", "start-after", "continuation-token"}
+	for _, name := range names {
+		if len(ctx.QueryValues(name)) > 1 {
+			resp.XMLError(400, "InvalidArgument", "Listing parameters must be strings", "")
 			return
 		}
-		resp.ListObjects(files, bucket, prefix)
+	}
+	get := func(name string) *string {
+		if !ctx.HasQueryParam(name) {
+			return nil
+		}
+		return new(ctx.GetQueryParam(name))
+	}
+	version := 1
+	if value := get("list-type"); value != nil {
+		if *value != "2" {
+			resp.XMLError(400, "InvalidArgument", "Unsupported list-type", "")
+			return
+		}
+		version = 2
+	}
+	if version == 1 && (ctx.HasQueryParam("start-after") || ctx.HasQueryParam("continuation-token")) || version == 2 && ctx.HasQueryParam("marker") {
+		resp.XMLError(400, "InvalidArgument", "Pagination parameter is not valid for this listing version", "")
+		return
+	}
+	maxKeys := 1000
+	if value := get("max-keys"); value != nil {
+		if *value == "" {
+			resp.XMLError(400, "InvalidArgument", "Invalid max-keys", "")
+			return
+		}
+		for _, c := range *value {
+			if c < '0' || c > '9' {
+				resp.XMLError(400, "InvalidArgument", "Invalid max-keys", "")
+				return
+			}
+		}
+		n, err := strconv.ParseUint(*value, 10, 64)
+		if err != nil || n > 1000 {
+			resp.XMLError(400, "InvalidArgument", "Invalid max-keys", "")
+			return
+		}
+		maxKeys = int(n)
+	}
+	encodingType := ""
+	if value := get("encoding-type"); value != nil {
+		if *value != "url" {
+			resp.XMLError(400, "InvalidArgument", "Invalid encoding-type", "")
+			return
+		}
+		encodingType = *value
+	}
+	prefix, delimiter, marker, startAfter, token := get("prefix"), get("delimiter"), get("marker"), get("start-after"), get("continuation-token")
+	if encodingType == "" {
+		for _, value := range []*string{prefix, delimiter, marker, startAfter} {
+			if value != nil && !validListingXML(*value) {
+				resp.XMLError(400, "InvalidArgument", "Listing value contains an illegal XML character", "")
+				return
+			}
+		}
+	}
+	after := marker
+	if version == 2 {
+		after = startAfter
+		if token != nil {
+			decoded, ok := decodeListingToken(*token, bucket, valueOf(prefix), valueOf(delimiter))
+			if !ok {
+				resp.XMLError(400, "InvalidArgument", "Invalid continuation-token", "")
+				return
+			}
+			after = &decoded
+		}
+	}
+	page, err := r.storage.ListPage(bucket, valueOf(prefix), valueOf(delimiter), maxKeys, after)
+	if err != nil {
+		resp.XMLError(500, "InternalError", "Internal server error", r.resource(bucket, ""))
+		return
+	}
+	options := ListingOptions{Version: version, Prefix: prefix, Delimiter: delimiter, MaxKeys: maxKeys, EncodingType: encodingType, Marker: marker, StartAfter: startAfter, ContinuationToken: token}
+	if version == 2 && page.Truncated && maxKeys > 0 {
+		options.NextContinuationToken = encodeListingToken(listingToken{Version: 1, Bucket: bucket, Prefix: valueOf(prefix), Delimiter: valueOf(delimiter), After: page.Last})
+	}
+	resp.ListObjects(page, bucket, options)
+}
+
+func valueOf(value *string) string {
+	if value == nil {
+		return ""
+	}
+	return *value
+}
+
+func validListingXML(value string) bool {
+	if !utf8.ValidString(value) {
+		return false
+	}
+	for _, r := range value {
+		if r != 0x9 && r != 0xA && r != 0xD && !(r >= 0x20 && r <= 0xD7FF) && !(r >= 0xE000 && r <= 0xFFFD) && !(r >= 0x10000 && r <= 0x10FFFF) {
+			return false
+		}
+	}
+	return true
+}
+
+type listingToken struct {
+	Version   int    `json:"version"`
+	Bucket    string `json:"bucket"`
+	Prefix    string `json:"prefix"`
+	Delimiter string `json:"delimiter"`
+	After     string `json:"after"`
+}
+
+func encodeListingToken(token listingToken) string {
+	data, _ := json.Marshal(token)
+	return base64.RawURLEncoding.EncodeToString(data)
+}
+
+func decodeListingToken(token, bucket, prefix, delimiter string) (string, bool) {
+	data, err := base64.RawURLEncoding.Strict().DecodeString(token)
+	if err != nil || token == "" || base64.RawURLEncoding.EncodeToString(data) != token {
+		return "", false
+	}
+	var decoded map[string]json.RawMessage
+	if json.Unmarshal(data, &decoded) != nil {
+		return "", false
+	}
+	var value listingToken
+	if json.Unmarshal(data, &value) != nil {
+		return "", false
+	}
+	var after string
+	if raw, ok := decoded["after"]; !ok || json.Unmarshal(raw, &after) != nil {
+		return "", false
+	}
+	if value.Version != 1 || value.Bucket != bucket || value.Prefix != prefix || value.Delimiter != delimiter {
+		return "", false
+	}
+	return value.After, true
+}
+
+func (r *S3Router) handleGet(ctx *minihttp.RequestContext, resp *S3Response, bucket, key string) {
+	if key == "" {
+		r.handleListObjects(ctx, resp, bucket)
 		return
 	}
 

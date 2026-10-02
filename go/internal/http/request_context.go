@@ -10,13 +10,13 @@ import (
 // accessor methods that the S3 router and SigV4 authenticator depend on.
 // It mirrors MiniS3\Http\RequestContext from the PHP reference.
 type RequestContext struct {
-	method      string
-	requestURI  string
-	path        string
-	rawQuery    string
-	query       url.Values
-	headers     map[string]string
-	r           *http.Request
+	method     string
+	requestURI string
+	path       string
+	rawQuery   string
+	query      url.Values
+	headers    map[string]string
+	r          *http.Request
 }
 
 // NewRequestContext creates a RequestContext from a standard http.Request.
@@ -57,6 +57,11 @@ func (rc *RequestContext) RawQueryString() string {
 // if the parameter is not present.
 func (rc *RequestContext) GetQueryParam(name string) string {
 	return rc.query.Get(name)
+}
+
+// QueryValues returns a copy of all parsed values for a query parameter.
+func (rc *RequestContext) QueryValues(name string) []string {
+	return append([]string(nil), rc.query[name]...)
 }
 
 // HasQueryParam reports whether the query parameter exists.

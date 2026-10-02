@@ -25,51 +25,109 @@ func NewS3Response(w http.ResponseWriter) *S3Response {
 // XMLError sends an S3 error response with the given HTTP status and S3 code.
 func (r *S3Response) XMLError(httpStatus int, s3Code, message, resource string) {
 	type errorXML struct {
-		XMLName xml.Name `xml:"Error"`
-		Code    string   `xml:"Code"`
-		Message string   `xml:"Message"`
-		Resource string  `xml:"Resource,omitempty"`
+		XMLName  xml.Name `xml:"Error"`
+		Code     string   `xml:"Code"`
+		Message  string   `xml:"Message"`
+		Resource string   `xml:"Resource,omitempty"`
 	}
 	resp := errorXML{
-		Code:    s3Code,
-		Message: message,
+		Code:     s3Code,
+		Message:  message,
 		Resource: resource,
 	}
 	r.sendXML(resp, httpStatus)
 }
 
+// ListingOptions contains request metadata for ListObjects V1 or V2.
+type ListingOptions struct {
+	Version               int
+	Prefix                *string
+	Delimiter             *string
+	MaxKeys               int
+	EncodingType          string
+	Marker                *string
+	StartAfter            *string
+	ContinuationToken     *string
+	NextContinuationToken string
+}
+
 // ListObjects sends a ListBucketResult XML response.
-func (r *S3Response) ListObjects(files []storage.FileInfo, bucket, prefix string) {
+func (r *S3Response) ListObjects(page storage.ListPage, bucket string, options ListingOptions) {
 	type contents struct {
 		Key          string `xml:"Key"`
 		LastModified string `xml:"LastModified"`
 		Size         int64  `xml:"Size"`
 		StorageClass string `xml:"StorageClass"`
 	}
+	type commonPrefix struct {
+		Prefix string `xml:"Prefix"`
+	}
 	type listResult struct {
-		XMLName     xml.Name   `xml:"ListBucketResult"`
-		Name        string     `xml:"Name"`
-		Prefix      string     `xml:"Prefix"`
-		MaxKeys     string     `xml:"MaxKeys"`
-		IsTruncated string     `xml:"IsTruncated"`
-		Contents    []contents `xml:"Contents"`
+		XMLName               xml.Name       `xml:"ListBucketResult"`
+		Name                  string         `xml:"Name"`
+		Prefix                *string        `xml:"Prefix,omitempty"`
+		Delimiter             *string        `xml:"Delimiter,omitempty"`
+		Marker                *string        `xml:"Marker,omitempty"`
+		NextMarker            *string        `xml:"NextMarker,omitempty"`
+		MaxKeys               int            `xml:"MaxKeys"`
+		EncodingType          string         `xml:"EncodingType,omitempty"`
+		IsTruncated           bool           `xml:"IsTruncated"`
+		Contents              []contents     `xml:"Contents"`
+		CommonPrefixes        []commonPrefix `xml:"CommonPrefixes"`
+		KeyCount              *int           `xml:"KeyCount,omitempty"`
+		StartAfter            *string        `xml:"StartAfter,omitempty"`
+		ContinuationToken     *string        `xml:"ContinuationToken,omitempty"`
+		NextContinuationToken *string        `xml:"NextContinuationToken,omitempty"`
 	}
-
-	resp := listResult{
-		Name:        bucket,
-		Prefix:      prefix,
-		MaxKeys:     "1000",
-		IsTruncated: "false",
+	escape := func(s string) string {
+		if options.EncodingType == "url" {
+			return percentEncodeListing(s)
+		}
+		return s
 	}
-	for _, f := range files {
-		resp.Contents = append(resp.Contents, contents{
-			Key:          f.Key,
-			LastModified: formatLastModified(f.Timestamp),
-			Size:         f.Size,
-			StorageClass: "STANDARD",
-		})
+	resp := listResult{Name: bucket, Prefix: escapedPointer(options.Prefix, escape), Delimiter: escapedPointer(options.Delimiter, escape), Marker: escapedPointer(options.Marker, escape), MaxKeys: options.MaxKeys, EncodingType: options.EncodingType, IsTruncated: page.Truncated, StartAfter: escapedPointer(options.StartAfter, escape), ContinuationToken: options.ContinuationToken}
+	if options.Version == 2 {
+		count := len(page.Entries)
+		resp.KeyCount = &count
+		if options.NextContinuationToken != "" {
+			resp.NextContinuationToken = &options.NextContinuationToken
+		}
+	} else if page.Truncated && options.Delimiter != nil && *options.Delimiter != "" && page.Last != "" {
+		marker := escape(page.Last)
+		resp.NextMarker = &marker
+	}
+	for _, entry := range page.Entries {
+		if entry.File == nil {
+			resp.CommonPrefixes = append(resp.CommonPrefixes, commonPrefix{Prefix: escape(entry.Prefix)})
+			continue
+		}
+		f := entry.File
+		resp.Contents = append(resp.Contents, contents{Key: escape(f.Key), LastModified: formatLastModified(f.Timestamp), Size: f.Size, StorageClass: "STANDARD"})
 	}
 	r.sendXML(resp, http.StatusOK)
+}
+
+func escapedPointer(value *string, escape func(string) string) *string {
+	if value == nil {
+		return nil
+	}
+	return new(escape(*value))
+}
+
+func percentEncodeListing(value string) string {
+	const hex = "0123456789ABCDEF"
+	var out strings.Builder
+	for i := 0; i < len(value); i++ {
+		b := value[i]
+		if b >= 'A' && b <= 'Z' || b >= 'a' && b <= 'z' || b >= '0' && b <= '9' || strings.ContainsRune("-_.~/", rune(b)) {
+			out.WriteByte(b)
+		} else {
+			out.WriteByte('%')
+			out.WriteByte(hex[b>>4])
+			out.WriteByte(hex[b&15])
+		}
+	}
+	return out.String()
 }
 
 // CreateMultipartUpload sends an InitiateMultipartUploadResult XML response.
@@ -122,9 +180,9 @@ func (r *S3Response) DeleteResult(deletedKeys []string, errors []DeleteError) {
 		Message string `xml:"Message"`
 	}
 	type deleteResult struct {
-		XMLName  xml.Name       `xml:"DeleteResult"`
-		Deleted  []deletedEntry `xml:"Deleted"`
-		Errors   []errorEntry   `xml:"Error"`
+		XMLName xml.Name       `xml:"DeleteResult"`
+		Deleted []deletedEntry `xml:"Deleted"`
+		Errors  []errorEntry   `xml:"Error"`
 	}
 
 	resp := deleteResult{}
