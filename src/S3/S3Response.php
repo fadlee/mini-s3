@@ -20,22 +20,55 @@ final class S3Response
         $this->sendXml($xml, $httpStatus);
     }
 
-    public function listObjects(array $files, string $bucket, string $prefix = ''): never
+    public function listObjects(array $page, string $bucket, array $options): never
     {
         $xml = new SimpleXMLElement('<?xml version="1.0" encoding="UTF-8"?><ListBucketResult></ListBucketResult>');
-        $xml->addChild('Name', $bucket);
-        $xml->addChild('Prefix', $prefix);
-        $xml->addChild('MaxKeys', '1000');
-        $xml->addChild('IsTruncated', 'false');
-
-        foreach ($files as $file) {
+        $encoded = $options['encodingType'] === 'url';
+        $add = static function (SimpleXMLElement $parent, string $name, string $value) use ($encoded): void {
+            $parent->addChild($name, htmlspecialchars($encoded ? rawurlencode($value) : $value, ENT_XML1 | ENT_QUOTES, 'UTF-8'));
+        };
+        $add($xml, 'Name', $bucket);
+        foreach (['prefix' => 'Prefix', 'delimiter' => 'Delimiter'] as $option => $element) {
+            if ($options[$option] !== null) {
+                $add($xml, $element, $options[$option]);
+            }
+        }
+        if ($options['version'] === 1 && $options['marker'] !== null) {
+            $add($xml, 'Marker', $options['marker']);
+        }
+        if ($options['version'] === 2 && $options['startAfter'] !== null) {
+            $add($xml, 'StartAfter', $options['startAfter']);
+        }
+        if ($options['version'] === 2 && $options['continuationToken'] !== null) {
+            $add($xml, 'ContinuationToken', $options['continuationToken']);
+        }
+        if ($encoded) {
+            $add($xml, 'EncodingType', 'url');
+        }
+        $xml->addChild('MaxKeys', (string) $options['maxKeys']);
+        $xml->addChild('IsTruncated', $page['truncated'] ? 'true' : 'false');
+        if ($options['version'] === 2) {
+            $xml->addChild('KeyCount', (string) count($page['entries']));
+        }
+        foreach ($page['entries'] as $entry) {
+            if (isset($entry['prefix'])) {
+                $common = $xml->addChild('CommonPrefixes');
+                $add($common, 'Prefix', $entry['prefix']);
+                continue;
+            }
             $contents = $xml->addChild('Contents');
-            $contents->addChild('Key', (string) $file['key']);
-            $contents->addChild('LastModified', gmdate('Y-m-d\TH:i:s.000\Z', (int) $file['timestamp']));
-            $contents->addChild('Size', (string) $file['size']);
+            $add($contents, 'Key', $entry['key']);
+            $contents->addChild('LastModified', gmdate('Y-m-d\\TH:i:s.000\\Z', (int) $entry['timestamp']));
+            $contents->addChild('Size', (string) $entry['size']);
             $contents->addChild('StorageClass', 'STANDARD');
         }
-
+        if ($page['truncated'] && $page['last'] !== null) {
+            if ($options['version'] === 1 && $options['delimiter'] !== null && $options['delimiter'] !== '') {
+                $add($xml, 'NextMarker', $page['last']);
+            } elseif ($options['version'] === 2) {
+                $xml->addChild('NextContinuationToken', $options['nextToken']);
+            }
+        }
         $this->sendXml($xml, 200);
     }
 

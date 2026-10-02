@@ -85,6 +85,114 @@ signedRequest($phpBin, $sigv4Helper, $requestHelper, $accessKey, $secretKey, $si
 assertEq('200', metaStatus($tmpDir . '/list.meta', $phpBin), 'List should succeed');
 assertContains('<Key>' . $testKey . '</Key>', $tmpDir . '/list.body', 'List should include uploaded object');
 
+foreach (['a.txt', 'dir/x.txt', 'dir/y.txt', 'z(1).txt'] as $listingKey) {
+    signedRequest($phpBin, $sigv4Helper, $requestHelper, $accessKey, $secretKey, $signBaseUrl, $signHost, 'PUT', '/' . $testBucket . '/' . $listingKey, $tmpDir . '/hello.txt', $tmpDir . '/listing-put.body', $tmpDir . '/listing-put.meta');
+    assertEq('200', metaStatus($tmpDir . '/listing-put.meta', $phpBin), 'Listing fixture upload should succeed');
+}
+$listingUri = '/' . $testBucket . '/?delimiter=%2F&max-keys=1';
+signedRequest($phpBin, $sigv4Helper, $requestHelper, $accessKey, $secretKey, $signBaseUrl, $signHost, 'GET', $listingUri, null, $tmpDir . '/v1-list.body', $tmpDir . '/v1-list.meta');
+assertContains('<Key>a.txt</Key>', $tmpDir . '/v1-list.body', 'V1 page should return first key');
+assertContains('<IsTruncated>true</IsTruncated>', $tmpDir . '/v1-list.body', 'V1 page should indicate truncation');
+assertContains('<NextMarker>a.txt</NextMarker>', $tmpDir . '/v1-list.body', 'V1 should return next marker');
+signedRequest($phpBin, $sigv4Helper, $requestHelper, $accessKey, $secretKey, $signBaseUrl, $signHost, 'GET', '/' . $testBucket . '/?delimiter=%2F&max-keys=1&marker=a.txt', null, $tmpDir . '/v1-list2.body', $tmpDir . '/v1-list2.meta');
+assertContains('<CommonPrefixes><Prefix>dir/</Prefix></CommonPrefixes>', $tmpDir . '/v1-list2.body', 'V1 next page should group directory keys');
+signedRequest($phpBin, $sigv4Helper, $requestHelper, $accessKey, $secretKey, $signBaseUrl, $signHost, 'GET', '/' . $testBucket . '/?delimiter=%2F&max-keys=1&marker=dir%2F', null, $tmpDir . '/v1-list3.body', $tmpDir . '/v1-list3.meta');
+assertContains('<Key>hello.txt</Key>', $tmpDir . '/v1-list3.body', 'V1 third page should return next sorted key');
+signedRequest($phpBin, $sigv4Helper, $requestHelper, $accessKey, $secretKey, $signBaseUrl, $signHost, 'GET', '/' . $testBucket . '/?delimiter=%2F&max-keys=1&marker=hello.txt', null, $tmpDir . '/v1-list4.body', $tmpDir . '/v1-list4.meta');
+assertContains('<Key>z(1).txt</Key>', $tmpDir . '/v1-list4.body', 'V1 final page should return final key');
+$v2Uri = '/' . $testBucket . '/?list-type=2&delimiter=%2F&max-keys=1';
+signedRequest($phpBin, $sigv4Helper, $requestHelper, $accessKey, $secretKey, $signBaseUrl, $signHost, 'GET', $v2Uri, null, $tmpDir . '/v2-list.body', $tmpDir . '/v2-list.meta');
+assertEq('1', extractXmlValue($tmpDir . '/v2-list.body', 'KeyCount'), 'V2 KeyCount should count one object entry');
+$continuation = extractXmlValue($tmpDir . '/v2-list.body', 'NextContinuationToken');
+assertContains('<NextContinuationToken>', $tmpDir . '/v2-list.body', 'V2 truncated page should return token');
+$tokenUri = $v2Uri . '&continuation-token=' . rawurlencode($continuation) . '&start-after=zzzz';
+signedRequest($phpBin, $sigv4Helper, $requestHelper, $accessKey, $secretKey, $signBaseUrl, $signHost, 'GET', $tokenUri, null, $tmpDir . '/v2-list2.body', $tmpDir . '/v2-list2.meta');
+assertContains('<CommonPrefixes><Prefix>dir/</Prefix></CommonPrefixes>', $tmpDir . '/v2-list2.body', 'V2 continuation token should override start-after');
+assertEq('1', extractXmlValue($tmpDir . '/v2-list2.body', 'KeyCount'), 'V2 KeyCount should count one common prefix');
+assertNotContains('<Key>a.txt</Key>', $tmpDir . '/v2-list2.body', 'V2 pages must not repeat keys');
+signedRequest($phpBin, $sigv4Helper, $requestHelper, $accessKey, $secretKey, $signBaseUrl, $signHost, 'GET', '/' . $testBucket . '/?list-type=2&encoding-type=url&prefix=z', null, $tmpDir . '/v2-encoded.body', $tmpDir . '/v2-encoded.meta');
+assertContains('<Key>z%281%29.txt</Key>', $tmpDir . '/v2-encoded.body', 'URL encoding should encode listed keys');
+signedRequest($phpBin, $sigv4Helper, $requestHelper, $accessKey, $secretKey, $signBaseUrl, $signHost, 'GET', '/' . $testBucket . '/?max-keys=0', null, $tmpDir . '/zero-list.body', $tmpDir . '/zero-list.meta');
+assertContains('<IsTruncated>true</IsTruncated>', $tmpDir . '/zero-list.body', 'Zero max-keys should return empty truncated page');
+signedRequest($phpBin, $sigv4Helper, $requestHelper, $accessKey, $secretKey, $signBaseUrl, $signHost, 'GET', '/' . $testBucket . '/?max-keys=1001', null, $tmpDir . '/invalid-list.body', $tmpDir . '/invalid-list.meta');
+assertEq('400', metaStatus($tmpDir . '/invalid-list.meta', $phpBin), 'Invalid max-keys should fail');
+
+$listRequest = static function (array $query, string $status = '200') use ($phpBin, $sigv4Helper, $requestHelper, $accessKey, $secretKey, $signBaseUrl, $signHost, $testBucket, $tmpDir): SimpleXMLElement {
+    $uri = '/' . $testBucket . '/?' . http_build_query($query, '', '&', PHP_QUERY_RFC3986);
+    signedRequest($phpBin, $sigv4Helper, $requestHelper, $accessKey, $secretKey, $signBaseUrl, $signHost, 'GET', $uri, null, $tmpDir . '/listing-check.body', $tmpDir . '/listing-check.meta');
+    assertEq($status, metaStatus($tmpDir . '/listing-check.meta', $phpBin), 'Listing status for ' . $uri);
+    $xml = simplexml_load_file($tmpDir . '/listing-check.body');
+    if ($xml === false) {
+        fail('Listing response must be valid XML');
+    }
+    return $xml;
+};
+$seenNames = [];
+$query = ['list-type' => '2', 'delimiter' => '/', 'max-keys' => '1'];
+for ($pageNumber = 0; $pageNumber < 5; $pageNumber++) {
+    $xml = $listRequest($query);
+    foreach ($xml->Contents as $content) {
+        $seenNames[] = (string) $content->Key;
+    }
+    foreach ($xml->CommonPrefixes as $common) {
+        $seenNames[] = (string) $common->Prefix;
+    }
+    if ((string) $xml->IsTruncated === 'false') {
+        break;
+    }
+    $query['continuation-token'] = (string) $xml->NextContinuationToken;
+}
+assertEq('a.txt|dir/|hello.txt|z(1).txt', implode('|', $seenNames), 'V2 traversal must return every sorted entry exactly once');
+assertEq('false', (string) $xml->IsTruncated, 'V2 traversal must reach final page');
+assertEq('dir/', (string) $listRequest(['list-type' => '2', 'delimiter' => '/', 'max-keys' => '1', 'start-after' => 'a.txt'])->CommonPrefixes->Prefix, 'StartAfter must select group without token');
+foreach (['1', '2'] as $listingVersion) {
+    $zeroQuery = ['max-keys' => '0'];
+    if ($listingVersion === '2') {
+        $zeroQuery['list-type'] = '2';
+    }
+    $zero = $listRequest($zeroQuery);
+    assertEq('0', (string) count($zero->Contents), 'Zero page must contain no objects');
+    assertEq('0', (string) count($zero->CommonPrefixes), 'Zero page must contain no groups');
+    assertEq('0', (string) count($zero->NextMarker), 'Zero page must have no next marker');
+    assertEq('0', (string) count($zero->NextContinuationToken), 'Zero page must have no next token');
+}
+$escapedKey = 'xml/a&<b>.txt';
+signedRequest($phpBin, $sigv4Helper, $requestHelper, $accessKey, $secretKey, $signBaseUrl, $signHost, 'PUT', '/' . $testBucket . '/xml/' . rawurlencode('a&<b>.txt'), $tmpDir . '/hello.txt', $tmpDir . '/escape-put.body', $tmpDir . '/escape-put.meta');
+assertEq('200', metaStatus($tmpDir . '/escape-put.meta', $phpBin), 'XML key fixture upload');
+$escaped = $listRequest(['prefix' => 'xml/a&']);
+assertEq($escapedKey, (string) $escaped->Contents->Key, 'XML escaping must preserve ampersand and angle brackets');
+assertEq('xml/a&', (string) $escaped->Prefix, 'XML escaping must preserve prefix');
+foreach (['list-type', 'prefix', 'delimiter', 'max-keys', 'encoding-type', 'marker', 'start-after', 'continuation-token'] as $parameter) {
+    $invalidQuery = ['list-type' => '2', $parameter => ['bad']];
+    assertEq('InvalidArgument', (string) $listRequest($invalidQuery, '400')->Code, 'Array listing parameter must be rejected');
+}
+foreach (['prefix', 'delimiter', 'marker', 'start-after'] as $parameter) {
+    foreach (["\x01", "\xEF\xBF\xBE", "\xEF\xBF\xBF", "\xFF"] as $badValue) {
+        $invalidQuery = [$parameter => $badValue];
+        if ($parameter === 'start-after') {
+            $invalidQuery['list-type'] = '2';
+        }
+        assertEq('InvalidArgument', (string) $listRequest($invalidQuery, '400')->Code, 'Illegal XML query value must be rejected');
+        $invalidQuery['encoding-type'] = 'url';
+        $listRequest($invalidQuery);
+    }
+}
+foreach ([$continuation . "\n", $continuation . '=', '', '!', 'e30', 'W10'] as $badToken) {
+    assertEq('InvalidArgument', (string) $listRequest(['list-type' => '2', 'delimiter' => '/', 'continuation-token' => $badToken], '400')->Code, 'Malformed token must be rejected');
+}
+foreach ([['prefix' => 'dir/'], ['delimiter' => '|']] as $changedContext) {
+    $listRequest(array_merge(['list-type' => '2', 'delimiter' => '/', 'continuation-token' => $continuation], $changedContext), '400');
+}
+$otherBucketToken = rtrim(strtr(base64_encode(json_encode(['version' => 1, 'bucket' => 'another-bucket', 'prefix' => '', 'delimiter' => '/', 'after' => 'a.txt'])), '+/', '-_'), '=');
+$listRequest(['list-type' => '2', 'delimiter' => '/', 'continuation-token' => $otherBucketToken], '400');
+foreach ([['list-type' => '1'], ['list-type' => '3'], ['encoding-type' => 'xml'], ['max-keys' => '-1'], ['max-keys' => '1.5'], ['max-keys' => ''], ['max-keys' => '999999999999999999999'], ['marker' => '', 'list-type' => '2'], ['start-after' => ''], ['continuation-token' => '']] as $invalidQuery) {
+    assertEq('InvalidArgument', (string) $listRequest($invalidQuery, '400')->Code, 'Invalid listing argument must return S3 error');
+}
+assertEq('1', (string) $listRequest(['prefix' => 'z', 'max-keys' => '00001'])->Contents->count(), 'Leading zero max-keys must retain numeric value');
+$withinPrefix = $listRequest(['list-type' => '2', 'prefix' => 'dir/', 'delimiter' => '/', 'start-after' => 'dir/']);
+assertEq('dir/x.txt', (string) $withinPrefix->Contents[0]->Key, 'Cursor equal to request prefix must not hide ungrouped children');
+assertEq('dir/y.txt', (string) $withinPrefix->Contents[1]->Key, 'Prefix listing must preserve remaining children');
+
 signedRequest($phpBin, $sigv4Helper, $requestHelper, $accessKey, $secretKey, $signBaseUrl, $signHost, 'GET', '/' . $testBucket . '/' . $testKey, null, $tmpDir . '/get.body', $tmpDir . '/get.meta');
 assertEq('200', metaStatus($tmpDir . '/get.meta', $phpBin), 'GET should succeed');
 assertSameFile($tmpDir . '/hello.txt', $tmpDir . '/get.body', 'Downloaded body differs from uploaded body');

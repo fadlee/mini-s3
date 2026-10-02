@@ -226,26 +226,81 @@ final class S3Router
     private function handleGet(string $bucket, string $key): never
     {
         if ($key === '') {
-            $prefix = (string) ($this->request->getQueryParam('prefix') ?? '');
-            $files = $this->storage->listFiles($bucket, $prefix);
-            $this->response->listObjects($files, $bucket, $prefix);
+            foreach (['list-type', 'prefix', 'delimiter', 'max-keys', 'encoding-type', 'marker', 'start-after', 'continuation-token'] as $parameter) {
+                if ($this->request->hasQueryParam($parameter) && $this->request->getQueryParam($parameter) === null) {
+                    $this->invalidListingRequest('Listing parameters must be strings');
+                }
+            }
+            $versionValue = $this->request->getQueryParam('list-type');
+            if ($versionValue !== null && $versionValue !== '2') {
+                $this->invalidListingRequest('Unsupported list-type');
+            }
+            $version = $versionValue === '2' ? 2 : 1;
+            $wrongParams = $version === 1 ? ['start-after', 'continuation-token'] : ['marker'];
+            foreach ($wrongParams as $name) {
+                if ($this->request->hasQueryParam($name)) {
+                    $this->invalidListingRequest('Pagination parameter is not valid for this listing version');
+                }
+            }
+            $prefix = $this->request->getQueryParam('prefix') ?? '';
+            $delimiter = $this->request->getQueryParam('delimiter');
+            $maxValue = $this->request->getQueryParam('max-keys');
+            if ($maxValue !== null && !preg_match('/^[0-9]+$/D', $maxValue)) {
+                $this->invalidListingRequest('Invalid max-keys');
+            }
+            $maxKeys = $maxValue === null ? 1000 : (int) $maxValue;
+            if ($maxKeys > 1000) {
+                $this->invalidListingRequest('Invalid max-keys');
+            }
+            $encoding = $this->request->getQueryParam('encoding-type');
+            if ($encoding !== null && $encoding !== 'url') {
+                $this->invalidListingRequest('Invalid encoding-type');
+            }
+            $marker = $this->request->getQueryParam('marker');
+            $startAfter = $this->request->getQueryParam('start-after');
+            $token = $this->request->getQueryParam('continuation-token');
+            if ($encoding !== 'url') {
+                foreach ([$prefix, $delimiter, $marker, $startAfter] as $value) {
+                    if ($value !== null && preg_match('/\A[\x{9}\x{A}\x{D}\x{20}-\x{D7FF}\x{E000}-\x{FFFD}\x{10000}-\x{10FFFF}]*\z/u', $value) !== 1) {
+                        $this->invalidListingRequest('Listing value contains an illegal XML character');
+                    }
+                }
+            }
+            $after = $version === 1 ? $marker : $startAfter;
+            if ($token !== null) {
+                if (preg_match('/\A[A-Za-z0-9_-]+\z/', $token) !== 1) {
+                    $this->invalidListingRequest('Invalid continuation-token');
+                }
+                $decoded = base64_decode(strtr($token, '-_', '+/') . str_repeat('=', (4 - strlen($token) % 4) % 4), true);
+                if ($decoded === false || rtrim(strtr(base64_encode($decoded), '+/', '-_'), '=') !== $token) {
+                    $this->invalidListingRequest('Invalid continuation-token');
+                }
+                $state = is_string($decoded) ? json_decode($decoded, true) : null;
+                if (!is_array($state) || ($state['version'] ?? null) !== 1 || ($state['bucket'] ?? null) !== $bucket || ($state['prefix'] ?? null) !== $prefix || ($state['delimiter'] ?? null) !== ($delimiter ?? '') || !is_string($state['after'] ?? null)) {
+                    $this->invalidListingRequest('Invalid continuation-token');
+                }
+                $after = $state['after'];
+            }
+            $page = $this->storage->listPage($bucket, $prefix, $delimiter ?? '', $maxKeys, $after);
+            $nextToken = '';
+            if ($page['truncated'] && $maxKeys > 0) {
+                $stateJson = json_encode(['version' => 1, 'bucket' => $bucket, 'prefix' => $prefix, 'delimiter' => $delimiter ?? '', 'after' => $page['last']], JSON_UNESCAPED_SLASHES);
+                $nextToken = rtrim(strtr(base64_encode($stateJson), '+/', '-_'), '=');
+            }
+            $this->response->listObjects($page, $bucket, ['version' => $version, 'prefix' => $this->request->hasQueryParam('prefix') ? $prefix : null, 'delimiter' => $delimiter, 'maxKeys' => $maxKeys, 'encodingType' => $encoding, 'marker' => $marker, 'startAfter' => $startAfter, 'continuationToken' => $token, 'nextToken' => $nextToken]);
         }
-
         $metadata = $this->storage->objectMetadata($bucket, $key);
         if ($metadata === null) {
             $this->response->error(404, 'NoSuchKey', 'Object not found', $this->resource($bucket, $key));
         }
-
         $fileSize = (int) $metadata['size'];
         $fp = $this->storage->openObjectReadStream($bucket, $key);
         $mimeType = (string) $metadata['mimeType'];
         $range = $this->request->getHeader('range');
-
         $start = 0;
         $end = max(0, $fileSize - 1);
         $length = $fileSize;
         $status = 200;
-
         if ($range !== null && $range !== '') {
             [$isValidRange, $start, $end] = $this->validator->parseRange($range, $fileSize);
             if (!$isValidRange) {
@@ -285,6 +340,10 @@ final class S3Router
 
         fclose($fp);
         exit;
+    }
+    private function invalidListingRequest(string $message): never
+    {
+        $this->response->error(400, 'InvalidArgument', $message);
     }
 
     private function handleHead(string $bucket, string $key): never

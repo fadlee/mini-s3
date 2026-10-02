@@ -61,6 +61,34 @@ final class FileStorage
 
         return $files;
     }
+    public function listPage(string $bucket, string $prefix, string $delimiter, int $maxKeys, ?string $after): array
+    {
+        $files = $this->listFiles($bucket, $prefix);
+        usort($files, static fn (array $a, array $b): int => strcmp($a['key'], $b['key']));
+        $items = [];
+        $seen = [];
+        foreach ($files as $file) {
+            $key = $file['key'];
+            $relative = substr($key, strlen($prefix));
+            $separator = $delimiter === '' ? false : strpos($relative, $delimiter);
+            if ($separator !== false) {
+                $name = $prefix . substr($relative, 0, $separator + strlen($delimiter));
+                if (isset($seen[$name]) || ($after !== null && strcmp($name, $after) <= 0)) {
+                    continue;
+                }
+                $seen[$name] = true;
+                $items[] = ['prefix' => $name];
+            } elseif ($after === null || strcmp($key, $after) > 0) {
+                $items[] = $file;
+            }
+        }
+        usort($items, static fn (array $a, array $b): int => strcmp($a['key'] ?? $a['prefix'], $b['key'] ?? $b['prefix']));
+        $truncated = count($items) > $maxKeys;
+        $entries = array_slice($items, 0, $maxKeys);
+        $lastEntry = $entries === [] ? null : $entries[count($entries) - 1];
+        return ['entries' => $entries, 'truncated' => $truncated, 'last' => $lastEntry['key'] ?? $lastEntry['prefix'] ?? null];
+    }
+
 
     public function objectPath(string $bucket, string $key): string
     {

@@ -12,6 +12,18 @@ A lightweight S3-compatible object storage server implemented in PHP, using loca
 - ✅ Full AWS Signature V4 verification (header auth + presigned URL)
 - ✅ Lightweight deployment with minimal PHP files
 
+Bucket GET supports ListObjects V1 and V2 (`list-type=2`), including `prefix`,
+`delimiter`, `max-keys` (0–1000), V1 `marker`, and V2 `start-after` and
+`continuation-token`. Results are bytewise sorted; grouped common prefixes count
+toward the page limit. V2 tokens are opaque, canonical base64url and bound to the
+bucket, prefix, and delimiter. Tokens take precedence over `start-after`.
+
+Use `encoding-type=url` for percent-encoded key fields and query values that
+cannot be represented in XML. Invalid listing arguments return HTTP 400
+`InvalidArgument`. A zero-sized page has no next cursor; request a positive
+`max-keys` to continue. Pagination reflects current storage, not a snapshot.
+`fetch-owner` is not implemented.
+
 
 ## TLDR
 
