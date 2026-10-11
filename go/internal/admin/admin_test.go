@@ -837,7 +837,7 @@ func TestRendererUpdateAvailableShowsDockerPull(t *testing.T) {
 		"csrfToken":      "csrf-token",
 	})
 
-	if !strings.Contains(html, "docker pull ghcr.io/fadlee/mini-s3:1.2.0") {
+	if !strings.Contains(html, "docker pull ghcr.io/fadlee/mini-s3-go:1.2.0") {
 		t.Error("update notice should show the docker pull command for the new image tag")
 	}
 	if !strings.Contains(html, `href="https://github.com/fadlee/mini-s3/releases/tag/go-v1.2.0" target="_blank" rel="noopener"`) {

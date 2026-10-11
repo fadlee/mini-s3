@@ -162,7 +162,9 @@ jobs:
         id: image
         run: |
           REPO_OWNER="${GITHUB_REPOSITORY_OWNER,,}"
-          echo "name=ghcr.io/${REPO_OWNER}/mini-s3" >> $GITHUB_OUTPUT
+          echo "name=ghcr.io/${REPO_OWNER}/mini-s3-go" >> $GITHUB_OUTPUT
+          # Deprecated legacy name, still published for a transition period.
+          echo "legacy=ghcr.io/${REPO_OWNER}/mini-s3" >> $GITHUB_OUTPUT
 
       - name: Build and push image
         uses: docker/build-push-action@v6
@@ -177,5 +179,8 @@ jobs:
             ${{ steps.image.outputs.name }}:${{ steps.version.outputs.image_tag }}
             ${{ steps.image.outputs.name }}:${{ steps.version.outputs.image_tag }}-alpine
             ${{ steps.image.outputs.name }}:latest
+            ${{ steps.image.outputs.legacy }}:${{ steps.version.outputs.image_tag }}
+            ${{ steps.image.outputs.legacy }}:${{ steps.version.outputs.image_tag }}-alpine
+            ${{ steps.image.outputs.legacy }}:latest
           cache-from: type=gha
           cache-to: type=gha,mode=max

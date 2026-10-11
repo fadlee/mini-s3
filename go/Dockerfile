@@ -8,6 +8,9 @@ FROM alpine:3.20
 ARG TARGETARCH
 ARG VERSION=dev
 
+LABEL org.opencontainers.image.source="https://github.com/fadlee/mini-s3" \
+      org.opencontainers.image.description="Mini S3 (Go build): lightweight S3-compatible object storage"
+
 # ca-certificates for HTTPS (update check queries GitHub releases);
 # tzdata for correct local timestamps in logs;
 # libcap provides setcap so the non-root binary can bind to port 80.

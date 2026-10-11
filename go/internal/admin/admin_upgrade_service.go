@@ -16,7 +16,7 @@ import (
 const (
 	repoOwner       = "fadlee"
 	repoName        = "mini-s3"
-	dockerImage     = "ghcr.io/fadlee/mini-s3" // image tag = release tag without "go-v"
+	dockerImage     = "ghcr.io/fadlee/mini-s3-go" // image tag = release tag without "go-v"
 	cacheTTLSeconds = 21600                    // 6 hours
 	apiTimeout      = 5 * time.Second
 	releasesPerPage = 20
