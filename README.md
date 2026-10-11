@@ -1,6 +1,8 @@
 # Mini S3 Server
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
+[![Go edition](https://img.shields.io/github/v/release/fadlee/mini-s3?filter=go-v*&label=Go%20edition&sort=semver)](https://github.com/fadlee/mini-s3/releases?q=go-v&expanded=true)
+[![PHP edition](https://img.shields.io/github/v/release/fadlee/mini-s3?filter=!go-*&label=PHP%20edition&sort=semver)](https://github.com/fadlee/mini-s3/releases)
 
 Mini S3 Server is a lightweight S3-compatible object storage server that stores objects on the local filesystem. It needs no database. The project ships two implementations of the same server:
 
@@ -50,11 +52,11 @@ This is the fastest way to run Mini S3. The image contains only the Go binary, r
 
 | Tag | Meaning |
 |---|---|
-| `ghcr.io/fadlee/mini-s3-go:1.2.1` | Release `go-v1.2.1` (the release tag without the `go-v` prefix) |
-| `ghcr.io/fadlee/mini-s3-go:1.2.1-alpine` | Same build as the version tag (the base image is Alpine) |
+| `ghcr.io/fadlee/mini-s3-go:X.Y.Z` | Release `go-vX.Y.Z` (the release tag without the `go-v` prefix) |
+| `ghcr.io/fadlee/mini-s3-go:X.Y.Z-alpine` | Same build as the version tag (the base image is Alpine) |
 | `ghcr.io/fadlee/mini-s3-go:latest` | Most recent `go-v*` release |
 
-Images are published for `linux/amd64` and `linux/arm64`. For production, pin a version tag instead of `latest`.
+Images are published for `linux/amd64` and `linux/arm64`. For production, pin a version tag instead of `latest`. The current version is shown in the **Go edition** badge at the top of this README and on the [Releases](https://github.com/fadlee/mini-s3/releases) page.
 
 > **Deprecated image name:** `ghcr.io/fadlee/mini-s3` is still published for a transition period. Switch to `ghcr.io/fadlee/mini-s3-go`.
 
@@ -67,7 +69,7 @@ docker run -d --name mini-s3 \
   -e MINI_S3_PUBLIC_READ_ALL_BUCKETS=false \
   -v mini-s3-data:/data \
   -v mini-s3-config:/etc/mini-s3 \
-  ghcr.io/fadlee/mini-s3-go:1.2.1
+  ghcr.io/fadlee/mini-s3-go:latest
 ```
 
 To set credentials without the installer, add this line before the image name:
@@ -88,7 +90,7 @@ docker run -d --name mini-s3 \
   -p 9000:80 \
   -v "$PWD/data:/data" \
   -v "$PWD/config:/etc/mini-s3" \
-  ghcr.io/fadlee/mini-s3-go:1.2.1
+  ghcr.io/fadlee/mini-s3-go:latest
 ```
 
 ### Run with Docker Compose
@@ -98,7 +100,7 @@ Save this as `compose.yaml`:
 ```yaml
 services:
   mini-s3:
-    image: ghcr.io/fadlee/mini-s3-go:1.2.1
+    image: ghcr.io/fadlee/mini-s3-go:${MINI_S3_VERSION:-latest}
     restart: unless-stopped
     ports:
       - "9000:80"
@@ -114,6 +116,8 @@ volumes:
   mini-s3-data:
   mini-s3-config:
 ```
+
+To pin a version, create a `.env` file next to `compose.yaml` with `MINI_S3_VERSION=X.Y.Z` (see the Go edition badge for the current version). Without it, Compose uses `latest`.
 
 Start it with:
 
@@ -222,7 +226,7 @@ A CDN can be placed in front of the proxy for caching and speed.
 With Compose:
 
 ```bash
-# 1. Change the image tag in compose.yaml, e.g. 1.2.1 -> 1.3.0
+# 1. Set MINI_S3_VERSION in .env to the new version (or keep latest)
 # 2. Pull and recreate the container
 docker compose pull && docker compose up -d
 ```
@@ -238,16 +242,16 @@ Data and configuration live in the volumes, so they survive image upgrades.
 Download a binary for your platform from the [GitHub Releases](https://github.com/fadlee/mini-s3/releases) page. Each release has binaries for `linux`, `darwin`, and `windows` on `amd64` and `arm64`, plus `checksums-sha256.txt`. Asset names look like this:
 
 ```text
-mini-s3-go-v1.2.0-linux-amd64
-mini-s3-go-v1.2.0-windows-amd64.exe
+mini-s3-go-vX.Y.Z-linux-amd64
+mini-s3-go-vX.Y.Z-windows-amd64.exe
 ```
 
 Verify the download and run it:
 
 ```bash
 sha256sum -c checksums-sha256.txt --ignore-missing
-chmod +x mini-s3-go-v1.2.0-linux-amd64
-./mini-s3-go-v1.2.0-linux-amd64 --addr 127.0.0.1:9000 --config ./config.yaml
+chmod +x mini-s3-go-vX.Y.Z-linux-amd64
+./mini-s3-go-vX.Y.Z-linux-amd64 --addr 127.0.0.1:9000 --config ./config.yaml
 ```
 
 Command-line flags:
