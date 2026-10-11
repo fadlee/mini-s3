@@ -131,10 +131,10 @@ $zip->addFromString('mini-s3-v1.0.2/index.php', "<?php\ndefine('MINI_S3_VERSION'
 $zip->addFromString('mini-s3-v1.0.2/.htaccess', 'ignored');
 $zip->close();
 
-$installService = new AdminUpgradeService($baseDir, $dataDir, $entryFile, null, function (string $url, string $destination) use ($zipPath): void {
+$installService = new AdminUpgradeService($baseDir, $dataDir, $entryFile, releaseFetcher('v1.0.2'), function (string $url, string $destination) use ($zipPath): void {
     copy($zipPath, $destination);
 });
-$result = $installService->upgrade('v1.0.1', 'v1.0.2', 'https://example.test/mini-s3-v1.0.2.zip');
+$result = $installService->upgrade('v1.0.1');
 assertSameValue(true, $result['ok'], 'upgrade succeeds');
 assertContainsValue("define('MINI_S3_VERSION', 'v1.0.2');", (string) file_get_contents($entryFile), 'entry file is replaced with new version');
 assertSameValue(false, str_contains((string) file_get_contents($entryFile), 'ignored'), 'htaccess content is not written into entry file');
@@ -147,10 +147,10 @@ $badZip = new ZipArchive();
 $badZip->open($badZipPath, ZipArchive::CREATE);
 $badZip->addFromString('mini-s3-v1.0.3/../index.php', 'bad');
 $badZip->close();
-$badService = new AdminUpgradeService($baseDir, $dataDir, $entryFile, null, function (string $url, string $destination) use ($badZipPath): void {
+$badService = new AdminUpgradeService($baseDir, $dataDir, $entryFile, releaseFetcher('v1.0.3'), function (string $url, string $destination) use ($badZipPath): void {
     copy($badZipPath, $destination);
 });
-$badResult = $badService->upgrade('v1.0.2', 'v1.0.3', 'https://example.test/mini-s3-v1.0.3.zip');
+$badResult = $badService->upgrade('v1.0.2');
 assertSameValue(false, $badResult['ok'], 'upgrade rejects archive without exact index path');
 assertContainsValue("define('MINI_S3_VERSION', 'v1.0.2');", (string) file_get_contents($entryFile), 'entry file remains unchanged after rejected archive');
 
@@ -227,18 +227,48 @@ $cacheAfterUpgradeZip = new ZipArchive();
 $cacheAfterUpgradeZip->open($cacheAfterUpgradeZipPath, ZipArchive::CREATE);
 $cacheAfterUpgradeZip->addFromString('mini-s3-v1.0.2/index.php', "<?php\ndefine('MINI_S3_VERSION', 'v1.0.2');\nclass AdminRouter {}\nclass S3Router {}\n");
 $cacheAfterUpgradeZip->close();
-$cacheAfterUpgradeService = new AdminUpgradeService($cacheAfterUpgradeBaseDir, $cacheAfterUpgradeDataDir, $cacheAfterUpgradeEntryFile, null, function (string $url, string $destination) use ($cacheAfterUpgradeZipPath): void {
+$cacheAfterUpgradeService = new AdminUpgradeService($cacheAfterUpgradeBaseDir, $cacheAfterUpgradeDataDir, $cacheAfterUpgradeEntryFile, releaseFetcher('v1.0.2'), function (string $url, string $destination) use ($cacheAfterUpgradeZipPath): void {
     copy($cacheAfterUpgradeZipPath, $destination);
 });
-$cacheAfterUpgradeResult = $cacheAfterUpgradeService->upgrade('v1.0.1', 'v1.0.2', 'https://example.test/mini-s3-v1.0.2.zip');
+$cacheAfterUpgradeResult = $cacheAfterUpgradeService->upgrade('v1.0.1');
 assertSameValue(true, $cacheAfterUpgradeResult['ok'], 'upgrade succeeds when stale cache exists');
 assertSameValue(false, is_file($cacheAfterUpgradeDataDir . '/.upgrade-cache/latest.json'), 'upgrade clears cached update status after success');
+
+$foreignDownloads = 0;
+$foreignService = new AdminUpgradeService($cacheAfterUpgradeBaseDir, $cacheAfterUpgradeDataDir, $cacheAfterUpgradeEntryFile, function (): array {
+    return ['tag_name' => 'v1.0.2', 'assets' => [['name' => 'mini-s3-v1.0.2.zip', 'browser_download_url' => 'https://example.test/mini-s3-v1.0.2.zip']]];
+}, function () use (&$foreignDownloads): void {
+    $foreignDownloads++;
+});
+$foreignResult = $foreignService->upgrade('v1.0.1');
+assertSameValue(false, $foreignResult['ok'], 'upgrade rejects asset url outside github release downloads');
+assertSameValue(0, $foreignDownloads, 'downloader is never called for foreign asset url');
+
+$upToDateDownloads = 0;
+$upToDateUpgradeService = new AdminUpgradeService($cacheAfterUpgradeBaseDir, $cacheAfterUpgradeDataDir, $cacheAfterUpgradeEntryFile, releaseFetcher('v1.0.1'), function () use (&$upToDateDownloads): void {
+    $upToDateDownloads++;
+});
+$upToDateUpgrade = $upToDateUpgradeService->upgrade('v1.0.1');
+assertSameValue(false, $upToDateUpgrade['ok'], 'upgrade refuses when already up to date');
+assertSameValue(0, $upToDateDownloads, 'downloader is never called when already up to date');
 
 if ($failures > 0) {
     exit(1);
 }
 
 echo "[PASS] AdminUpgradeService tests passed" . PHP_EOL;
+
+function releaseFetcher(string $tag): callable
+{
+    return function () use ($tag): array {
+        return [
+            'tag_name' => $tag,
+            'assets' => [
+                ['name' => 'mini-s3-' . $tag . '.zip', 'browser_download_url' => 'https://github.com/fadlee/mini-s3/releases/download/' . $tag . '/mini-s3-' . $tag . '.zip'],
+            ],
+        ];
+    };
+}
 
 function createTempDirectory(string $prefix): string
 {

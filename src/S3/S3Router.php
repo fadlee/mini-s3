@@ -109,11 +109,11 @@ final class S3Router
         $partNumber = $this->request->getQueryParam('partNumber');
 
         if ($uploadId !== null && $partNumber !== null) {
-            if (!$this->validator->isPositiveInteger($partNumber)) {
+            if (!$this->validator->isPositiveInteger($partNumber) || (int) $partNumber > 10000) {
                 $this->response->error(400, 'InvalidPart', 'partNumber must be a positive integer', $this->resource($bucket, $key));
             }
 
-            if (!$this->storage->multipartDirExists($bucket, $key, $uploadId)) {
+            if (!$this->validator->isValidUploadId($uploadId) || !$this->storage->multipartDirExists($bucket, $key, $uploadId)) {
                 $this->response->error(404, 'NoSuchUpload', 'Upload ID not found', $this->resource($bucket, $key));
             }
 
@@ -179,7 +179,7 @@ final class S3Router
 
         $uploadId = $this->request->getQueryParam('uploadId');
         if ($uploadId !== null) {
-            if (!$this->storage->multipartDirExists($bucket, $key, $uploadId)) {
+            if (!$this->validator->isValidUploadId($uploadId) || !$this->storage->multipartDirExists($bucket, $key, $uploadId)) {
                 $this->response->error(404, 'NoSuchUpload', 'Upload ID not found', $this->resource($bucket, $key));
             }
 
@@ -365,7 +365,7 @@ final class S3Router
     {
         $uploadId = $this->request->getQueryParam('uploadId');
         if ($uploadId !== null) {
-            if (!$this->storage->multipartDirExists($bucket, $key, $uploadId)) {
+            if (!$this->validator->isValidUploadId($uploadId) || !$this->storage->multipartDirExists($bucket, $key, $uploadId)) {
                 $this->response->error(404, 'NoSuchUpload', 'Upload ID not found', $this->resource($bucket, $key));
             }
 

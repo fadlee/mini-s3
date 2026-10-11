@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace MiniS3\Admin;
 
+use MiniS3\Storage\FileStorage;
 use RuntimeException;
 
 final class AdminConfigWriter
@@ -53,20 +54,34 @@ final class AdminConfigWriter
         $clockSkewSeconds = $this->positiveInt($input['clock_skew_seconds'] ?? 900, 'Clock skew seconds');
         $maxPresignExpires = $this->positiveInt($input['max_presign_expires'] ?? 604800, 'Max presign expires');
 
-        return [
-            'DATA_DIR' => $dataDir,
-            'MAX_REQUEST_SIZE' => $maxRequestSize,
-            'CREDENTIALS' => [$accessKey => $secretKey],
+        $config = $existing + [
             'ALLOW_LEGACY_ACCESS_KEY_ONLY' => false,
             'ALLOWED_ACCESS_KEYS' => [],
-            'CLOCK_SKEW_SECONDS' => $clockSkewSeconds,
-            'MAX_PRESIGN_EXPIRES' => $maxPresignExpires,
-            'AUTH_DEBUG_LOG' => trim((string) ($input['auth_debug_log'] ?? '')),
-            'ALLOW_HOST_CANDIDATE_FALLBACKS' => $this->checkbox($input, 'allow_host_candidate_fallbacks'),
-            'PUBLIC_READ_ALL_BUCKETS' => $this->checkbox($input, 'public_read_all_buckets', (bool) ($existing['PUBLIC_READ_ALL_BUCKETS'] ?? true)),
-            'ADMIN_USERNAME' => $adminUsername,
-            'ADMIN_PASSWORD_HASH' => $adminPasswordHash,
         ];
+        $config['DATA_DIR'] = $dataDir;
+        $config['MAX_REQUEST_SIZE'] = $maxRequestSize;
+        $config['CREDENTIALS'] = $this->credentials($accessKey, $secretKey, (array) ($existing['CREDENTIALS'] ?? []));
+        $config['CLOCK_SKEW_SECONDS'] = $clockSkewSeconds;
+        $config['MAX_PRESIGN_EXPIRES'] = $maxPresignExpires;
+        $config['AUTH_DEBUG_LOG'] = trim((string) ($input['auth_debug_log'] ?? ''));
+        $config['ALLOW_HOST_CANDIDATE_FALLBACKS'] = $this->checkbox($input, 'allow_host_candidate_fallbacks');
+        $config['PUBLIC_READ_ALL_BUCKETS'] = $this->checkbox($input, 'public_read_all_buckets', (bool) ($existing['PUBLIC_READ_ALL_BUCKETS'] ?? true));
+        $config['ADMIN_USERNAME'] = $adminUsername;
+        $config['ADMIN_PASSWORD_HASH'] = $adminPasswordHash;
+
+        return $config;
+    }
+
+    private function credentials(string $accessKey, string $secretKey, array $existing): array
+    {
+        $credentials = [$accessKey => $secretKey];
+        foreach (array_slice($existing, 1, null, true) as $key => $value) {
+            if ((string) $key !== $accessKey) {
+                $credentials[$key] = $value;
+            }
+        }
+
+        return $credentials;
     }
 
     public function buildAdminAccountConfig(array $input, array $existing): array
@@ -131,7 +146,9 @@ final class AdminConfigWriter
 
     public function ensureWritableDataDir(string $dataDir): void
     {
-        if (!is_dir($dataDir) && !mkdir($dataDir, 0777, true) && !is_dir($dataDir)) {
+        try {
+            (new FileStorage($dataDir))->ensureDataDirExists();
+        } catch (RuntimeException) {
             throw new RuntimeException('Data directory cannot be created');
         }
         if (!is_readable($dataDir) || !is_writable($dataDir)) {

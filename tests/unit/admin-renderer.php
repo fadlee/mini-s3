@@ -60,6 +60,8 @@ assertContainsText('Current version:</strong> v1.0.1', $html, 'current version i
 assertContainsText('Latest version:</strong> v1.0.2', $html, 'latest version is rendered');
 assertContainsText('Upgrade to v1.0.2', $html, 'upgrade button is rendered');
 assertContainsText('action="/_/upgrade"', $html, 'upgrade form posts to upgrade route');
+assertNotContainsText('name="asset_url"', $html, 'upgrade form does not trust client asset url');
+assertNotContainsText('name="latest_version"', $html, 'upgrade form does not trust client version');
 assertContainsText('Check update', $html, 'check update button is rendered for release installs');
 assertContainsText('action="/_/check-update"', $html, 'check update form posts to check route');
 assertContainsText('Upgrade ready', $html, 'flash message is rendered');
@@ -97,6 +99,7 @@ $filesHtml = (new AdminRenderer())->files([
     ],
     'files' => [
         ['name' => 'cover.png', 'path' => 'cover.png', 'size' => 12, 'modified' => 1700000000, 'mime' => 'image/png', 'is_image' => true],
+        ['name' => 'logo.svg', 'path' => 'logo.svg', 'size' => 12, 'modified' => 1700000000, 'mime' => 'image/svg+xml', 'is_image' => true],
     ],
 ], 'photos', '', 'csrf-token', 'Ready');
 assertContainsText('href="/_/files"', $filesHtml, 'files page renders breadcrumb root');
@@ -104,6 +107,8 @@ assertContainsText('x-data="miniS3Explorer(', $filesHtml, 'files page initialize
 assertContainsText('x-on:click="openUpload()"', $filesHtml, 'files page renders upload action');
 assertContainsText('cover.png', $filesHtml, 'files page renders file name');
 assertContainsText('download=1', $filesHtml, 'files page renders download link');
+assertContainsText('path=cover.png&download=0', $filesHtml, 'raster image preview thumbnail is rendered');
+assertNotContainsText('path=logo.svg&download=0', $filesHtml, 'svg files get no inline preview');
 assertContainsText('x-model="search"', $filesHtml, 'files page renders Alpine search binding');
 assertContainsText('x-dialog x-model="dialogOpen"', $filesHtml, 'files page renders Alpine dialog');
 assertContainsText('renameObject(\'cover.png\', \'cover.png\')', $filesHtml, 'files page renders Alpine rename handler');

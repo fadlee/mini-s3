@@ -203,14 +203,27 @@ final class AdminUpgradeService
         return ['valid' => true, 'message' => 'Release index.php is valid.'];
     }
 
-    public function upgrade(string $currentVersion, string $latestVersion, string $assetUrl): array
+    public function upgrade(string $currentVersion): array
     {
         if (!class_exists(\ZipArchive::class)) {
             return ['ok' => false, 'message' => 'ZipArchive extension is required for auto-upgrade.'];
         }
-        if ($this->compareVersions($currentVersion, $latestVersion) >= 0) {
-            return ['ok' => false, 'message' => 'No newer version is available.'];
+
+        $status = $this->checkLatest($currentVersion);
+        if (($status['state'] ?? '') !== 'update_available') {
+            return ['ok' => false, 'message' => (string) ($status['message'] ?? 'No newer version is available.')];
         }
+
+        $latestVersion = (string) $status['latestVersion'];
+        $assetUrl = (string) $status['assetUrl'];
+        if (preg_match('/^v\d+\.\d+\.\d+$/', $latestVersion) !== 1) {
+            return ['ok' => false, 'message' => 'Latest release tag is not a valid version.'];
+        }
+        $expectedUrl = 'https://github.com/' . self::REPO_OWNER . '/' . self::REPO_NAME . '/releases/download/' . $latestVersion . '/mini-s3-' . $latestVersion . '.zip';
+        if ($assetUrl !== $expectedUrl) {
+            return ['ok' => false, 'message' => 'Release asset URL is not an allowed GitHub release download.'];
+        }
+
         if (!is_file($this->entryFile) || !is_writable($this->entryFile) || !is_writable(dirname($this->entryFile))) {
             return ['ok' => false, 'message' => 'Current index.php or its directory is not writable.'];
         }

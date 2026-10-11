@@ -310,7 +310,7 @@ final class AdminRenderer
             $path = (string) ($file['path'] ?? '');
             $name = (string) ($file['name'] ?? '');
             $preview = '-';
-            if (!empty($file['is_image'])) {
+            if (!empty($file['is_image']) && ($file['mime'] ?? '') !== 'image/svg+xml') {
                 $previewUrl = '/_/files?bucket=' . rawurlencode($bucket) . '&path=' . rawurlencode($path) . '&download=0';
                 $preview = '<a href="' . $previewUrl . '" target="_blank" x-on:click.stop><img class="preview-thumb" src="' . $previewUrl . '" alt="' . $this->e($name) . '"></a>';
             }
@@ -422,8 +422,6 @@ final class AdminRenderer
         if ($state === 'update_available' && is_string($latest) && $latest !== '') {
             $body .= '<form method="post" action="/_/upgrade">'
                 . '<input type="hidden" name="csrf_token" value="' . $this->e((string) ($status['csrfToken'] ?? '')) . '">'
-                . '<input type="hidden" name="latest_version" value="' . $this->e($latest) . '">'
-                . '<input type="hidden" name="asset_url" value="' . $this->e((string) ($status['assetUrl'] ?? '')) . '">'
                 . '<button type="submit">Upgrade to ' . $this->e($latest) . '</button>'
                 . '</form>';
         }

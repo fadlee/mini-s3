@@ -2,6 +2,7 @@
 
 declare(strict_types=1);
 
+require_once __DIR__ . '/../../src/Storage/FileStorage.php';
 require_once __DIR__ . '/../../src/Admin/AdminConfigWriter.php';
 
 use MiniS3\Admin\AdminConfigWriter;
@@ -142,6 +143,45 @@ assertThrowsMessage(fn() => $writer->buildConfig([
     'access_key' => '',
     'secret_key' => 'secret-one',
 ]), 'Access key', 'empty access key fails');
+
+$existingFull = [
+    'DATA_DIR' => $dataDir,
+    'MAX_REQUEST_SIZE' => 1048576,
+    'CREDENTIALS' => ['first-key' => 'first-secret', 'second-key' => 'second-secret'],
+    'ALLOW_LEGACY_ACCESS_KEY_ONLY' => true,
+    'ALLOWED_ACCESS_KEYS' => ['legacy-key'],
+    'CLOCK_SKEW_SECONDS' => 900,
+    'MAX_PRESIGN_EXPIRES' => 604800,
+    'AUTH_DEBUG_LOG' => '',
+    'ALLOW_HOST_CANDIDATE_FALLBACKS' => false,
+    'PUBLIC_READ_ALL_BUCKETS' => true,
+    'ADMIN_USERNAME' => 'owner',
+    'ADMIN_PASSWORD_HASH' => $config['ADMIN_PASSWORD_HASH'],
+    'GITHUB_TOKEN' => 'ghp_example',
+    'CUSTOM_SETTING' => 'keep-me',
+];
+$preserved = $writer->buildConfig([
+    'data_dir' => $dataDir,
+    'access_key' => 'new-key',
+    'secret_key' => 'new-secret',
+], $existingFull);
+assertSameValue('ghp_example', $preserved['GITHUB_TOKEN'], 'github token is preserved on config save');
+assertSameValue(true, $preserved['ALLOW_LEGACY_ACCESS_KEY_ONLY'], 'legacy access key flag is preserved on config save');
+assertSameValue(['legacy-key'], $preserved['ALLOWED_ACCESS_KEYS'], 'allowed access keys are preserved on config save');
+assertSameValue('keep-me', $preserved['CUSTOM_SETTING'], 'unknown config keys are preserved on config save');
+assertSameValue(['new-key' => 'new-secret', 'second-key' => 'second-secret'], $preserved['CREDENTIALS'], 'first credential is replaced and other credentials are kept');
+assertSameValue('owner', $preserved['ADMIN_USERNAME'], 'admin username is preserved on config save');
+
+$duplicateKey = $writer->buildConfig([
+    'data_dir' => $dataDir,
+    'access_key' => 'second-key',
+    'secret_key' => 'form-secret',
+], $existingFull);
+assertSameValue(['second-key' => 'form-secret'], $duplicateKey['CREDENTIALS'], 'form credential wins when it matches another existing key');
+
+$protectedDir = $base . '/protected-data';
+$writer->ensureWritableDataDir($protectedDir);
+assertSameValue(true, str_contains((string) @file_get_contents($protectedDir . '/.htaccess'), 'Require all denied'), 'ensureWritableDataDir writes data dir .htaccess');
 
 if ($failures > 0) {
     exit(1);

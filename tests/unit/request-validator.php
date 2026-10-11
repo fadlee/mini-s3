@@ -27,6 +27,20 @@ check($validator->isValidObjectKey('path/file.txt'), 'normal object key accepted
 check(!$validator->isValidObjectKey("bad\0key"), 'NUL object key rejected');
 check(!$validator->isValidObjectKey('../secret'), 'parent segment rejected');
 check(!$validator->isValidObjectKey('./secret'), 'dot segment rejected');
+check(!$validator->isValidObjectKey('a/.htaccess'), 'nested htaccess key rejected');
+check(!$validator->isValidObjectKey('.HTACCESS'), 'uppercase htaccess key rejected');
+check(!$validator->isValidObjectKey('x/.user.ini'), 'user.ini key rejected');
+check(!$validator->isValidObjectKey('x/.HtPasswd'), 'htpasswd key rejected case-insensitively');
+check($validator->isValidObjectKey('a/.hidden'), 'other dotfile key accepted');
+check($validator->isValidObjectKey('normal.txt'), 'normal file key accepted');
+
+check($validator->isValidUploadId(bin2hex(random_bytes(16))), 'generated upload id accepted');
+check(!$validator->isValidUploadId('../x'), 'traversal upload id rejected');
+check(!$validator->isValidUploadId(''), 'empty upload id rejected');
+check(!$validator->isValidUploadId(strtoupper(str_repeat('ab', 16))), 'uppercase upload id rejected');
+check(!$validator->isValidUploadId(str_repeat('a', 31)), '31 char upload id rejected');
+check(!$validator->isValidUploadId(str_repeat('a', 33)), '33 char upload id rejected');
+check(!$validator->isValidUploadId('abc/def'), 'slash upload id rejected');
 
 check($validator->isPositiveInteger('1'), 'positive integer accepted');
 check(!$validator->isPositiveInteger('0'), 'zero rejected');

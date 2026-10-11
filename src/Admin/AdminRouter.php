@@ -11,6 +11,7 @@ use Throwable;
 final class AdminRouter
 {
     private const DOWNLOAD_QUERY_KEY = 'download';
+    private const INLINE_MIME_TYPES = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];
 
     public function __construct(
         private readonly string $baseDir,
@@ -209,9 +210,7 @@ final class AdminRouter
             $this->redirect('/_');
         }
 
-        $latestVersion = (string) ($this->post['latest_version'] ?? '');
-        $assetUrl = (string) ($this->post['asset_url'] ?? '');
-        $result = $this->upgradeService($config)->upgrade($currentVersion, $latestVersion, $assetUrl);
+        $result = $this->upgradeService($config)->upgrade($currentVersion);
         $auth->setFlash((string) $result['message']);
         $this->redirect('/_');
     }
@@ -464,13 +463,17 @@ final class AdminRouter
             $this->html('<!doctype html><title>Not found</title><p>' . htmlspecialchars($e->getMessage(), ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . '</p>', 404);
         }
 
+        $name = (string) $info['name'];
+        $mime = (string) $info['mime'];
+        $inline = !$download && in_array($mime, self::INLINE_MIME_TYPES, true);
+        $asciiName = preg_replace('/[^A-Za-z0-9._-]/', '_', $name) ?? 'download';
+
         http_response_code(200);
-        header('Content-Type: ' . (string) $info['mime']);
+        header('Content-Type: ' . (in_array($mime, self::INLINE_MIME_TYPES, true) ? $mime : 'application/octet-stream'));
         header('Content-Length: ' . (string) $info['size']);
+        header('Content-Disposition: ' . ($inline ? 'inline' : 'attachment') . '; filename="' . $asciiName . '"; filename*=UTF-8\'\'' . rawurlencode($name));
         header('X-Content-Type-Options: nosniff');
-        if ($download) {
-            header('Content-Disposition: attachment; filename="' . rawurlencode((string) $info['name']) . '"');
-        }
+        header("Content-Security-Policy: default-src 'none'; img-src 'self' data:; style-src 'unsafe-inline'; sandbox");
         readfile($fullPath);
         exit;
     }

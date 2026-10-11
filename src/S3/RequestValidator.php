@@ -42,9 +42,18 @@ final class RequestValidator
             if ($segment === '.' || $segment === '..') {
                 return false;
             }
+
+            if (in_array(strtolower($segment), ['.htaccess', '.htpasswd', '.user.ini'], true)) {
+                return false;
+            }
         }
 
         return true;
+    }
+
+    public function isValidUploadId(string $uploadId): bool
+    {
+        return preg_match('/^[a-f0-9]{32}$/D', $uploadId) === 1;
     }
 
     public function isPositiveInteger(string $value): bool
