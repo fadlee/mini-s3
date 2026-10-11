@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -87,32 +88,90 @@ func (w *AdminConfigWriter) BuildConfig(input ConfigInput, existing *config.Conf
 	clockSkewSeconds := positiveInt(input.ClockSkewSeconds, 900, "Clock skew seconds")
 	maxPresignExpires := positiveInt(input.MaxPresignExpires, 604800, "Max presign expires")
 
-	// Generate a session secret if none exists.
-	sessionSecret := ""
+	// Start from existing config so fields this form does not manage (GitHub
+	// token, legacy access keys, session secret, ...) are kept.
+	updated := config.Defaults()
 	if existing != nil {
-		sessionSecret = existing.Admin.SessionSecret
+		updated = cloneConfig(existing)
 	}
+	publicReadAllBuckets := checkboxDefault(input.PublicReadAllBuckets, existing == nil || existing.PublicReadAllBuckets)
+
+	// Generate a session secret if none exists.
+	sessionSecret := updated.Admin.SessionSecret
 	if sessionSecret == "" {
 		sessionSecret = randomToken(32)
 	}
 
-	return &config.Config{
-		DataDir:                     dataDir,
-		MaxRequestSize:              maxRequestSize,
-		Credentials:                 map[string]string{accessKey: secretKey},
-		AllowLegacyAccessKeyOnly:    false,
-		AllowedAccessKeys:           []string{},
-		ClockSkewSeconds:            clockSkewSeconds,
-		MaxPresignExpires:           maxPresignExpires,
-		AuthDebugLog:                strings.TrimSpace(input.AuthDebugLog),
-		AllowHostCandidateFallbacks: checkbox(input.AllowHostCandidateFallbacks),
-		PublicReadAllBuckets:        checkboxDefault(input.PublicReadAllBuckets, existing == nil || existing.PublicReadAllBuckets),
-		Admin: config.AdminConfig{
-			Username:      adminUsername,
-			PasswordHash:  adminPasswordHash,
-			SessionSecret: sessionSecret,
-		},
-	}, nil
+	updated.DataDir = dataDir
+	updated.MaxRequestSize = maxRequestSize
+	updated.Credentials = mergeCredentials(accessKey, secretKey, updated.Credentials)
+	updated.ClockSkewSeconds = clockSkewSeconds
+	updated.MaxPresignExpires = maxPresignExpires
+	updated.AuthDebugLog = strings.TrimSpace(input.AuthDebugLog)
+	updated.AllowHostCandidateFallbacks = checkbox(input.AllowHostCandidateFallbacks)
+	updated.PublicReadAllBuckets = publicReadAllBuckets
+	updated.Admin.Username = adminUsername
+	updated.Admin.PasswordHash = adminPasswordHash
+	updated.Admin.SessionSecret = sessionSecret
+	return updated, nil
+}
+
+// mergeCredentials returns the credential set after saving the form's key
+// pair. The form pair replaces the first existing credential (the one the
+// config page pre-fills), other existing credentials are kept, and a form key
+// that already exists takes the form's secret.
+func mergeCredentials(accessKey, secretKey string, existing map[string]string) map[string]string {
+	creds := map[string]string{accessKey: secretKey}
+	first, _, hasFirst := firstCredential(existing)
+	for k, v := range existing {
+		if (hasFirst && k == first) || k == accessKey {
+			continue
+		}
+		creds[k] = v
+	}
+	return creds
+}
+
+// firstCredential returns the credential the config page pre-fills. Go maps
+// are unordered, so the lowest access key is used to keep the choice stable.
+func firstCredential(creds map[string]string) (string, string, bool) {
+	if len(creds) == 0 {
+		return "", "", false
+	}
+	keys := make([]string, 0, len(creds))
+	for k := range creds {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	return keys[0], creds[keys[0]], true
+}
+
+// cloneConfig copies cfg so edits do not alias its maps or slices.
+func cloneConfig(cfg *config.Config) *config.Config {
+	dst := *cfg
+	dst.Credentials = make(map[string]string, len(cfg.Credentials))
+	for k, v := range cfg.Credentials {
+		dst.Credentials[k] = v
+	}
+	dst.AllowedAccessKeys = append([]string{}, cfg.AllowedAccessKeys...)
+	return &dst
+}
+
+// LoadFileConfig reads config.yaml as stored on disk, without environment
+// overrides or normalization. It returns nil when the file does not exist.
+func (w *AdminConfigWriter) LoadFileConfig() (*config.Config, error) {
+	data, err := os.ReadFile(w.configPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("config file cannot be read: %w", err)
+	}
+	cfg := config.Defaults()
+	if err := yaml.Unmarshal(data, cfg); err != nil {
+		return nil, fmt.Errorf("config file cannot be parsed: %w", err)
+	}
+	return cfg, nil
 }
 
 // WriteInstallerConfig writes the config for the first-time installer.
@@ -139,6 +198,10 @@ func (w *AdminConfigWriter) WriteConfig(cfg *config.Config) error {
 	if err != nil {
 		return fmt.Errorf("failed to marshal config: %w", err)
 	}
+	data, err = w.keepUnknownKeys(data)
+	if err != nil {
+		return err
+	}
 
 	tmpPath := w.configPath + ".tmp." + randomToken(4)
 	if err := os.WriteFile(tmpPath, data, 0666); err != nil {
@@ -150,6 +213,34 @@ func (w *AdminConfigWriter) WriteConfig(cfg *config.Config) error {
 		return fmt.Errorf("config file cannot be saved: %w", err)
 	}
 	return nil
+}
+
+// keepUnknownKeys merges the typed config over the keys already in the file,
+// so top-level keys this binary does not model are not dropped on save.
+func (w *AdminConfigWriter) keepUnknownKeys(managed []byte) ([]byte, error) {
+	existing, err := os.ReadFile(w.configPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return managed, nil
+		}
+		return nil, fmt.Errorf("config file cannot be read: %w", err)
+	}
+	stored := map[string]interface{}{}
+	if err := yaml.Unmarshal(existing, &stored); err != nil {
+		return nil, fmt.Errorf("config file cannot be parsed: %w", err)
+	}
+	typed := map[string]interface{}{}
+	if err := yaml.Unmarshal(managed, &typed); err != nil {
+		return nil, fmt.Errorf("failed to marshal config: %w", err)
+	}
+	for k, v := range typed {
+		stored[k] = v
+	}
+	merged, err := yaml.Marshal(stored)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal config: %w", err)
+	}
+	return merged, nil
 }
 
 // BuildAdminAccountConfig updates the admin username and optionally password.

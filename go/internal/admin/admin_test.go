@@ -1,6 +1,9 @@
 package admin
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -597,10 +600,10 @@ func TestConfigWriterBuildConfigMissingDataDir(t *testing.T) {
 	writer := NewAdminConfigWriter(configPath)
 
 	input := ConfigInput{
-		DataDir:     "",
-		AccessKey:   "AKIATEST",
-		SecretKey:   "secret123",
-		AdminPassword: "pass",
+		DataDir:              "",
+		AccessKey:            "AKIATEST",
+		SecretKey:            "secret123",
+		AdminPassword:        "pass",
 		AdminPasswordConfirm: "pass",
 	}
 
@@ -652,8 +655,8 @@ func TestConfigWriterInstallerConfigAlreadyExists(t *testing.T) {
 
 	dataDir := filepath.Join(dir, "data")
 	cfg := &config.Config{
-		DataDir:      dataDir,
-		Credentials:  map[string]string{"key": "secret"},
+		DataDir:     dataDir,
+		Credentials: map[string]string{"key": "secret"},
 	}
 	err := writer.WriteInstallerConfig(cfg)
 	if err == nil {
@@ -751,4 +754,336 @@ func extractCSRFToken(t *testing.T, htmlBody string) string {
 		return ""
 	}
 	return rest[:endIdx]
+}
+
+// --- streamFile tests ---
+
+func TestStreamFileHTMLIsForcedToDownload(t *testing.T) {
+	dir := t.TempDir()
+	explorer := NewAdminFileExplorer(dir)
+	if err := explorer.CreateBucket("site"); err != nil {
+		t.Fatalf("CreateBucket failed: %v", err)
+	}
+	os.WriteFile(filepath.Join(dir, "site", "page.html"), []byte("<!doctype html><script>alert(1)</script>"), 0666)
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/_/files?bucket=site&path=page.html&download=0", nil)
+	(&AdminRouter{}).streamFile(rec, req, explorer, "site", "page.html", false)
+
+	h := rec.Result().Header
+	if got := h.Get("Content-Type"); got != "application/octet-stream" {
+		t.Errorf("expected octet-stream content type, got %q", got)
+	}
+	if got := h.Get("Content-Disposition"); !strings.HasPrefix(got, `attachment; filename="page.html"; filename*=UTF-8''page.html`) {
+		t.Errorf("expected attachment disposition, got %q", got)
+	}
+	if got := h.Get("X-Content-Type-Options"); got != "nosniff" {
+		t.Errorf("expected nosniff, got %q", got)
+	}
+	if got := h.Get("Content-Security-Policy"); !strings.Contains(got, "sandbox") {
+		t.Errorf("expected sandboxed CSP, got %q", got)
+	}
+}
+
+func TestStreamFilePNGIsServedInline(t *testing.T) {
+	dir := t.TempDir()
+	explorer := NewAdminFileExplorer(dir)
+	if err := explorer.CreateBucket("photos"); err != nil {
+		t.Fatalf("CreateBucket failed: %v", err)
+	}
+	png := "\x89PNG\r\n\x1a\n" + strings.Repeat("\x00", 16)
+	os.WriteFile(filepath.Join(dir, "photos", "logo.png"), []byte(png), 0666)
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/_/files?bucket=photos&path=logo.png&download=0", nil)
+	(&AdminRouter{}).streamFile(rec, req, explorer, "photos", "logo.png", false)
+
+	h := rec.Result().Header
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rec.Code)
+	}
+	if got := h.Get("Content-Type"); got != "image/png" {
+		t.Errorf("expected image/png, got %q", got)
+	}
+	if got := h.Get("Content-Disposition"); !strings.HasPrefix(got, `inline; filename="logo.png"`) {
+		t.Errorf("expected inline disposition, got %q", got)
+	}
+}
+
+// --- renderer tests ---
+
+func TestRendererFilesPreviewSkipsSVG(t *testing.T) {
+	listing := &ListObjectsResult{Files: []FileInfo{
+		{Name: "cover.png", Path: "cover.png", Size: 12, Modified: 1700000000, Mime: "image/png", IsImage: true},
+		{Name: "logo.svg", Path: "logo.svg", Size: 12, Modified: 1700000000, Mime: "image/svg+xml", IsImage: true},
+	}}
+	html := NewAdminRenderer().Files(nil, listing, "photos", "", "csrf-token", "")
+
+	if !strings.Contains(html, "path=cover.png&download=0") {
+		t.Error("raster image preview link should be rendered")
+	}
+	if strings.Contains(html, "path=logo.svg&download=0") {
+		t.Error("svg files must not get an inline preview link")
+	}
+}
+
+func TestRendererUpgradeFormHasNoClientVersionFields(t *testing.T) {
+	html := NewAdminRenderer().updatesPanel(map[string]interface{}{
+		"state":          "update_available",
+		"message":        "Update available: v1.0.2",
+		"currentVersion": "v1.0.1",
+		"latestVersion":  "v1.0.2",
+		"assetUrl":       "https://github.com/fadlee/mini-s3/releases/download/v1.0.2/mini-s3-v1.0.2-linux-amd64",
+		"csrfToken":      "csrf-token",
+	})
+
+	if !strings.Contains(html, `action="/_/upgrade"`) {
+		t.Fatal("upgrade form should be rendered")
+	}
+	if strings.Contains(html, `name="asset_url"`) || strings.Contains(html, `name="latest_version"`) {
+		t.Error("upgrade form must not carry client-supplied version or asset url")
+	}
+}
+
+// --- upgrade service tests ---
+
+func TestUpgradeRejectsForeignAssetURL(t *testing.T) {
+	dir := t.TempDir()
+	entry := filepath.Join(dir, "mini-s3")
+	os.WriteFile(entry, []byte("old binary"), 0755)
+
+	s := NewAdminUpgradeService(dir, dir, entry, "")
+	tag := "v1.0.2"
+	s.fetchRelease = func() (*githubRelease, error) {
+		return &githubRelease{TagName: tag, Assets: []githubReleaseAsset{
+			{Name: s.expectedAssetName(tag), BrowserDownloadURL: "https://example.test/mini-s3"},
+		}}, nil
+	}
+	downloads := 0
+	s.downloadFile = func(url, destination string) error {
+		downloads++
+		return nil
+	}
+
+	result, err := s.Upgrade("v1.0.1")
+	if err != nil {
+		t.Fatalf("Upgrade returned error: %v", err)
+	}
+	if ok, _ := result["ok"].(bool); ok {
+		t.Error("upgrade must reject a foreign asset url")
+	}
+	if downloads != 0 {
+		t.Errorf("downloader must not be called for a foreign asset url, got %d calls", downloads)
+	}
+}
+
+func TestUpgradeRefusesWhenUpToDate(t *testing.T) {
+	dir := t.TempDir()
+	entry := filepath.Join(dir, "mini-s3")
+	os.WriteFile(entry, []byte("old binary"), 0755)
+
+	s := NewAdminUpgradeService(dir, dir, entry, "")
+	tag := "v1.0.1"
+	s.fetchRelease = func() (*githubRelease, error) {
+		return &githubRelease{TagName: tag, Assets: []githubReleaseAsset{
+			{Name: s.expectedAssetName(tag), BrowserDownloadURL: "https://github.com/fadlee/mini-s3/releases/download/v1.0.1/" + s.expectedAssetName(tag)},
+		}}, nil
+	}
+	downloads := 0
+	s.downloadFile = func(url, destination string) error {
+		downloads++
+		return nil
+	}
+
+	result, err := s.Upgrade("v1.0.1")
+	if err != nil {
+		t.Fatalf("Upgrade returned error: %v", err)
+	}
+	if ok, _ := result["ok"].(bool); ok {
+		t.Error("upgrade must refuse when already up to date")
+	}
+	if msg, _ := result["message"].(string); msg != "Mini S3 is up to date." {
+		t.Errorf("expected up-to-date message, got %q", msg)
+	}
+	if downloads != 0 {
+		t.Errorf("downloader must not be called when up to date, got %d calls", downloads)
+	}
+}
+
+func TestUpgradeInstallsVerifiedRelease(t *testing.T) {
+	dir := t.TempDir()
+	entry := filepath.Join(dir, "mini-s3")
+	os.WriteFile(entry, []byte("old binary"), 0755)
+
+	s := NewAdminUpgradeService(dir, dir, entry, "")
+	tag := "v1.0.2"
+	name := s.expectedAssetName(tag)
+	base := "https://github.com/fadlee/mini-s3/releases/download/" + tag + "/"
+	binary := []byte("new binary")
+	sum := sha256.Sum256(binary)
+	checksums := hex.EncodeToString(sum[:]) + "  " + name + "\n"
+
+	s.fetchRelease = func() (*githubRelease, error) {
+		return &githubRelease{TagName: tag, Assets: []githubReleaseAsset{
+			{Name: name, BrowserDownloadURL: base + name},
+			{Name: "checksums.txt", BrowserDownloadURL: base + "checksums.txt"},
+		}}, nil
+	}
+	s.downloadFile = func(url, destination string) error {
+		switch url {
+		case base + name:
+			return os.WriteFile(destination, binary, 0666)
+		case base + "checksums.txt":
+			return os.WriteFile(destination, []byte(checksums), 0666)
+		}
+		return fmt.Errorf("unexpected download %s", url)
+	}
+	s.restart = func() {}
+
+	result, err := s.Upgrade("v1.0.1")
+	if err != nil {
+		t.Fatalf("Upgrade returned error: %v", err)
+	}
+	if ok, _ := result["ok"].(bool); !ok {
+		t.Fatalf("expected upgrade to succeed, got message %q", result["message"])
+	}
+	data, _ := os.ReadFile(entry)
+	if string(data) != "new binary" {
+		t.Errorf("expected entry binary to be replaced, got %q", string(data))
+	}
+}
+
+// --- config writer preservation tests ---
+
+func TestConfigWriterBuildConfigPreservesExistingFields(t *testing.T) {
+	dir := t.TempDir()
+	writer := NewAdminConfigWriter(filepath.Join(dir, "config.yaml"))
+	hash, err := hashPassword("password123")
+	if err != nil {
+		t.Fatalf("hashPassword failed: %v", err)
+	}
+	existing := &config.Config{
+		DataDir:                  filepath.Join(dir, "data"),
+		MaxRequestSize:           1048576,
+		Credentials:              map[string]string{"first-key": "first-secret", "second-key": "second-secret"},
+		AllowedAccessKeys:        []string{"legacy-key"},
+		AllowLegacyAccessKeyOnly: true,
+		ClockSkewSeconds:         900,
+		MaxPresignExpires:        604800,
+		PublicReadAllBuckets:     true,
+		GitHubToken:              "ghp_example",
+		Admin: config.AdminConfig{
+			Username:      "owner",
+			PasswordHash:  hash,
+			SessionSecret: "session-secret",
+		},
+	}
+
+	cfg, err := writer.BuildConfig(ConfigInput{
+		DataDir:   filepath.Join(dir, "data"),
+		AccessKey: "new-key",
+		SecretKey: "new-secret",
+	}, existing)
+	if err != nil {
+		t.Fatalf("BuildConfig failed: %v", err)
+	}
+	if cfg.GitHubToken != "ghp_example" {
+		t.Errorf("github token not preserved, got %q", cfg.GitHubToken)
+	}
+	if !cfg.AllowLegacyAccessKeyOnly {
+		t.Error("legacy access key flag not preserved")
+	}
+	if len(cfg.AllowedAccessKeys) != 1 || cfg.AllowedAccessKeys[0] != "legacy-key" {
+		t.Errorf("allowed access keys not preserved, got %v", cfg.AllowedAccessKeys)
+	}
+	if cfg.Admin.Username != "owner" || cfg.Admin.PasswordHash != hash || cfg.Admin.SessionSecret != "session-secret" {
+		t.Errorf("admin settings not preserved: %+v", cfg.Admin)
+	}
+	wantCreds := map[string]string{"new-key": "new-secret", "second-key": "second-secret"}
+	if fmt.Sprint(cfg.Credentials) != fmt.Sprint(wantCreds) {
+		t.Errorf("expected credentials %v, got %v", wantCreds, cfg.Credentials)
+	}
+	if existing.Credentials["first-key"] != "first-secret" {
+		t.Error("existing config must not be mutated")
+	}
+}
+
+func TestConfigWriterBuildConfigFormKeyWinsWhenDuplicated(t *testing.T) {
+	dir := t.TempDir()
+	writer := NewAdminConfigWriter(filepath.Join(dir, "config.yaml"))
+	hash, err := hashPassword("password123")
+	if err != nil {
+		t.Fatalf("hashPassword failed: %v", err)
+	}
+	existing := &config.Config{
+		DataDir:     filepath.Join(dir, "data"),
+		Credentials: map[string]string{"first-key": "first-secret", "second-key": "second-secret"},
+		Admin:       config.AdminConfig{Username: "owner", PasswordHash: hash, SessionSecret: "session-secret"},
+	}
+
+	cfg, err := writer.BuildConfig(ConfigInput{
+		DataDir:   filepath.Join(dir, "data"),
+		AccessKey: "second-key",
+		SecretKey: "form-secret",
+	}, existing)
+	if err != nil {
+		t.Fatalf("BuildConfig failed: %v", err)
+	}
+	if fmt.Sprint(cfg.Credentials) != fmt.Sprint(map[string]string{"second-key": "form-secret"}) {
+		t.Errorf("expected form credential to win once, got %v", cfg.Credentials)
+	}
+}
+
+func TestConfigWriterLoadFileConfigIgnoresEnvOverrides(t *testing.T) {
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, "config.yaml")
+	os.WriteFile(configPath, []byte("data_dir: "+filepath.Join(dir, "data")+"\ngithub_token: file-token\n"), 0666)
+	t.Setenv("MINI_S3_GITHUB_TOKEN", "env-token")
+	writer := NewAdminConfigWriter(configPath)
+
+	fileCfg, err := writer.LoadFileConfig()
+	if err != nil {
+		t.Fatalf("LoadFileConfig failed: %v", err)
+	}
+	if fileCfg.GitHubToken != "file-token" {
+		t.Errorf("expected file token, got %q", fileCfg.GitHubToken)
+	}
+
+	cfg, err := writer.BuildConfig(ConfigInput{
+		DataDir:              filepath.Join(dir, "data"),
+		AccessKey:            "AKIATEST",
+		SecretKey:            "secret123",
+		AdminPassword:        "password123",
+		AdminPasswordConfirm: "password123",
+	}, fileCfg)
+	if err != nil {
+		t.Fatalf("BuildConfig failed: %v", err)
+	}
+	if cfg.GitHubToken != "file-token" {
+		t.Errorf("env token must not be persisted, got %q", cfg.GitHubToken)
+	}
+}
+
+func TestConfigWriterWriteConfigKeepsUnknownKeys(t *testing.T) {
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, "config.yaml")
+	os.WriteFile(configPath, []byte("custom_setting: keep-me\ndata_dir: "+filepath.Join(dir, "data")+"\n"), 0666)
+	writer := NewAdminConfigWriter(configPath)
+
+	fileCfg, err := writer.LoadFileConfig()
+	if err != nil {
+		t.Fatalf("LoadFileConfig failed: %v", err)
+	}
+	fileCfg.DataDir = filepath.Join(dir, "data2")
+	if err := writer.WriteConfig(fileCfg); err != nil {
+		t.Fatalf("WriteConfig failed: %v", err)
+	}
+
+	data, _ := os.ReadFile(configPath)
+	if !strings.Contains(string(data), "custom_setting: keep-me") {
+		t.Errorf("unknown key was dropped:\n%s", data)
+	}
+	if !strings.Contains(string(data), "data_dir: "+filepath.Join(dir, "data2")) {
+		t.Errorf("managed key was not updated:\n%s", data)
+	}
 }

@@ -1,6 +1,8 @@
 package storage
 
 import (
+	"bytes"
+	"encoding/hex"
 	"os"
 	"path/filepath"
 	"strings"
@@ -83,12 +85,68 @@ func TestListFiles(t *testing.T) {
 	}
 }
 
+func TestIsValidUploadID(t *testing.T) {
+	valid := hex.EncodeToString(bytes.Repeat([]byte{0xab}, 16))
+	tests := []struct {
+		id   string
+		want bool
+	}{
+		{valid, true},
+		{"", false},
+		{"../x", false},
+		{"ABABABABABABABABABABABABABABABAB", false},
+		{strings.Repeat("a", 31), false},
+		{strings.Repeat("a", 33), false},
+		{"abc/def", false},
+	}
+	for _, tt := range tests {
+		if got := IsValidUploadID(tt.id); got != tt.want {
+			t.Errorf("IsValidUploadID(%q) = %v, want %v", tt.id, got, tt.want)
+		}
+	}
+}
+
+func TestMultipartTraversalUploadIDRejected(t *testing.T) {
+	root := t.TempDir()
+	dataDir := filepath.Join(root, "data")
+	victimDir := filepath.Join(root, "victim")
+	os.MkdirAll(victimDir, 0777)
+	os.WriteFile(filepath.Join(victimDir, "secret.txt"), []byte("keep"), 0666)
+
+	st := New(dataDir)
+	st.EnsureDataDirExists()
+	validID := hex.EncodeToString(bytes.Repeat([]byte{0x01}, 16))
+	if err := st.CreateMultipartUpload("bucket", "k", validID); err != nil {
+		t.Fatalf("CreateMultipartUpload: %v", err)
+	}
+
+	traversal := "../../../../victim"
+	if err := st.AbortMultipartUpload("bucket", "k", traversal); err != ErrInvalidUploadID {
+		t.Errorf("AbortMultipartUpload error = %v, want ErrInvalidUploadID", err)
+	}
+	if st.MultipartDirExists("bucket", "k", traversal) {
+		t.Error("MultipartDirExists should be false for traversal upload ID")
+	}
+	if _, err := st.PutMultipartPart("bucket", "k", traversal, 1, strings.NewReader("x")); err != ErrInvalidUploadID {
+		t.Errorf("PutMultipartPart error = %v, want ErrInvalidUploadID", err)
+	}
+	if err := st.CompleteMultipartUpload("bucket", "k", traversal, []int{1}); err != ErrInvalidUploadID {
+		t.Errorf("CompleteMultipartUpload error = %v, want ErrInvalidUploadID", err)
+	}
+	if _, err := os.Stat(filepath.Join(victimDir, "secret.txt")); err != nil {
+		t.Errorf("victim file must survive traversal abort: %v", err)
+	}
+	if !st.MultipartDirExists("bucket", "k", validID) {
+		t.Error("legit multipart dir should be untouched")
+	}
+}
+
 func TestMultipartUpload(t *testing.T) {
 	base := t.TempDir()
 	st := New(base)
 	st.EnsureDataDirExists()
 
-	bucket, key, uploadID := "bucket", "file.bin", "test-upload-id"
+	bucket, key, uploadID := "bucket", "file.bin", "0123456789abcdef0123456789abcdef"
 
 	// Create multipart upload
 	if err := st.CreateMultipartUpload(bucket, key, uploadID); err != nil {

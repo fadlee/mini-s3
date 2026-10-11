@@ -9,13 +9,26 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 )
 
 const multipartRoot = ".multipart"
 
-var ErrRequestTooLarge = errors.New("request body exceeds maximum size")
+var (
+	ErrRequestTooLarge = errors.New("request body exceeds maximum size")
+	ErrInvalidUploadID = errors.New("invalid upload ID")
+
+	uploadIDRe = regexp.MustCompile(`^[a-f0-9]{32}$`)
+)
+
+// IsValidUploadID reports whether uploadID has the format generated for
+// multipart uploads: 32 lowercase hex characters. Anything else is rejected
+// before it can be joined into a filesystem path.
+func IsValidUploadID(uploadID string) bool {
+	return uploadIDRe.MatchString(uploadID)
+}
 
 // FileStorage implements filesystem-backed object storage, mirroring
 // MiniS3\Storage\FileStorage from the PHP reference.
@@ -243,24 +256,39 @@ func (s *FileStorage) DeleteObject(bucket, key string) error {
 
 // CreateMultipartUpload creates the multipart staging directory.
 func (s *FileStorage) CreateMultipartUpload(bucket, key, uploadID string) error {
-	uploadDir := s.MultipartDir(bucket, key, uploadID)
+	uploadDir, err := s.MultipartDir(bucket, key, uploadID)
+	if err != nil {
+		return err
+	}
 	return s.ensureDir(uploadDir)
 }
 
-// MultipartDir returns the directory path for a multipart upload.
-func (s *FileStorage) MultipartDir(bucket, key, uploadID string) string {
-	return filepath.Join(s.dataDir, multipartRoot, bucket, s.keyNamespace(key), uploadID)
+// MultipartDir returns the directory path for a multipart upload. It returns
+// ErrInvalidUploadID if uploadID is not a valid upload ID.
+func (s *FileStorage) MultipartDir(bucket, key, uploadID string) (string, error) {
+	if !IsValidUploadID(uploadID) {
+		return "", ErrInvalidUploadID
+	}
+	return filepath.Join(s.dataDir, multipartRoot, bucket, s.keyNamespace(key), uploadID), nil
 }
 
 // MultipartDirExists reports whether the multipart upload directory exists.
+// An invalid upload ID never exists.
 func (s *FileStorage) MultipartDirExists(bucket, key, uploadID string) bool {
-	info, err := os.Stat(s.MultipartDir(bucket, key, uploadID))
+	uploadDir, err := s.MultipartDir(bucket, key, uploadID)
+	if err != nil {
+		return false
+	}
+	info, err := os.Stat(uploadDir)
 	return err == nil && info.IsDir()
 }
 
 // PutMultipartPart writes a multipart part from the reader and returns its path.
 func (s *FileStorage) PutMultipartPart(bucket, key, uploadID string, partNumber int, body io.Reader) (string, error) {
-	uploadDir := s.MultipartDir(bucket, key, uploadID)
+	uploadDir, err := s.MultipartDir(bucket, key, uploadID)
+	if err != nil {
+		return "", err
+	}
 	if _, err := os.Stat(uploadDir); err != nil {
 		return "", fmt.Errorf("upload ID not found")
 	}
@@ -273,7 +301,10 @@ func (s *FileStorage) PutMultipartPart(bucket, key, uploadID string, partNumber 
 
 // CompleteMultipartUpload assembles parts (in order) into the final object.
 func (s *FileStorage) CompleteMultipartUpload(bucket, key, uploadID string, partNumbers []int) error {
-	uploadDir := s.MultipartDir(bucket, key, uploadID)
+	uploadDir, err := s.MultipartDir(bucket, key, uploadID)
+	if err != nil {
+		return err
+	}
 	if _, err := os.Stat(uploadDir); err != nil {
 		return fmt.Errorf("upload ID not found")
 	}
@@ -317,7 +348,10 @@ func (s *FileStorage) CompleteMultipartUpload(bucket, key, uploadID string, part
 // CleanupMultipartUpload removes the multipart upload directory and cleans
 // up empty parent directories.
 func (s *FileStorage) CleanupMultipartUpload(bucket, key, uploadID string) error {
-	uploadDir := s.MultipartDir(bucket, key, uploadID)
+	uploadDir, err := s.MultipartDir(bucket, key, uploadID)
+	if err != nil {
+		return err
+	}
 	if err := s.deleteDirectory(uploadDir); err != nil && !os.IsNotExist(err) {
 		return err
 	}

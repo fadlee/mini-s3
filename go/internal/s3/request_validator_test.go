@@ -1,6 +1,7 @@
 package s3
 
 import (
+	"strings"
 	"testing"
 )
 
@@ -47,12 +48,41 @@ func TestIsValidObjectKey(t *testing.T) {
 		{"./secret", false},
 		{"normal-key", true},
 		{"dir/sub/file.bin", true},
+		{"a/.htaccess", false},
+		{".HTACCESS", false},
+		{"x/.user.ini", false},
+		{"x/.HtPasswd", false},
+		{"a/.hidden", true},
+		{"normal.txt", true},
 	}
 
 	for _, tt := range tests {
 		got := v.IsValidObjectKey(tt.key)
 		if got != tt.want {
 			t.Errorf("IsValidObjectKey(%q) = %v, want %v", tt.key, got, tt.want)
+		}
+	}
+}
+
+func TestIsValidUploadID(t *testing.T) {
+	v := &RequestValidator{}
+
+	valid := randomHex(16)
+	if !v.IsValidUploadID(valid) {
+		t.Errorf("IsValidUploadID(%q) = false, want true", valid)
+	}
+
+	tests := []string{
+		"../x",
+		"",
+		"ABABABABABABABABABABABABABABABAB",
+		strings.Repeat("a", 31),
+		strings.Repeat("a", 33),
+		"abc/def",
+	}
+	for _, id := range tests {
+		if v.IsValidUploadID(id) {
+			t.Errorf("IsValidUploadID(%q) = true, want false", id)
 		}
 	}
 }

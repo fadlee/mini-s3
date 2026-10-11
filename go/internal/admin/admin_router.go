@@ -208,7 +208,19 @@ func (r *AdminRouter) handleConfig(w http.ResponseWriter, req *http.Request, ren
 		}
 
 		input := configInputFromForm(req.Form)
-		newCfg, err := writer.BuildConfig(input, cfg)
+		// Build from the file as written on disk, not the env-merged cfg, so
+		// environment-only values are not persisted into config.yaml.
+		fileCfg, err := writer.LoadFileConfig()
+		if err != nil {
+			r.html(w, renderer.ConfigPage(mergeValuesInterface(values, req.Form), []string{err.Error()}, csrfToken), http.StatusBadRequest)
+			return
+		}
+		if fileCfg != nil && fileCfg.Admin.PasswordHash == "" && cfg != nil {
+			// Admin credentials supplied only via env are still needed to save.
+			fileCfg.Admin.Username = cfg.Admin.Username
+			fileCfg.Admin.PasswordHash = cfg.Admin.PasswordHash
+		}
+		newCfg, err := writer.BuildConfig(input, fileCfg)
 		if err != nil {
 			r.html(w, renderer.ConfigPage(mergeValuesInterface(values, req.Form), []string{err.Error()}, csrfToken), http.StatusBadRequest)
 			return
@@ -298,10 +310,10 @@ func (r *AdminRouter) handleUpgrade(w http.ResponseWriter, req *http.Request, au
 		return
 	}
 
-	latestVersion := req.FormValue("latest_version")
-	assetURL := req.FormValue("asset_url")
+	// The target version and asset URL are resolved server-side by the
+	// upgrade service; any version or URL posted by the browser is ignored.
 	upgradeService := r.getUpgradeService(cfg)
-	result, _ := upgradeService.Upgrade(r.version, latestVersion, assetURL)
+	result, _ := upgradeService.Upgrade(r.version)
 	if msg, ok := result["message"].(string); ok {
 		auth.SetFlash(w, req, msg)
 	}
@@ -330,7 +342,7 @@ func (r *AdminRouter) handleFiles(w http.ResponseWriter, req *http.Request, rend
 		if _, ok := req.URL.Query()["download"]; ok {
 			objectPath := strings.Trim(req.URL.Query().Get("path"), "/")
 			download := req.URL.Query().Get("download") == "1"
-			r.streamFile(w, explorer, bucket, objectPath, download)
+			r.streamFile(w, req, explorer, bucket, objectPath, download)
 			return
 		}
 	}
@@ -511,7 +523,17 @@ func (r *AdminRouter) handleFileAction(explorer *AdminFileExplorer, action strin
 	}
 }
 
-func (r *AdminRouter) streamFile(w http.ResponseWriter, explorer *AdminFileExplorer, bucket, objectPath string, download bool) {
+// inlineMimeTypes are the only types served inline from the admin origin.
+// Everything else (HTML, SVG, ...) is forced to download so uploaded objects
+// cannot run script as the admin.
+var inlineMimeTypes = map[string]bool{
+	"image/jpeg": true,
+	"image/png":  true,
+	"image/gif":  true,
+	"image/webp": true,
+}
+
+func (r *AdminRouter) streamFile(w http.ResponseWriter, req *http.Request, explorer *AdminFileExplorer, bucket, objectPath string, download bool) {
 	info, err := explorer.ObjectInfo(bucket, objectPath)
 	if err != nil {
 		http.Error(w, fmt.Sprintf("<!doctype html><title>Not found</title><p>%s</p>", html.EscapeString(err.Error())), http.StatusNotFound)
@@ -522,15 +544,63 @@ func (r *AdminRouter) streamFile(w http.ResponseWriter, explorer *AdminFileExplo
 		http.Error(w, fmt.Sprintf("<!doctype html><title>Not found</title><p>%s</p>", html.EscapeString(err.Error())), http.StatusNotFound)
 		return
 	}
-
-	w.Header().Set("Content-Type", info.Mime)
-	w.Header().Set("Content-Length", fmt.Sprintf("%d", info.Size))
-	w.Header().Set("X-Content-Type-Options", "nosniff")
-	if download {
-		w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=\"%s\"", url.QueryEscape(info.Name)))
+	file, err := os.Open(fullPath)
+	if err != nil {
+		http.Error(w, "<!doctype html><title>Not found</title><p>file not found</p>", http.StatusNotFound)
+		return
 	}
-	w.WriteHeader(http.StatusOK)
-	http.ServeFile(w, &http.Request{Method: "GET", URL: &url.URL{}}, fullPath)
+	defer file.Close()
+	stat, err := file.Stat()
+	if err != nil || stat.IsDir() {
+		http.Error(w, "<!doctype html><title>Not found</title><p>file not found</p>", http.StatusNotFound)
+		return
+	}
+
+	inline := !download && inlineMimeTypes[info.Mime]
+	disposition := "attachment"
+	contentType := "application/octet-stream"
+	if inline {
+		disposition = "inline"
+		contentType = info.Mime
+	}
+
+	h := w.Header()
+	h.Set("Content-Type", contentType)
+	h.Set("Content-Disposition", disposition+`; filename="`+asciiDispositionName(info.Name)+`"; filename*=UTF-8''`+encodeRFC5987(info.Name))
+	h.Set("X-Content-Type-Options", "nosniff")
+	h.Set("Content-Security-Policy", "default-src 'none'; img-src 'self' data:; style-src 'unsafe-inline'; sandbox")
+	// ServeContent keeps the Content-Type set above and handles Range requests.
+	http.ServeContent(w, req, info.Name, stat.ModTime(), file)
+}
+
+// asciiDispositionName returns the ASCII fallback for a Content-Disposition
+// filename parameter: every byte outside [A-Za-z0-9._-] becomes '_'.
+func asciiDispositionName(name string) string {
+	b := []byte(name)
+	for i, c := range b {
+		if !(c >= 'A' && c <= 'Z' || c >= 'a' && c <= 'z' || c >= '0' && c <= '9' || c == '.' || c == '_' || c == '-') {
+			b[i] = '_'
+		}
+	}
+	if len(b) == 0 {
+		return "download"
+	}
+	return string(b)
+}
+
+// encodeRFC5987 percent-encodes everything except RFC 3986 unreserved bytes,
+// which is always a valid RFC 5987 value (same output as PHP rawurlencode).
+func encodeRFC5987(name string) string {
+	var b strings.Builder
+	for i := 0; i < len(name); i++ {
+		c := name[i]
+		if c >= 'A' && c <= 'Z' || c >= 'a' && c <= 'z' || c >= '0' && c <= '9' || c == '.' || c == '_' || c == '-' || c == '~' {
+			b.WriteByte(c)
+		} else {
+			fmt.Fprintf(&b, "%%%02X", c)
+		}
+	}
+	return b.String()
 }
 
 func (r *AdminRouter) getUpgradeService(cfg *config.Config) *AdminUpgradeService {
@@ -613,13 +683,7 @@ func configInputFromForm(form url.Values) ConfigInput {
 }
 
 func valuesFromConfig(cfg *config.Config) map[string]interface{} {
-	accessKey := ""
-	secretKey := ""
-	for k, v := range cfg.Credentials {
-		accessKey = k
-		secretKey = v
-		break
-	}
+	accessKey, secretKey, _ := firstCredential(cfg.Credentials)
 	return map[string]interface{}{
 		"admin_username":                 cfg.Admin.Username,
 		"data_dir":                       cfg.DataDir,

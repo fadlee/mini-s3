@@ -128,11 +128,11 @@ func (r *S3Router) handlePut(ctx *minihttp.RequestContext, resp *S3Response, buc
 	partNumber := ctx.GetQueryParam("partNumber")
 
 	if uploadID != "" && partNumber != "" {
-		if !r.validator.IsPositiveInteger(partNumber) {
+		if !r.validator.IsPositiveInteger(partNumber) || atoiSafe(partNumber) > 10000 {
 			resp.XMLError(400, "InvalidPart", "partNumber must be a positive integer", r.resource(bucket, key))
 			return
 		}
-		if !r.storage.MultipartDirExists(bucket, key, uploadID) {
+		if !r.validator.IsValidUploadID(uploadID) || !r.storage.MultipartDirExists(bucket, key, uploadID) {
 			resp.XMLError(404, "NoSuchUpload", "Upload ID not found", r.resource(bucket, key))
 			return
 		}
@@ -240,7 +240,7 @@ func (r *S3Router) handleBulkDelete(ctx *minihttp.RequestContext, resp *S3Respon
 }
 
 func (r *S3Router) handleCompleteMultipart(ctx *minihttp.RequestContext, resp *S3Response, bucket, key, uploadID string) {
-	if !r.storage.MultipartDirExists(bucket, key, uploadID) {
+	if !r.validator.IsValidUploadID(uploadID) || !r.storage.MultipartDirExists(bucket, key, uploadID) {
 		resp.XMLError(404, "NoSuchUpload", "Upload ID not found", r.resource(bucket, key))
 		return
 	}
@@ -540,7 +540,7 @@ func (r *S3Router) handleHead(ctx *minihttp.RequestContext, resp *S3Response, bu
 func (r *S3Router) handleDelete(ctx *minihttp.RequestContext, resp *S3Response, bucket, key string) {
 	uploadID := ctx.GetQueryParam("uploadId")
 	if uploadID != "" {
-		if !r.storage.MultipartDirExists(bucket, key, uploadID) {
+		if !r.validator.IsValidUploadID(uploadID) || !r.storage.MultipartDirExists(bucket, key, uploadID) {
 			resp.XMLError(404, "NoSuchUpload", "Upload ID not found", r.resource(bucket, key))
 			return
 		}

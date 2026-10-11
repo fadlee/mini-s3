@@ -362,7 +362,7 @@ func (r *AdminRenderer) objectTable(bucket, prefix string, listing *ListObjectsR
 		path := file.Path
 		name := file.Name
 		preview := "-"
-		if file.IsImage {
+		if file.IsImage && file.Mime != "image/svg+xml" {
 			previewURL := `/_/files?bucket=` + url.QueryEscape(bucket) + `&path=` + url.QueryEscape(path) + `&download=0`
 			preview = `<a href="` + previewURL + `" target="_blank" x-on:click.stop><img class="preview-thumb" src="` + previewURL + `" alt="` + r.e(name) + `"></a>`
 		}
@@ -446,7 +446,6 @@ func (r *AdminRenderer) updatesPanel(status map[string]interface{}) string {
 	current, _ := status["currentVersion"].(string)
 	latest, _ := status["latestVersion"].(string)
 	csrfToken, _ := status["csrfToken"].(string)
-	assetURL, _ := status["assetUrl"].(string)
 
 	var b strings.Builder
 	b.WriteString(`<section class="panel"><h2>Updates</h2><p>`)
@@ -470,10 +469,6 @@ func (r *AdminRenderer) updatesPanel(status map[string]interface{}) string {
 	if state == "update_available" && latest != "" {
 		b.WriteString(`<form method="post" action="/_/upgrade"><input type="hidden" name="csrf_token" value="`)
 		b.WriteString(r.e(csrfToken))
-		b.WriteString(`"><input type="hidden" name="latest_version" value="`)
-		b.WriteString(r.e(latest))
-		b.WriteString(`"><input type="hidden" name="asset_url" value="`)
-		b.WriteString(r.e(assetURL))
 		b.WriteString(`"><button type="submit">Upgrade to `)
 		b.WriteString(r.e(latest))
 		b.WriteString(`</button></form>`)
@@ -490,12 +485,7 @@ func (r *AdminRenderer) connectionConfig(cfg *config.Config, endpoint string) st
 		return ""
 	}
 
-	var accessKey, secretKey string
-	for k, v := range cfg.Credentials {
-		accessKey = k
-		secretKey = v
-		break
-	}
+	accessKey, secretKey, _ := firstCredential(cfg.Credentials)
 	region := "us-east-1"
 	bucket := "your-bucket"
 

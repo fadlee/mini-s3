@@ -5,6 +5,8 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+
+	"github.com/fadlee/mini-s3/internal/storage"
 )
 
 // RequestValidator provides validation functions for bucket names, object
@@ -46,8 +48,17 @@ func (v *RequestValidator) IsValidObjectKey(key string) bool {
 		if segment == "." || segment == ".." {
 			return false
 		}
+		switch strings.ToLower(segment) {
+		case ".htaccess", ".htpasswd", ".user.ini":
+			return false
+		}
 	}
 	return true
+}
+
+// IsValidUploadID checks that the upload ID is 32 lowercase hex characters.
+func (v *RequestValidator) IsValidUploadID(uploadID string) bool {
+	return storage.IsValidUploadID(uploadID)
 }
 
 // IsPositiveInteger returns true if value is a string of digits > 0.

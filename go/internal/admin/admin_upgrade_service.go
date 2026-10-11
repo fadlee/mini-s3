@@ -37,6 +37,11 @@ type AdminUpgradeService struct {
 	githubToken string
 	httpClient  *http.Client // used for large asset downloads
 	apiClient   *http.Client // used for short GitHub API calls
+
+	// Seams for tests; the constructor wires them to the real implementations.
+	fetchRelease func() (*githubRelease, error)
+	downloadFile func(url, destination string) error
+	restart      func()
 }
 
 // NewAdminUpgradeService creates a new upgrade service.
@@ -53,7 +58,7 @@ func NewAdminUpgradeService(baseDir, dataDir, entryFile, githubToken string) *Ad
 	if abs, err := filepath.Abs(entryFile); err == nil {
 		entryFile = abs
 	}
-	return &AdminUpgradeService{
+	s := &AdminUpgradeService{
 		baseDir:     baseDir,
 		dataDir:     dataDir,
 		entryFile:   entryFile,
@@ -61,6 +66,10 @@ func NewAdminUpgradeService(baseDir, dataDir, entryFile, githubToken string) *Ad
 		httpClient:  &http.Client{Timeout: downloadTimeout},
 		apiClient:   &http.Client{Timeout: apiTimeout},
 	}
+	s.fetchRelease = s.fetchLatestRelease
+	s.downloadFile = s.download
+	s.restart = s.Restart
+	return s
 }
 
 // githubReleaseAsset represents a single asset in a GitHub release.
@@ -126,7 +135,7 @@ func (s *AdminUpgradeService) CachedStatus(currentVersion string, forceRefresh b
 // currentVersion. Returns a map with state, message, currentVersion,
 // latestVersion, and assetUrl keys.
 func (s *AdminUpgradeService) CheckLatest(currentVersion string) map[string]interface{} {
-	metadata, err := s.fetchLatestRelease()
+	metadata, err := s.fetchRelease()
 	if err != nil {
 		return map[string]interface{}{
 			"state":          "error",
@@ -178,15 +187,36 @@ func (s *AdminUpgradeService) CheckLatest(currentVersion string) map[string]inte
 	}
 }
 
-// Upgrade downloads the new binary from assetURL, verifies its SHA256
-// checksum against the release's checksums file, backs up the current binary,
-// swaps it into place, clears the status cache, and schedules a process
-// restart. Returns a map with ok, message, and backupPath keys.
-func (s *AdminUpgradeService) Upgrade(currentVersion, latestVersion, assetURL string) (map[string]interface{}, error) {
-	if s.CompareVersions(currentVersion, latestVersion) >= 0 {
+// Upgrade downloads the new binary for the latest GitHub release, verifies its
+// SHA256 checksum against the release's checksums file, backs up the current
+// binary, swaps it into place, clears the status cache, and schedules a process
+// restart. The target version and asset URL come from a fresh GitHub check, not
+// from the caller. Returns a map with ok, message, and backupPath keys.
+func (s *AdminUpgradeService) Upgrade(currentVersion string) (map[string]interface{}, error) {
+	status := s.CheckLatest(currentVersion)
+	if state, _ := status["state"].(string); state != "update_available" {
+		message, _ := status["message"].(string)
 		return map[string]interface{}{
 			"ok":      false,
-			"message": "No newer version is available.",
+			"message": message,
+		}, nil
+	}
+	latestVersion, _ := status["latestVersion"].(string)
+	assetURL, _ := status["assetUrl"].(string)
+
+	// Reject anything that is not the exact GitHub release asset before
+	// downloading it.
+	if !releaseTagRegex.MatchString(latestVersion) {
+		return map[string]interface{}{
+			"ok":      false,
+			"message": "Latest release tag is not a valid version.",
+		}, nil
+	}
+	expectedURL := "https://github.com/" + repoOwner + "/" + repoName + "/releases/download/" + latestVersion + "/" + s.expectedAssetName(latestVersion)
+	if assetURL != expectedURL {
+		return map[string]interface{}{
+			"ok":      false,
+			"message": "Release asset URL is not an allowed GitHub release download.",
 		}, nil
 	}
 
@@ -223,7 +253,7 @@ func (s *AdminUpgradeService) Upgrade(currentVersion, latestVersion, assetURL st
 	}()
 
 	// 1. Download the binary.
-	if err := s.download(assetURL, newPath); err != nil {
+	if err := s.downloadFile(assetURL, newPath); err != nil {
 		return map[string]interface{}{
 			"ok":      false,
 			"message": err.Error(),
@@ -241,7 +271,7 @@ func (s *AdminUpgradeService) Upgrade(currentVersion, latestVersion, assetURL st
 
 	// 3. Verify SHA256 checksum.
 	// Re-fetch release metadata to locate the checksums file.
-	metadata, err := s.fetchLatestRelease()
+	metadata, err := s.fetchRelease()
 	if err != nil {
 		return map[string]interface{}{
 			"ok":      false,
@@ -255,9 +285,15 @@ func (s *AdminUpgradeService) Upgrade(currentVersion, latestVersion, assetURL st
 			"message": "Latest GitHub release does not include a checksums file.",
 		}, nil
 	}
+	if !strings.HasPrefix(checksumURL, "https://github.com/"+repoOwner+"/"+repoName+"/releases/download/"+latestVersion+"/") {
+		return map[string]interface{}{
+			"ok":      false,
+			"message": "Checksums URL is not an allowed GitHub release download.",
+		}, nil
+	}
 	checksumPath := filepath.Join(tmpDir, "checksums.txt")
 	defer os.Remove(checksumPath)
-	if err := s.download(checksumURL, checksumPath); err != nil {
+	if err := s.downloadFile(checksumURL, checksumPath); err != nil {
 		return map[string]interface{}{
 			"ok":      false,
 			"message": "Unable to download checksums file: " + err.Error(),
@@ -313,7 +349,7 @@ func (s *AdminUpgradeService) Upgrade(currentVersion, latestVersion, assetURL st
 	// HTTP handler flush the response before the process exits.
 	go func() {
 		time.Sleep(restartDelay)
-		s.Restart()
+		s.restart()
 	}()
 
 	return map[string]interface{}{
@@ -405,6 +441,9 @@ func (s *AdminUpgradeService) Restart() {
 // -----------------------------------------------------------------------------
 
 var versionTagRegex = regexp.MustCompile(`^v?\d+\.\d+\.\d+$`)
+
+// releaseTagRegex matches the normalized tags returned by ReleaseTag.
+var releaseTagRegex = regexp.MustCompile(`^v\d+\.\d+\.\d+$`)
 
 func (s *AdminUpgradeService) normalizeVersion(version string) string {
 	return strings.TrimLeft(version, "vV")
