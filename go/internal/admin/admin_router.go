@@ -70,8 +70,8 @@ func (r *AdminRouter) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	// Upgrade/check-update require auth
-	if (path == "/_/upgrade" || path == "/_/check-update") && !auth.IsAuthenticated(req) {
+	// Check-update requires auth
+	if path == "/_/check-update" && !auth.IsAuthenticated(req) {
 		r.html(w, renderer.Login("", auth.EnsureCSRFToken(w, req)), http.StatusOK)
 		return
 	}
@@ -89,8 +89,6 @@ func (r *AdminRouter) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 		r.handleSecurity(w, req, renderer, writer, auth, cfg)
 	case "/_/files":
 		r.handleFiles(w, req, renderer, auth, cfg)
-	case "/_/upgrade":
-		r.handleUpgrade(w, req, auth, cfg)
 	case "/_/check-update":
 		r.handleCheckUpdate(w, req, auth, cfg)
 	default:
@@ -243,12 +241,7 @@ func (r *AdminRouter) handleConfig(w http.ResponseWriter, req *http.Request, ren
 func (r *AdminRouter) handleDashboard(w http.ResponseWriter, req *http.Request, renderer *AdminRenderer, auth *AdminAuth, cfg *config.Config) {
 	csrfToken := auth.EnsureCSRFToken(w, req)
 	upgradeService := r.getUpgradeService(cfg)
-	var updateStatus map[string]interface{}
-	if r.version == "" {
-		updateStatus, _ = upgradeService.Status("")
-	} else {
-		updateStatus, _ = upgradeService.CachedStatus(r.version, false)
-	}
+	updateStatus, _ := upgradeService.CachedStatus(r.version, false)
 	updateStatus["csrfToken"] = csrfToken
 
 	stats := ScanStats(cfg.DataDir)
@@ -274,47 +267,9 @@ func (r *AdminRouter) handleCheckUpdate(w http.ResponseWriter, req *http.Request
 		return
 	}
 
-	if r.version == "" {
-		auth.SetFlash(w, req, "Auto-upgrade is only available for generated release installs.")
-		r.redirect(w, req, "/_")
-		return
-	}
-
 	upgradeService := r.getUpgradeService(cfg)
 	status, _ := upgradeService.CachedStatus(r.version, true)
 	if msg, ok := status["message"].(string); ok {
-		auth.SetFlash(w, req, msg)
-	}
-	r.redirect(w, req, "/_")
-}
-
-func (r *AdminRouter) handleUpgrade(w http.ResponseWriter, req *http.Request, auth *AdminAuth, cfg *config.Config) {
-	if req.Method != http.MethodPost {
-		r.redirect(w, req, "/_")
-		return
-	}
-	if err := req.ParseForm(); err != nil {
-		auth.SetFlash(w, req, "Invalid form data.")
-		r.redirect(w, req, "/_")
-		return
-	}
-	if !auth.VerifyCSRFToken(req, req.FormValue("csrf_token")) {
-		auth.SetFlash(w, req, "CSRF token is invalid.")
-		r.redirect(w, req, "/_")
-		return
-	}
-
-	if r.version == "" {
-		auth.SetFlash(w, req, "Auto-upgrade is only available for generated release installs.")
-		r.redirect(w, req, "/_")
-		return
-	}
-
-	// The target version and asset URL are resolved server-side by the
-	// upgrade service; any version or URL posted by the browser is ignored.
-	upgradeService := r.getUpgradeService(cfg)
-	result, _ := upgradeService.Upgrade(r.version)
-	if msg, ok := result["message"].(string); ok {
 		auth.SetFlash(w, req, msg)
 	}
 	r.redirect(w, req, "/_")
@@ -607,8 +562,7 @@ func (r *AdminRouter) getUpgradeService(cfg *config.Config) *AdminUpgradeService
 	if r.upgradeService != nil {
 		return r.upgradeService
 	}
-	exe, _ := os.Executable()
-	r.upgradeService = NewAdminUpgradeService(r.baseDir, cfg.DataDir, exe, cfg.GitHubToken)
+	r.upgradeService = NewAdminUpgradeService(cfg.DataDir, cfg.GitHubToken)
 	return r.upgradeService
 }
 

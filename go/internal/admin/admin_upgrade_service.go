@@ -1,17 +1,13 @@
 package admin
 
 import (
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"regexp"
-	"runtime"
 	"strconv"
 	"strings"
 	"time"
@@ -20,104 +16,60 @@ import (
 const (
 	repoOwner       = "fadlee"
 	repoName        = "mini-s3"
-	maxBinaryBytes  = 100 * 1024 * 1024 // 100 MB — sanity cap on downloaded binary
-	cacheTTLSeconds = 21600             // 6 hours
-	downloadTimeout = 30 * time.Second
+	dockerImage     = "ghcr.io/fadlee/mini-s3" // image tag = release tag without "go-v"
+	cacheTTLSeconds = 21600                    // 6 hours
 	apiTimeout      = 5 * time.Second
-	restartDelay    = 1 * time.Second // allow HTTP response to flush before restart
+	releasesPerPage = 20
 )
 
-// AdminUpgradeService checks GitHub for newer releases and applies binary
-// self-upgrades. It mirrors MiniS3\Admin\AdminUpgradeService but replaces the
-// running Go binary instead of index.php.
+// AdminUpgradeService checks GitHub for newer Go releases and reports them to
+// the admin dashboard. It never replaces the running binary: upgrades are done
+// by pulling a new Docker image (or downloading a new binary by hand).
 type AdminUpgradeService struct {
-	baseDir     string
 	dataDir     string
-	entryFile   string
 	githubToken string
-	httpClient  *http.Client // used for large asset downloads
-	apiClient   *http.Client // used for short GitHub API calls
+	apiClient   *http.Client
 
-	// Seams for tests; the constructor wires them to the real implementations.
-	fetchRelease func() (*githubRelease, error)
-	downloadFile func(url, destination string) error
-	restart      func()
+	// Seam for tests; the constructor wires it to the real GitHub call.
+	fetchReleases func() ([]githubRelease, error)
 }
 
-// NewAdminUpgradeService creates a new upgrade service.
-//
-// entryFile is the path to the running binary. If empty, os.Executable() is
-// used. The path is resolved to an absolute form so that binary swaps work
-// regardless of the current working directory.
-func NewAdminUpgradeService(baseDir, dataDir, entryFile, githubToken string) *AdminUpgradeService {
-	if entryFile == "" {
-		if exe, err := os.Executable(); err == nil {
-			entryFile = exe
-		}
-	}
-	if abs, err := filepath.Abs(entryFile); err == nil {
-		entryFile = abs
-	}
+// NewAdminUpgradeService creates an update-check service. dataDir holds the
+// status cache.
+func NewAdminUpgradeService(dataDir, githubToken string) *AdminUpgradeService {
 	s := &AdminUpgradeService{
-		baseDir:     baseDir,
 		dataDir:     dataDir,
-		entryFile:   entryFile,
 		githubToken: githubToken,
-		httpClient:  &http.Client{Timeout: downloadTimeout},
 		apiClient:   &http.Client{Timeout: apiTimeout},
 	}
-	s.fetchRelease = s.fetchLatestRelease
-	s.downloadFile = s.download
-	s.restart = s.Restart
+	s.fetchReleases = s.listReleases
 	return s
 }
 
-// githubReleaseAsset represents a single asset in a GitHub release.
-type githubReleaseAsset struct {
-	Name               string `json:"name"`
-	BrowserDownloadURL string `json:"browser_download_url"`
-}
-
-// githubRelease represents the subset of the GitHub releases/latest response
-// that the upgrade service cares about.
+// githubRelease represents the subset of a GitHub release object that the
+// update check cares about.
 type githubRelease struct {
-	TagName string               `json:"tag_name"`
-	Assets  []githubReleaseAsset `json:"assets"`
+	TagName    string `json:"tag_name"`
+	HTMLURL    string `json:"html_url"`
+	Draft      bool   `json:"draft"`
+	Prerelease bool   `json:"prerelease"`
 }
 
 // -----------------------------------------------------------------------------
-// Public API — mirrors the PHP public methods
+// Public API
 // -----------------------------------------------------------------------------
 
-// Status returns a quick status without contacting GitHub. If currentVersion
-// is empty, auto-upgrade is reported as unavailable; otherwise an "unknown"
-// state is returned, indicating a full check has not run yet.
-func (s *AdminUpgradeService) Status(currentVersion string) (map[string]interface{}, error) {
-	if currentVersion == "" {
-		return map[string]interface{}{
-			"state":          "unavailable",
-			"message":        "Auto-upgrade is only available for generated release installs.",
-			"currentVersion": nil,
-			"latestVersion":  nil,
-			"assetUrl":       nil,
-		}, nil
-	}
-
-	return map[string]interface{}{
-		"state":          "unknown",
-		"message":        "Update check has not run yet.",
-		"currentVersion": currentVersion,
-		"latestVersion":  nil,
-		"assetUrl":       nil,
-	}, nil
-}
-
-// CachedStatus returns a cached upgrade status if fresh and matching the
+// CachedStatus returns a cached update status if fresh and matching the
 // current version. When forceRefresh is true, or the cache is stale/missing,
 // a fresh check is performed and cached. If the fresh check errors and a
 // valid cache still exists for the current version, the cached value is
-// returned instead (graceful degradation).
+// returned instead (graceful degradation). Dev builds are always reported as
+// "unavailable" without contacting GitHub.
 func (s *AdminUpgradeService) CachedStatus(currentVersion string, forceRefresh bool) (map[string]interface{}, error) {
+	if _, ok := releaseBuildVersion(currentVersion); !ok {
+		return unavailableStatus(currentVersion), nil
+	}
+
 	cached := s.readCachedStatus()
 	if !forceRefresh && cached != nil && cachedCurrentVersion(cached) == currentVersion {
 		return cached, nil
@@ -131,322 +83,111 @@ func (s *AdminUpgradeService) CachedStatus(currentVersion string, forceRefresh b
 	return status, nil
 }
 
-// CheckLatest fetches the latest release from GitHub and compares it against
-// currentVersion. Returns a map with state, message, currentVersion,
-// latestVersion, and assetUrl keys.
+// CheckLatest fetches the GitHub releases and compares the highest published
+// go-vX.Y.Z release against currentVersion. Returns a map with state, message,
+// currentVersion and latestVersion keys. When an update is available it also
+// contains releaseUrl and imageTag.
 func (s *AdminUpgradeService) CheckLatest(currentVersion string) map[string]interface{} {
-	metadata, err := s.fetchRelease()
+	current, ok := releaseBuildVersion(currentVersion)
+	if !ok {
+		return unavailableStatus(currentVersion)
+	}
+
+	releases, err := s.fetchReleases()
 	if err != nil {
 		return map[string]interface{}{
 			"state":          "error",
 			"message":        "Unable to check GitHub releases: " + err.Error(),
 			"currentVersion": currentVersion,
 			"latestVersion":  nil,
-			"assetUrl":       nil,
 		}
 	}
 
-	latestTag := s.ReleaseTag(metadata)
-	if latestTag == "" {
+	latest, found := latestGoRelease(releases)
+	if !found {
 		return map[string]interface{}{
 			"state":          "error",
-			"message":        "Latest GitHub release does not have a valid version tag.",
+			"message":        "No GitHub release with a valid go-vX.Y.Z tag was found.",
 			"currentVersion": currentVersion,
 			"latestVersion":  nil,
-			"assetUrl":       nil,
 		}
 	}
 
-	if s.CompareVersions(currentVersion, latestTag) >= 0 {
+	imageTag := normalizeVersion(latest.TagName)
+	if versionCompare(current, imageTag) >= 0 {
 		return map[string]interface{}{
 			"state":          "up_to_date",
 			"message":        "Mini S3 is up to date.",
 			"currentVersion": currentVersion,
-			"latestVersion":  latestTag,
-			"assetUrl":       nil,
+			"latestVersion":  latest.TagName,
 		}
 	}
 
-	assetURL := s.AssetUrl(metadata, latestTag)
-	if assetURL == "" {
-		return map[string]interface{}{
-			"state":          "error",
-			"message":        "Latest GitHub release does not include the expected binary asset.",
-			"currentVersion": currentVersion,
-			"latestVersion":  latestTag,
-			"assetUrl":       nil,
-		}
+	releaseURL := latest.HTMLURL
+	if releaseURL == "" {
+		releaseURL = "https://github.com/" + repoOwner + "/" + repoName + "/releases/tag/" + latest.TagName
 	}
-
 	return map[string]interface{}{
 		"state":          "update_available",
-		"message":        "Update available: " + latestTag,
+		"message":        "Update available: " + latest.TagName,
 		"currentVersion": currentVersion,
-		"latestVersion":  latestTag,
-		"assetUrl":       assetURL,
+		"latestVersion":  latest.TagName,
+		"releaseUrl":     releaseURL,
+		"imageTag":       imageTag,
 	}
-}
-
-// Upgrade downloads the new binary for the latest GitHub release, verifies its
-// SHA256 checksum against the release's checksums file, backs up the current
-// binary, swaps it into place, clears the status cache, and schedules a process
-// restart. The target version and asset URL come from a fresh GitHub check, not
-// from the caller. Returns a map with ok, message, and backupPath keys.
-func (s *AdminUpgradeService) Upgrade(currentVersion string) (map[string]interface{}, error) {
-	status := s.CheckLatest(currentVersion)
-	if state, _ := status["state"].(string); state != "update_available" {
-		message, _ := status["message"].(string)
-		return map[string]interface{}{
-			"ok":      false,
-			"message": message,
-		}, nil
-	}
-	latestVersion, _ := status["latestVersion"].(string)
-	assetURL, _ := status["assetUrl"].(string)
-
-	// Reject anything that is not the exact GitHub release asset before
-	// downloading it.
-	if !releaseTagRegex.MatchString(latestVersion) {
-		return map[string]interface{}{
-			"ok":      false,
-			"message": "Latest release tag is not a valid version.",
-		}, nil
-	}
-	expectedURL := "https://github.com/" + repoOwner + "/" + repoName + "/releases/download/" + latestVersion + "/" + s.expectedAssetName(latestVersion)
-	if assetURL != expectedURL {
-		return map[string]interface{}{
-			"ok":      false,
-			"message": "Release asset URL is not an allowed GitHub release download.",
-		}, nil
-	}
-
-	// Verify the current binary exists and its directory is writable.
-	entryInfo, err := os.Stat(s.entryFile)
-	if err != nil || entryInfo.IsDir() {
-		return map[string]interface{}{
-			"ok":      false,
-			"message": "Current binary or its directory is not writable.",
-		}, nil
-	}
-	entryDir := filepath.Dir(s.entryFile)
-	if err := s.ensureDirectory(entryDir); err != nil {
-		return map[string]interface{}{
-			"ok":      false,
-			"message": "Current binary or its directory is not writable.",
-		}, nil
-	}
-
-	tmpDir := filepath.Join(s.dataDir, ".upgrade-tmp")
-	if err := s.ensureDirectory(tmpDir); err != nil {
-		return map[string]interface{}{
-			"ok":      false,
-			"message": "Temporary upgrade directory cannot be created or written.",
-		}, nil
-	}
-
-	binaryName := s.expectedAssetName(latestVersion)
-	newPath := filepath.Join(tmpDir, binaryName)
-
-	// Always clean up temp files when done.
-	defer func() {
-		os.Remove(newPath)
-	}()
-
-	// 1. Download the binary.
-	if err := s.downloadFile(assetURL, newPath); err != nil {
-		return map[string]interface{}{
-			"ok":      false,
-			"message": err.Error(),
-		}, nil
-	}
-
-	// 2. Verify size.
-	info, err := os.Stat(newPath)
-	if err != nil || info.Size() == 0 || info.Size() > maxBinaryBytes {
-		return map[string]interface{}{
-			"ok":      false,
-			"message": "Downloaded binary has an invalid size.",
-		}, nil
-	}
-
-	// 3. Verify SHA256 checksum.
-	// Re-fetch release metadata to locate the checksums file.
-	metadata, err := s.fetchRelease()
-	if err != nil {
-		return map[string]interface{}{
-			"ok":      false,
-			"message": "Unable to fetch release metadata for checksum verification: " + err.Error(),
-		}, nil
-	}
-	checksumURL := s.checksumUrl(metadata, latestVersion)
-	if checksumURL == "" {
-		return map[string]interface{}{
-			"ok":      false,
-			"message": "Latest GitHub release does not include a checksums file.",
-		}, nil
-	}
-	if !strings.HasPrefix(checksumURL, "https://github.com/"+repoOwner+"/"+repoName+"/releases/download/"+latestVersion+"/") {
-		return map[string]interface{}{
-			"ok":      false,
-			"message": "Checksums URL is not an allowed GitHub release download.",
-		}, nil
-	}
-	checksumPath := filepath.Join(tmpDir, "checksums.txt")
-	defer os.Remove(checksumPath)
-	if err := s.downloadFile(checksumURL, checksumPath); err != nil {
-		return map[string]interface{}{
-			"ok":      false,
-			"message": "Unable to download checksums file: " + err.Error(),
-		}, nil
-	}
-	checksumsContent, err := os.ReadFile(checksumPath)
-	if err != nil {
-		return map[string]interface{}{
-			"ok":      false,
-			"message": "Unable to read checksums file.",
-		}, nil
-	}
-	expectedChecksum := findChecksum(string(checksumsContent), binaryName)
-	if expectedChecksum == "" {
-		return map[string]interface{}{
-			"ok":      false,
-			"message": "Checksums file does not contain an entry for the expected binary.",
-		}, nil
-	}
-	if err := s.ValidateBinaryChecksum(newPath, expectedChecksum); err != nil {
-		return map[string]interface{}{
-			"ok":      false,
-			"message": err.Error(),
-		}, nil
-	}
-
-	// 4. Preserve executable mode (non-Windows).
-	if runtime.GOOS != "windows" {
-		os.Chmod(newPath, entryInfo.Mode())
-	}
-
-	// 5. Back up the current binary.
-	backupPath, err := s.backupCurrentBinary()
-	if err != nil {
-		return map[string]interface{}{
-			"ok":      false,
-			"message": err.Error(),
-		}, nil
-	}
-
-	// 6. Swap the binary into place.
-	if err := s.swapBinary(newPath); err != nil {
-		return map[string]interface{}{
-			"ok":      false,
-			"message": err.Error(),
-		}, nil
-	}
-
-	// 7. Clear the status cache.
-	s.clearCachedStatus()
-
-	// 8. Schedule a restart so the new binary takes over. The delay lets the
-	// HTTP handler flush the response before the process exits.
-	go func() {
-		time.Sleep(restartDelay)
-		s.restart()
-	}()
-
-	return map[string]interface{}{
-		"ok":         true,
-		"message":    "Mini S3 upgraded to " + latestVersion + ".",
-		"backupPath": backupPath,
-	}, nil
-}
-
-// CompareVersions compares two version strings (e.g. "v1.2.3" vs "v1.2.4").
-// Returns -1, 0, or 1 like PHP's version_compare for simple semver strings.
-func (s *AdminUpgradeService) CompareVersions(current, latest string) int {
-	return versionCompare(s.normalizeVersion(current), s.normalizeVersion(latest))
-}
-
-// ReleaseTag extracts and normalises the tag_name from GitHub release
-// metadata. Returns an empty string if the tag does not match v?X.Y.Z.
-func (s *AdminUpgradeService) ReleaseTag(metadata *githubRelease) string {
-	tag := metadata.TagName
-	if !versionTagRegex.MatchString(tag) {
-		return ""
-	}
-	if strings.HasPrefix(tag, "v") {
-		return tag
-	}
-	return "v" + tag
-}
-
-// AssetUrl finds the browser_download_url for the platform-specific binary
-// asset in the release. Returns an empty string if not found.
-func (s *AdminUpgradeService) AssetUrl(metadata *githubRelease, tag string) string {
-	expectedName := s.expectedAssetName(tag)
-	for _, asset := range metadata.Assets {
-		if asset.Name != expectedName {
-			continue
-		}
-		if asset.BrowserDownloadURL != "" {
-			return asset.BrowserDownloadURL
-		}
-	}
-	return ""
-}
-
-// ValidateBinaryChecksum computes the SHA256 of the file at binaryPath and
-// compares it (case-insensitively) against expectedChecksum.
-func (s *AdminUpgradeService) ValidateBinaryChecksum(binaryPath, expectedChecksum string) error {
-	f, err := os.Open(binaryPath)
-	if err != nil {
-		return fmt.Errorf("Unable to read downloaded binary for verification.")
-	}
-	defer f.Close()
-
-	h := sha256.New()
-	if _, err := io.Copy(h, f); err != nil {
-		return fmt.Errorf("Unable to compute checksum.")
-	}
-	actual := hex.EncodeToString(h.Sum(nil))
-	if !strings.EqualFold(actual, strings.TrimSpace(expectedChecksum)) {
-		return fmt.Errorf("Checksum verification failed.")
-	}
-	return nil
-}
-
-// Restart launches a new process with the same arguments and exits the
-// current process. It is called automatically after a successful upgrade but
-// can also be invoked manually.
-func (s *AdminUpgradeService) Restart() {
-	exe := s.entryFile
-	if exe == "" {
-		if e, err := os.Executable(); err == nil {
-			exe = e
-		}
-	}
-	cmd := exec.Command(exe, os.Args[1:]...)
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	cmd.Stdin = os.Stdin
-	// Detach from the current process group so the new process survives
-	// when the current one exits.
-	setDetach(cmd)
-	if err := cmd.Start(); err != nil {
-		return
-	}
-	os.Exit(0)
 }
 
 // -----------------------------------------------------------------------------
 // Internal helpers
 // -----------------------------------------------------------------------------
 
-var versionTagRegex = regexp.MustCompile(`^v?\d+\.\d+\.\d+$`)
+// goReleaseTagRegex matches the release tags of the Go build (go-vX.Y.Z).
+var goReleaseTagRegex = regexp.MustCompile(`^go-v\d+\.\d+\.\d+$`)
 
-// releaseTagRegex matches the normalized tags returned by ReleaseTag.
-var releaseTagRegex = regexp.MustCompile(`^v\d+\.\d+\.\d+$`)
+// semverRegex matches a normalized version such as "1.2.3".
+var semverRegex = regexp.MustCompile(`^\d+\.\d+\.\d+$`)
 
-func (s *AdminUpgradeService) normalizeVersion(version string) string {
-	return strings.TrimLeft(version, "vV")
+// unavailableStatus is returned when update checks do not apply, such as for
+// dev builds that were not produced with -ldflags.
+func unavailableStatus(currentVersion string) map[string]interface{} {
+	return map[string]interface{}{
+		"state":          "unavailable",
+		"message":        "Update checks are only available for release builds.",
+		"currentVersion": currentVersion,
+		"latestVersion":  nil,
+	}
+}
+
+// normalizeVersion strips the "go-" and "v" prefixes so that "go-v1.2.0",
+// "v1.2.0" and "1.2.0" all become "1.2.0".
+func normalizeVersion(version string) string {
+	v := strings.TrimPrefix(strings.TrimSpace(version), "go-")
+	return strings.TrimLeft(v, "vV")
+}
+
+// releaseBuildVersion returns the normalized running version and whether it is
+// a real release version (plain X.Y.Z). Dev builds and empty versions return
+// false.
+func releaseBuildVersion(version string) (string, bool) {
+	v := normalizeVersion(version)
+	return v, semverRegex.MatchString(v)
+}
+
+// latestGoRelease returns the non-draft, non-prerelease Go release with the
+// highest semantic version. List order is ignored.
+func latestGoRelease(releases []githubRelease) (githubRelease, bool) {
+	var latest githubRelease
+	found := false
+	for _, rel := range releases {
+		if rel.Draft || rel.Prerelease || !goReleaseTagRegex.MatchString(rel.TagName) {
+			continue
+		}
+		if !found || versionCompare(normalizeVersion(rel.TagName), normalizeVersion(latest.TagName)) > 0 {
+			latest = rel
+			found = true
+		}
+	}
+	return latest, found
 }
 
 // versionCompare compares two dot-separated version strings numerically,
@@ -477,62 +218,10 @@ func versionCompare(a, b string) int {
 	return 0
 }
 
-// expectedAssetName builds the expected binary asset name for the current
-// platform, e.g. "mini-s3-v1.2.3-linux-amd64" or
-// "mini-s3-v1.2.3-windows-amd64.exe".
-func (s *AdminUpgradeService) expectedAssetName(tag string) string {
-	name := "mini-s3-" + tag + "-" + runtime.GOOS + "-" + runtime.GOARCH
-	if runtime.GOOS == "windows" {
-		name += ".exe"
-	}
-	return name
-}
-
-// checksumUrl finds the browser_download_url for the release checksums file.
-func (s *AdminUpgradeService) checksumUrl(metadata *githubRelease, tag string) string {
-	// Try a few common checksums-file naming conventions.
-	candidates := []string{
-		"mini-s3-" + tag + "-checksums.txt",
-		"mini-s3-" + tag + "-checksums.sha256",
-		"checksums.txt",
-	}
-	for _, asset := range metadata.Assets {
-		for _, c := range candidates {
-			if asset.Name == c && asset.BrowserDownloadURL != "" {
-				return asset.BrowserDownloadURL
-			}
-		}
-	}
-	return ""
-}
-
-// findChecksum parses a checksums file (one entry per line:
-// "<hex-digest>  <filename>") and returns the digest for the given binary
-// name. Returns an empty string if not found.
-func findChecksum(checksumsContent, binaryName string) string {
-	for _, line := range strings.Split(checksumsContent, "\n") {
-		line = strings.TrimSpace(line)
-		if line == "" {
-			continue
-		}
-		fields := strings.Fields(line)
-		if len(fields) < 2 {
-			continue
-		}
-		// The digest is the first field; the filename is the last.
-		digest := fields[0]
-		filename := fields[len(fields)-1]
-		if filepath.Base(filename) == binaryName {
-			return digest
-		}
-	}
-	return ""
-}
-
-// fetchLatestRelease calls the GitHub releases/latest endpoint and returns
-// the parsed response.
-func (s *AdminUpgradeService) fetchLatestRelease() (*githubRelease, error) {
-	url := fmt.Sprintf("https://api.github.com/repos/%s/%s/releases/latest", repoOwner, repoName)
+// listReleases calls the GitHub releases endpoint and returns the most recent
+// releases. Tags are filtered by the caller.
+func (s *AdminUpgradeService) listReleases() ([]githubRelease, error) {
+	url := fmt.Sprintf("https://api.github.com/repos/%s/%s/releases?per_page=%d", repoOwner, repoName, releasesPerPage)
 
 	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
@@ -559,11 +248,11 @@ func (s *AdminUpgradeService) fetchLatestRelease() (*githubRelease, error) {
 		return nil, fmt.Errorf("%s", s.githubErrorMessage(body, resp.StatusCode))
 	}
 
-	var release githubRelease
-	if err := json.Unmarshal(body, &release); err != nil {
+	var releases []githubRelease
+	if err := json.Unmarshal(body, &releases); err != nil {
 		return nil, fmt.Errorf("invalid JSON response")
 	}
-	return &release, nil
+	return releases, nil
 }
 
 // githubErrorMessage extracts a human-readable error message from a GitHub
@@ -580,98 +269,6 @@ func (s *AdminUpgradeService) githubErrorMessage(body []byte, statusCode int) st
 		}
 	}
 	return fmt.Sprintf("HTTP %d", statusCode)
-}
-
-// download fetches url and streams the response body to destination.
-func (s *AdminUpgradeService) download(url, destination string) error {
-	req, err := http.NewRequest("GET", url, nil)
-	if err != nil {
-		return fmt.Errorf("Download failed.")
-	}
-	req.Header.Set("User-Agent", "mini-s3-admin-upgrade")
-	req.Header.Set("Accept", "application/octet-stream")
-
-	resp, err := s.httpClient.Do(req)
-	if err != nil {
-		return fmt.Errorf("Download failed: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("Download failed: HTTP %d", resp.StatusCode)
-	}
-
-	out, err := os.Create(destination)
-	if err != nil {
-		return fmt.Errorf("Unable to save downloaded binary.")
-	}
-	defer out.Close()
-
-	if _, err := io.Copy(out, resp.Body); err != nil {
-		return fmt.Errorf("Download failed: %w", err)
-	}
-	return nil
-}
-
-// backupCurrentBinary copies the running binary to a timestamped backup
-// directory under dataDir/.upgrade-backups/.
-func (s *AdminUpgradeService) backupCurrentBinary() (string, error) {
-	backupDir := filepath.Join(
-		s.dataDir, ".upgrade-backups",
-		time.Now().UTC().Format("20060102-150405")+"-"+randomToken(3),
-	)
-	if err := os.MkdirAll(backupDir, 0777); err != nil {
-		return "", fmt.Errorf("Backup directory is not writable.")
-	}
-	backupPath := filepath.Join(backupDir, filepath.Base(s.entryFile))
-	if err := copyFile(s.entryFile, backupPath); err != nil {
-		return "", fmt.Errorf("Unable to back up current binary.")
-	}
-	return backupPath, nil
-}
-
-// swapBinary replaces the running binary at s.entryFile with the file at
-// newPath. On Windows the running executable cannot be overwritten, so the
-// current binary is renamed to ".old" first and the new binary is moved into
-// its place. The ".old" file is removed if possible (it may remain locked
-// until the process exits).
-func (s *AdminUpgradeService) swapBinary(newPath string) error {
-	if runtime.GOOS == "windows" {
-		oldPath := s.entryFile + ".old"
-		os.Remove(oldPath) // remove any stale .old file
-		if err := os.Rename(s.entryFile, oldPath); err != nil {
-			return fmt.Errorf("Unable to stage new binary: current binary cannot be renamed.")
-		}
-		if err := os.Rename(newPath, s.entryFile); err != nil {
-			// Rollback: restore the old binary.
-			os.Rename(oldPath, s.entryFile)
-			return fmt.Errorf("Upgrade failed and rollback succeeded.")
-		}
-		// Best-effort cleanup; the file may still be locked.
-		os.Remove(oldPath)
-		return nil
-	}
-
-	// On Unix, rename is atomic and works even while the binary is running.
-	if err := os.Rename(newPath, s.entryFile); err != nil {
-		return fmt.Errorf("Unable to replace current binary: %w", err)
-	}
-	return nil
-}
-
-// ensureDirectory creates path (if missing) and verifies it is writable.
-func (s *AdminUpgradeService) ensureDirectory(path string) error {
-	if err := os.MkdirAll(path, 0777); err != nil {
-		return err
-	}
-	tmpFile := filepath.Join(path, ".mini-s3-writable-check")
-	f, err := os.Create(tmpFile)
-	if err != nil {
-		return err
-	}
-	f.Close()
-	os.Remove(tmpFile)
-	return nil
 }
 
 // -----------------------------------------------------------------------------
@@ -720,11 +317,6 @@ func (s *AdminUpgradeService) writeCachedStatus(status map[string]interface{}) {
 	os.WriteFile(path, data, 0666)
 }
 
-// clearCachedStatus removes the cache file.
-func (s *AdminUpgradeService) clearCachedStatus() {
-	os.Remove(s.cachePath())
-}
-
 // cachedCurrentVersion extracts the currentVersion string from a cached
 // status map, returning "" if absent or not a string.
 func cachedCurrentVersion(cached map[string]interface{}) string {
@@ -735,31 +327,4 @@ func cachedCurrentVersion(cached map[string]interface{}) string {
 		return cv
 	}
 	return ""
-}
-
-// -----------------------------------------------------------------------------
-// File helpers
-// -----------------------------------------------------------------------------
-
-// copyFile copies the contents and mode of src to dst.
-func copyFile(src, dst string) error {
-	srcFile, err := os.Open(src)
-	if err != nil {
-		return err
-	}
-	defer srcFile.Close()
-
-	info, err := srcFile.Stat()
-	if err != nil {
-		return err
-	}
-
-	dstFile, err := os.OpenFile(dst, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, info.Mode())
-	if err != nil {
-		return err
-	}
-	defer dstFile.Close()
-
-	_, err = io.Copy(dstFile, srcFile)
-	return err
 }

@@ -26,8 +26,8 @@ type sessionPayload struct {
 }
 
 // AdminAuth manages admin authentication via stateless HMAC-signed cookies.
-// This replaces PHP's $_SESSION-based auth so sessions survive the Go
-// binary's self-upgrade restart.
+// This replaces PHP's $_SESSION-based auth so sessions survive a process
+// restart (for example a container recreate) without server-side state.
 type AdminAuth struct {
 	username     string
 	passwordHash string

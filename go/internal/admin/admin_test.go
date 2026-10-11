@@ -1,8 +1,6 @@
 package admin
 
 import (
-	"crypto/sha256"
-	"encoding/hex"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -828,129 +826,181 @@ func TestRendererFilesPreviewSkipsSVG(t *testing.T) {
 	}
 }
 
-func TestRendererUpgradeFormHasNoClientVersionFields(t *testing.T) {
+func TestRendererUpdateAvailableShowsDockerPull(t *testing.T) {
 	html := NewAdminRenderer().updatesPanel(map[string]interface{}{
 		"state":          "update_available",
-		"message":        "Update available: v1.0.2",
-		"currentVersion": "v1.0.1",
-		"latestVersion":  "v1.0.2",
-		"assetUrl":       "https://github.com/fadlee/mini-s3/releases/download/v1.0.2/mini-s3-v1.0.2-linux-amd64",
+		"message":        "Update available: go-v1.2.0",
+		"currentVersion": "go-v1.1.2",
+		"latestVersion":  "go-v1.2.0",
+		"releaseUrl":     "https://github.com/fadlee/mini-s3/releases/tag/go-v1.2.0",
+		"imageTag":       "1.2.0",
 		"csrfToken":      "csrf-token",
 	})
 
-	if !strings.Contains(html, `action="/_/upgrade"`) {
-		t.Fatal("upgrade form should be rendered")
+	if !strings.Contains(html, "docker pull ghcr.io/fadlee/mini-s3:1.2.0") {
+		t.Error("update notice should show the docker pull command for the new image tag")
 	}
-	if strings.Contains(html, `name="asset_url"`) || strings.Contains(html, `name="latest_version"`) {
-		t.Error("upgrade form must not carry client-supplied version or asset url")
+	if !strings.Contains(html, `href="https://github.com/fadlee/mini-s3/releases/tag/go-v1.2.0" target="_blank" rel="noopener"`) {
+		t.Error("update notice should link to the release page")
 	}
-}
-
-// --- upgrade service tests ---
-
-func TestUpgradeRejectsForeignAssetURL(t *testing.T) {
-	dir := t.TempDir()
-	entry := filepath.Join(dir, "mini-s3")
-	os.WriteFile(entry, []byte("old binary"), 0755)
-
-	s := NewAdminUpgradeService(dir, dir, entry, "")
-	tag := "v1.0.2"
-	s.fetchRelease = func() (*githubRelease, error) {
-		return &githubRelease{TagName: tag, Assets: []githubReleaseAsset{
-			{Name: s.expectedAssetName(tag), BrowserDownloadURL: "https://example.test/mini-s3"},
-		}}, nil
+	if strings.Contains(html, `action="/_/upgrade"`) {
+		t.Error("upgrade form must not be rendered")
 	}
-	downloads := 0
-	s.downloadFile = func(url, destination string) error {
-		downloads++
-		return nil
-	}
-
-	result, err := s.Upgrade("v1.0.1")
-	if err != nil {
-		t.Fatalf("Upgrade returned error: %v", err)
-	}
-	if ok, _ := result["ok"].(bool); ok {
-		t.Error("upgrade must reject a foreign asset url")
-	}
-	if downloads != 0 {
-		t.Errorf("downloader must not be called for a foreign asset url, got %d calls", downloads)
+	if strings.Contains(html, "Auto-upgrade") {
+		t.Error("update notice must not mention auto-upgrade")
 	}
 }
 
-func TestUpgradeRefusesWhenUpToDate(t *testing.T) {
-	dir := t.TempDir()
-	entry := filepath.Join(dir, "mini-s3")
-	os.WriteFile(entry, []byte("old binary"), 0755)
+func TestRendererUpdateNoticeEscapesValues(t *testing.T) {
+	html := NewAdminRenderer().updatesPanel(map[string]interface{}{
+		"state":          "update_available",
+		"message":        "Update available: go-v1.2.0",
+		"currentVersion": "go-v1.1.2",
+		"latestVersion":  "go-v1.2.0<i>",
+		"releaseUrl":     `https://example.test/"><b>x</b>`,
+		"imageTag":       `1.2.0"<script>`,
+		"csrfToken":      "csrf-token",
+	})
 
-	s := NewAdminUpgradeService(dir, dir, entry, "")
-	tag := "v1.0.1"
-	s.fetchRelease = func() (*githubRelease, error) {
-		return &githubRelease{TagName: tag, Assets: []githubReleaseAsset{
-			{Name: s.expectedAssetName(tag), BrowserDownloadURL: "https://github.com/fadlee/mini-s3/releases/download/v1.0.1/" + s.expectedAssetName(tag)},
-		}}, nil
-	}
-	downloads := 0
-	s.downloadFile = func(url, destination string) error {
-		downloads++
-		return nil
-	}
-
-	result, err := s.Upgrade("v1.0.1")
-	if err != nil {
-		t.Fatalf("Upgrade returned error: %v", err)
-	}
-	if ok, _ := result["ok"].(bool); ok {
-		t.Error("upgrade must refuse when already up to date")
-	}
-	if msg, _ := result["message"].(string); msg != "Mini S3 is up to date." {
-		t.Errorf("expected up-to-date message, got %q", msg)
-	}
-	if downloads != 0 {
-		t.Errorf("downloader must not be called when up to date, got %d calls", downloads)
-	}
-}
-
-func TestUpgradeInstallsVerifiedRelease(t *testing.T) {
-	dir := t.TempDir()
-	entry := filepath.Join(dir, "mini-s3")
-	os.WriteFile(entry, []byte("old binary"), 0755)
-
-	s := NewAdminUpgradeService(dir, dir, entry, "")
-	tag := "v1.0.2"
-	name := s.expectedAssetName(tag)
-	base := "https://github.com/fadlee/mini-s3/releases/download/" + tag + "/"
-	binary := []byte("new binary")
-	sum := sha256.Sum256(binary)
-	checksums := hex.EncodeToString(sum[:]) + "  " + name + "\n"
-
-	s.fetchRelease = func() (*githubRelease, error) {
-		return &githubRelease{TagName: tag, Assets: []githubReleaseAsset{
-			{Name: name, BrowserDownloadURL: base + name},
-			{Name: "checksums.txt", BrowserDownloadURL: base + "checksums.txt"},
-		}}, nil
-	}
-	s.downloadFile = func(url, destination string) error {
-		switch url {
-		case base + name:
-			return os.WriteFile(destination, binary, 0666)
-		case base + "checksums.txt":
-			return os.WriteFile(destination, []byte(checksums), 0666)
+	for _, raw := range []string{"<script>", "<i>", "<b>"} {
+		if strings.Contains(html, raw) {
+			t.Errorf("update notice must escape %q", raw)
 		}
-		return fmt.Errorf("unexpected download %s", url)
 	}
-	s.restart = func() {}
+}
 
-	result, err := s.Upgrade("v1.0.1")
+// --- update check tests ---
+
+func TestUpdateCheckPicksHighestGoRelease(t *testing.T) {
+	s := NewAdminUpgradeService(t.TempDir(), "")
+	s.fetchReleases = func() ([]githubRelease, error) {
+		return []githubRelease{
+			{TagName: "v1.9.0"},
+			{TagName: "go-v1.1.2"},
+			{TagName: "go-v1.10.0"},
+			{TagName: "go-v2.0.0", Draft: true},
+			{TagName: "go-v3.0.0", Prerelease: true},
+		}, nil
+	}
+
+	status := s.CheckLatest("go-v1.1.2")
+	if state, _ := status["state"].(string); state != "update_available" {
+		t.Fatalf("expected update_available, got %q (%v)", state, status["message"])
+	}
+	if latest, _ := status["latestVersion"].(string); latest != "go-v1.10.0" {
+		t.Errorf("expected latest go-v1.10.0, got %q", latest)
+	}
+}
+
+func TestUpdateCheckCompareCurrentVersion(t *testing.T) {
+	releases := []githubRelease{{
+		TagName: "go-v1.2.0",
+		HTMLURL: "https://github.com/fadlee/mini-s3/releases/tag/go-v1.2.0",
+	}}
+	s := NewAdminUpgradeService(t.TempDir(), "")
+	s.fetchReleases = func() ([]githubRelease, error) { return releases, nil }
+
+	upToDate := s.CheckLatest("1.2.0")
+	if state, _ := upToDate["state"].(string); state != "up_to_date" {
+		t.Errorf("expected up_to_date for 1.2.0 vs go-v1.2.0, got %q", state)
+	}
+
+	status := s.CheckLatest("1.1.2")
+	if state, _ := status["state"].(string); state != "update_available" {
+		t.Fatalf("expected update_available for 1.1.2 vs go-v1.2.0, got %q", state)
+	}
+	if tag, _ := status["imageTag"].(string); tag != "1.2.0" {
+		t.Errorf("expected imageTag 1.2.0, got %q", tag)
+	}
+	if url, _ := status["releaseUrl"].(string); url != "https://github.com/fadlee/mini-s3/releases/tag/go-v1.2.0" {
+		t.Errorf("unexpected releaseUrl %q", url)
+	}
+	if _, ok := status["assetUrl"]; ok {
+		t.Error("assetUrl should no longer be reported")
+	}
+}
+
+func TestUpdateCheckDevBuildSkipsFetch(t *testing.T) {
+	s := NewAdminUpgradeService(t.TempDir(), "")
+	calls := 0
+	s.fetchReleases = func() ([]githubRelease, error) {
+		calls++
+		return nil, fmt.Errorf("should not be called")
+	}
+
+	for _, version := range []string{"dev", ""} {
+		status, err := s.CachedStatus(version, true)
+		if err != nil {
+			t.Fatalf("CachedStatus returned error: %v", err)
+		}
+		if state, _ := status["state"].(string); state != "unavailable" {
+			t.Errorf("version %q: expected unavailable, got %q", version, state)
+		}
+	}
+	if calls != 0 {
+		t.Errorf("GitHub must not be contacted for dev builds, got %d calls", calls)
+	}
+}
+
+// --- router tests ---
+
+func TestRouterUpgradeRouteRemoved(t *testing.T) {
+	dir := t.TempDir()
+	hash, err := hashPassword("secret123")
 	if err != nil {
-		t.Fatalf("Upgrade returned error: %v", err)
+		t.Fatalf("hashPassword: %v", err)
 	}
-	if ok, _ := result["ok"].(bool); !ok {
-		t.Fatalf("expected upgrade to succeed, got message %q", result["message"])
+	cfgYAML, err := yaml.Marshal(map[string]interface{}{
+		"data_dir":    filepath.Join(dir, "data"),
+		"credentials": map[string]string{"minioadmin": "minioadmin"},
+		"admin": map[string]string{
+			"username":       "admin",
+			"password_hash":  hash,
+			"session_secret": "signing-secret-key",
+		},
+	})
+	if err != nil {
+		t.Fatalf("marshal config: %v", err)
 	}
-	data, _ := os.ReadFile(entry)
-	if string(data) != "new binary" {
-		t.Errorf("expected entry binary to be replaced, got %q", string(data))
+	cfgPath := filepath.Join(dir, "config.yaml")
+	if err := os.WriteFile(cfgPath, cfgYAML, 0600); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+
+	auth := NewAdminAuth("admin", hash, "signing-secret-key")
+	loginRR := httptest.NewRecorder()
+	if !auth.Login(loginRR, httptest.NewRequest("POST", "/_", nil), "admin", "secret123") {
+		t.Fatal("expected login to succeed")
+	}
+	cookies := loginRR.Result().Cookies()
+
+	authReq := httptest.NewRequest("GET", "/_", nil)
+	for _, c := range cookies {
+		authReq.AddCookie(c)
+	}
+	token := auth.CSRFToken(authReq)
+
+	router := NewAdminRouter(cfgPath, dir, "go-v1.1.2")
+	router.upgradeService = NewAdminUpgradeService(filepath.Join(dir, "data"), "")
+	router.upgradeService.fetchReleases = func() ([]githubRelease, error) {
+		return nil, fmt.Errorf("network disabled in tests")
+	}
+
+	form := url.Values{"csrf_token": {token}}
+	req := httptest.NewRequest("POST", "/_/upgrade", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	for _, c := range cookies {
+		req.AddCookie(c)
+	}
+	rr := httptest.NewRecorder()
+	router.ServeHTTP(rr, req)
+
+	body := rr.Body.String()
+	if rr.Code != http.StatusOK || !strings.Contains(body, "<h2>Updates</h2>") {
+		t.Fatalf("expected POST /_/upgrade to fall through to the dashboard, got %d: %s", rr.Code, body)
+	}
+	if strings.Contains(body, `action="/_/upgrade"`) || strings.Contains(body, "upgraded to") {
+		t.Error("POST /_/upgrade must not trigger an upgrade")
 	}
 }
 

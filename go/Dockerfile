@@ -8,7 +8,7 @@ FROM alpine:3.20
 ARG TARGETARCH
 ARG VERSION=dev
 
-# ca-certificates for HTTPS (self-upgrade fetches GitHub releases);
+# ca-certificates for HTTPS (update check queries GitHub releases);
 # tzdata for correct local timestamps in logs;
 # libcap provides setcap so the non-root binary can bind to port 80.
 RUN apk add --no-cache ca-certificates tzdata libcap

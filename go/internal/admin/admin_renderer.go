@@ -445,18 +445,36 @@ func (r *AdminRenderer) updatesPanel(status map[string]interface{}) string {
 	}
 	current, _ := status["currentVersion"].(string)
 	latest, _ := status["latestVersion"].(string)
+	releaseURL, _ := status["releaseUrl"].(string)
+	imageTag, _ := status["imageTag"].(string)
 	csrfToken, _ := status["csrfToken"].(string)
 
+	notice := state == "update_available" && latest != "" && imageTag != ""
+
 	var b strings.Builder
-	b.WriteString(`<section class="panel"><h2>Updates</h2><p>`)
-	b.WriteString(r.e(message))
-	b.WriteString(`</p>`)
+	b.WriteString(`<section class="panel"><h2>Updates</h2>`)
+	if notice {
+		b.WriteString(`<p>Update available: <a href="`)
+		b.WriteString(r.e(releaseURL))
+		b.WriteString(`" target="_blank" rel="noopener">`)
+		b.WriteString(r.e(latest))
+		b.WriteString(`</a></p>`)
+		b.WriteString(`<p>Upgrade by pulling the new image. If the image tag is pinned in your compose file or run command, change it to the new tag first, then recreate the container:</p>`)
+		b.WriteString(`<pre>docker pull `)
+		b.WriteString(r.e(dockerImage + ":" + imageTag))
+		b.WriteString("\ndocker compose up -d</pre>")
+		b.WriteString(`<p>Binary installs: download the new binary from the release page and replace the old one.</p>`)
+	} else {
+		b.WriteString(`<p>`)
+		b.WriteString(r.e(message))
+		b.WriteString(`</p>`)
+	}
 	if current != "" {
 		b.WriteString(`<p><strong>Current version:</strong> `)
 		b.WriteString(r.e(current))
 		b.WriteString(`</p>`)
 	}
-	if latest != "" {
+	if latest != "" && !notice {
 		b.WriteString(`<p><strong>Latest version:</strong> `)
 		b.WriteString(r.e(latest))
 		b.WriteString(`</p>`)
@@ -465,13 +483,6 @@ func (r *AdminRenderer) updatesPanel(status map[string]interface{}) string {
 		b.WriteString(`<form method="post" action="/_/check-update"><input type="hidden" name="csrf_token" value="`)
 		b.WriteString(r.e(csrfToken))
 		b.WriteString(`"><button type="submit">Check update</button></form>`)
-	}
-	if state == "update_available" && latest != "" {
-		b.WriteString(`<form method="post" action="/_/upgrade"><input type="hidden" name="csrf_token" value="`)
-		b.WriteString(r.e(csrfToken))
-		b.WriteString(`"><button type="submit">Upgrade to `)
-		b.WriteString(r.e(latest))
-		b.WriteString(`</button></form>`)
 	}
 	b.WriteString(`</section>`)
 	return b.String()
