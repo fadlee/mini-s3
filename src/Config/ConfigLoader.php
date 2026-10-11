@@ -28,11 +28,7 @@ final class ConfigLoader
 
         $modernConfigPath = $baseDir . '/config/config.php';
         if (is_file($modernConfigPath)) {
-            $loaded = require $modernConfigPath;
-            if (!is_array($loaded)) {
-                throw new RuntimeException('Invalid config file: config/config.php must return an array');
-            }
-            $config = array_merge($config, $loaded);
+            $config = array_merge($config, self::loadFile($baseDir));
         } else {
             $legacyConfigPath = $baseDir . '/config.php';
             if (is_file($legacyConfigPath)) {
@@ -109,6 +105,25 @@ final class ConfigLoader
         }
 
         return $config;
+    }
+
+    /**
+     * Raw array from config/config.php, without defaults, env overrides or normalization.
+     * Returns [] when the file is missing.
+     */
+    public static function loadFile(string $baseDir): array
+    {
+        $modernConfigPath = $baseDir . '/config/config.php';
+        if (!is_file($modernConfigPath)) {
+            return [];
+        }
+
+        $loaded = require $modernConfigPath;
+        if (!is_array($loaded)) {
+            throw new RuntimeException('Invalid config file: config/config.php must return an array');
+        }
+
+        return $loaded;
     }
 
     private static function applyEnvironmentOverrides(array $config): array

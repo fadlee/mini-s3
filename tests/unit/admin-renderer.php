@@ -80,6 +80,7 @@ assertContainsText('Admin username and password are managed separately on the Se
 assertNotContainsText('name="admin_username"', $configHtml, 'config form does not include admin username field');
 assertNotContainsText('name="admin_password"', $configHtml, 'config form does not include admin password field');
 assertContainsText('name="data_dir"', $configHtml, 'config form includes data directory field');
+assertContainsText('<input type="hidden" name="public_read_all_buckets" value="0"><label class="checkbox-label"><input type="checkbox" name="public_read_all_buckets" value="1"', $configHtml, 'public read has hidden 0 fallback right before checkbox');
 
 $securityHtml = (new AdminRenderer())->security([
     'admin_username' => 'owner',

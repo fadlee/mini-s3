@@ -678,8 +678,18 @@ func configInputFromForm(form url.Values) ConfigInput {
 		MaxPresignExpires:           form.Get("max_presign_expires"),
 		AuthDebugLog:                form.Get("auth_debug_log"),
 		AllowHostCandidateFallbacks: form.Get("allow_host_candidate_fallbacks"),
-		PublicReadAllBuckets:        form.Get("public_read_all_buckets"),
+		PublicReadAllBuckets:        formLastValue(form, "public_read_all_buckets"),
 	}
+}
+
+// formLastValue returns the last value posted for key. Checkboxes with a
+// hidden "0" fallback post two values, and the checked "1" comes last.
+func formLastValue(form url.Values, key string) string {
+	vals := form[key]
+	if len(vals) == 0 {
+		return ""
+	}
+	return vals[len(vals)-1]
 }
 
 func valuesFromConfig(cfg *config.Config) map[string]interface{} {
@@ -704,7 +714,7 @@ func mergeValues(defaults map[string]string, form url.Values) map[string]string 
 		result[k] = v
 	}
 	for k := range form {
-		result[k] = form.Get(k)
+		result[k] = formLastValue(form, k)
 	}
 	return result
 }
@@ -715,7 +725,7 @@ func mergeValuesInterface(defaults map[string]interface{}, form url.Values) map[
 		result[k] = v
 	}
 	for k := range form {
-		result[k] = form.Get(k)
+		result[k] = formLastValue(form, k)
 	}
 	return result
 }

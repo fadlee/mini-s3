@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/fadlee/mini-s3/internal/config"
+	"gopkg.in/yaml.v3"
 )
 
 func TestAdminAuthIsConfigured(t *testing.T) {
@@ -1085,5 +1086,145 @@ func TestConfigWriterWriteConfigKeepsUnknownKeys(t *testing.T) {
 	}
 	if !strings.Contains(string(data), "data_dir: "+filepath.Join(dir, "data2")) {
 		t.Errorf("managed key was not updated:\n%s", data)
+	}
+}
+
+// --- public_read_all_buckets checkbox tests ---
+
+func TestRendererPublicReadAllBucketsHasHiddenFallback(t *testing.T) {
+	html := NewAdminRenderer().ConfigPage(map[string]interface{}{}, nil, "csrf-token")
+
+	hidden := `<input type="hidden" name="public_read_all_buckets" value="0">`
+	checkbox := `<input type="checkbox" name="public_read_all_buckets" value="1"`
+	hiddenAt := strings.Index(html, hidden)
+	checkboxAt := strings.Index(html, checkbox)
+	if hiddenAt < 0 {
+		t.Fatal("public_read_all_buckets hidden fallback is missing")
+	}
+	if checkboxAt < 0 {
+		t.Fatal("public_read_all_buckets checkbox is missing")
+	}
+	if hiddenAt > checkboxAt {
+		t.Error("hidden fallback must come before the checkbox")
+	}
+}
+
+func TestConfigFormPublicReadAllBucketsValues(t *testing.T) {
+	dir := t.TempDir()
+	existing := config.Defaults()
+	existing.DataDir = filepath.Join(dir, "data")
+	existing.Admin.PasswordHash = "hash"
+	existing.PublicReadAllBuckets = true
+	writer := NewAdminConfigWriter(filepath.Join(dir, "config.yaml"))
+
+	build := func(extra url.Values, existing *config.Config) bool {
+		form := url.Values{
+			"data_dir":   {filepath.Join(dir, "data")},
+			"access_key": {"AKIATEST"},
+			"secret_key": {"secret123"},
+		}
+		for k, v := range extra {
+			form[k] = v
+		}
+		cfg, err := writer.BuildConfig(configInputFromForm(form), existing)
+		if err != nil {
+			t.Fatalf("BuildConfig failed: %v", err)
+		}
+		return cfg.PublicReadAllBuckets
+	}
+
+	if build(url.Values{"public_read_all_buckets": {"0"}}, existing) {
+		t.Error("hidden \"0\" alone should turn public read off")
+	}
+	if !build(url.Values{"public_read_all_buckets": {"0", "1"}}, existing) {
+		t.Error("checked box posting [\"0\", \"1\"] should turn public read on")
+	}
+	if !build(url.Values{}, existing) {
+		t.Error("absent field should keep the existing value (true)")
+	}
+	existing.PublicReadAllBuckets = false
+	if build(url.Values{}, existing) {
+		t.Error("absent field should keep the existing value (false)")
+	}
+	if build(url.Values{"public_read_all_buckets": {"0"}}, &config.Config{Admin: existing.Admin, DataDir: existing.DataDir}) {
+		t.Error("hidden \"0\" with no existing config should be false")
+	}
+}
+
+// --- nested admin key preservation tests ---
+
+func TestConfigWriterWriteConfigKeepsNestedAdminKeys(t *testing.T) {
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, "config.yaml")
+	stored := "custom_top: keep-me\n" +
+		"data_dir: " + filepath.Join(dir, "data") + "\n" +
+		"admin:\n" +
+		"  username: x\n" +
+		"  password_hash: h\n" +
+		"  session_secret: s\n" +
+		"  custom_flag: true\n"
+	os.WriteFile(configPath, []byte(stored), 0666)
+	writer := NewAdminConfigWriter(configPath)
+
+	fileCfg, err := writer.LoadFileConfig()
+	if err != nil {
+		t.Fatalf("LoadFileConfig failed: %v", err)
+	}
+	fileCfg.Admin.Username = "new-user"
+	if err := writer.WriteConfig(fileCfg); err != nil {
+		t.Fatalf("WriteConfig failed: %v", err)
+	}
+
+	data, _ := os.ReadFile(configPath)
+	written := map[string]interface{}{}
+	if err := yaml.Unmarshal(data, &written); err != nil {
+		t.Fatalf("written config does not parse: %v\n%s", err, data)
+	}
+	if written["custom_top"] != "keep-me" {
+		t.Errorf("top-level unknown key was dropped:\n%s", data)
+	}
+	admin, ok := written["admin"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("admin section missing:\n%s", data)
+	}
+	if admin["custom_flag"] != true {
+		t.Errorf("nested unknown admin key was dropped:\n%s", data)
+	}
+	if admin["username"] != "new-user" {
+		t.Errorf("managed admin username was not updated:\n%s", data)
+	}
+	if admin["password_hash"] != "h" || admin["session_secret"] != "s" {
+		t.Errorf("managed admin fields were not kept:\n%s", data)
+	}
+}
+
+func TestConfigWriterWriteConfigDropsRemovedCredentials(t *testing.T) {
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, "config.yaml")
+	stored := "credentials:\n  old-key: old-secret\n" +
+		"admin:\n  username: x\n  password_hash: h\n"
+	os.WriteFile(configPath, []byte(stored), 0666)
+	writer := NewAdminConfigWriter(configPath)
+
+	fileCfg, err := writer.LoadFileConfig()
+	if err != nil {
+		t.Fatalf("LoadFileConfig failed: %v", err)
+	}
+	fileCfg.Credentials = map[string]string{"new-key": "new-secret"}
+	if err := writer.WriteConfig(fileCfg); err != nil {
+		t.Fatalf("WriteConfig failed: %v", err)
+	}
+
+	data, _ := os.ReadFile(configPath)
+	written := map[string]interface{}{}
+	if err := yaml.Unmarshal(data, &written); err != nil {
+		t.Fatalf("written config does not parse: %v\n%s", err, data)
+	}
+	creds, _ := written["credentials"].(map[string]interface{})
+	if _, ok := creds["old-key"]; ok {
+		t.Errorf("removed credential was resurrected from the stored file:\n%s", data)
+	}
+	if creds["new-key"] != "new-secret" {
+		t.Errorf("new credential missing:\n%s", data)
 	}
 }

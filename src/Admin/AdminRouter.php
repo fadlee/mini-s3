@@ -131,7 +131,7 @@ final class AdminRouter
                 $this->html($renderer->config($this->post + $values, ['CSRF token is invalid'], $auth->csrfToken()), 400);
             }
             try {
-                $newConfig = $writer->buildConfig($this->post, $config);
+                $newConfig = $writer->buildConfig($this->post, ConfigLoader::loadFile($this->baseDir));
                 $writer->ensureWritableDataDir((string) $newConfig['DATA_DIR']);
                 $writer->writeConfig($newConfig);
                 $this->redirect('/_/config');
@@ -158,7 +158,7 @@ final class AdminRouter
             }
 
             try {
-                $newConfig = $writer->buildAdminAccountConfig($this->post, $config);
+                $newConfig = $writer->buildAdminAccountConfig($this->post, ConfigLoader::loadFile($this->baseDir));
                 $writer->writeConfig($newConfig);
                 if (PHP_SAPI !== 'cli') {
                     session_regenerate_id(true);

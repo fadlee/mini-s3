@@ -77,6 +77,40 @@ $defaultPublicReadConfig = $writer->buildConfig([
 ]);
 assertSameValue(true, $defaultPublicReadConfig['PUBLIC_READ_ALL_BUCKETS'], 'public read defaults to true');
 
+$publicReadOffConfig = $writer->buildConfig([
+    'data_dir' => $dataDir,
+    'access_key' => 'access-one',
+    'secret_key' => 'secret-one',
+    'public_read_all_buckets' => '0',
+], [
+    'PUBLIC_READ_ALL_BUCKETS' => true,
+    'ADMIN_USERNAME' => 'owner',
+    'ADMIN_PASSWORD_HASH' => $config['ADMIN_PASSWORD_HASH'],
+]);
+assertSameValue(false, $publicReadOffConfig['PUBLIC_READ_ALL_BUCKETS'], 'public read unchecked (posted as 0) turns off over existing true');
+
+// Config page save must use the file-only array as base: env-only values are not in $existing,
+// so they must not be written. The router passes ConfigLoader::loadFile() here.
+$fileOnlyBase = [
+    'CREDENTIALS' => ['access-one' => 'secret-one'],
+    'ADMIN_USERNAME' => 'owner',
+    'ADMIN_PASSWORD_HASH' => $config['ADMIN_PASSWORD_HASH'],
+    'PUBLIC_READ_ALL_BUCKETS' => true,
+    'GITHUB_TOKEN' => 'file-token',
+];
+$fileOnlySave = $writer->buildConfig([
+    'data_dir' => $dataDir,
+    'access_key' => 'access-one',
+    'secret_key' => 'secret-one',
+], $fileOnlyBase);
+assertSameValue('file-token', $fileOnlySave['GITHUB_TOKEN'], 'file-only github token is kept on save');
+$noTokenSave = $writer->buildConfig([
+    'data_dir' => $dataDir,
+    'access_key' => 'access-one',
+    'secret_key' => 'secret-one',
+], array_diff_key($fileOnlyBase, ['GITHUB_TOKEN' => true]));
+assertSameValue(false, array_key_exists('GITHUB_TOKEN', $noTokenSave), 'no env-style github token is added when file has none');
+
 $existingUsernameConfig = $writer->buildConfig([
     'admin_password' => '',
     'admin_password_confirm' => '',

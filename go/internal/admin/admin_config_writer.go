@@ -233,14 +233,30 @@ func (w *AdminConfigWriter) keepUnknownKeys(managed []byte) ([]byte, error) {
 	if err := yaml.Unmarshal(managed, &typed); err != nil {
 		return nil, fmt.Errorf("failed to marshal config: %w", err)
 	}
-	for k, v := range typed {
-		stored[k] = v
-	}
-	merged, err := yaml.Marshal(stored)
+	merged, err := yaml.Marshal(mergeYAMLMaps(stored, typed))
 	if err != nil {
 		return nil, fmt.Errorf("failed to marshal config: %w", err)
 	}
 	return merged, nil
+}
+
+// mergeYAMLMaps overlays typed onto stored key by key; typed wins. The admin
+// section is merged one level deep so unmodeled keys under admin survive.
+// Other maps (notably credentials) are replaced wholesale so removed entries
+// stay removed.
+func mergeYAMLMaps(stored, typed map[string]interface{}) map[string]interface{} {
+	for k, v := range typed {
+		storedMap, storedIsMap := stored[k].(map[string]interface{})
+		typedMap, typedIsMap := v.(map[string]interface{})
+		if k == "admin" && storedIsMap && typedIsMap {
+			for nk, nv := range typedMap {
+				storedMap[nk] = nv
+			}
+			continue
+		}
+		stored[k] = v
+	}
+	return stored
 }
 
 // BuildAdminAccountConfig updates the admin username and optionally password.

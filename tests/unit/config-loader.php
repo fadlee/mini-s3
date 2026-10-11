@@ -106,6 +106,29 @@ withEnv(['MINI_S3_CREDENTIALS_JSON' => '{bad-json'], function () use ($base): vo
     assertThrows(fn() => ConfigLoader::load($base), 'invalid credential JSON fails');
 });
 
+$rawBase = tempProject([
+    'CREDENTIALS' => ['file-key' => 'file-secret'],
+    'GITHUB_TOKEN' => 'file-token',
+]);
+withEnv([
+    'MINI_S3_GITHUB_TOKEN' => 'env-token',
+    'MINI_S3_CREDENTIALS_JSON' => '{"env-key":"env-secret"}',
+    'MINI_S3_DATA_DIR' => '/env/data',
+], function () use ($rawBase): void {
+    $raw = ConfigLoader::loadFile($rawBase);
+    assertSameValue('file-token', $raw['GITHUB_TOKEN'], 'loadFile ignores env github token');
+    assertSameValue(['file-key' => 'file-secret'], $raw['CREDENTIALS'], 'loadFile ignores env credentials');
+    assertSameValue(false, array_key_exists('DATA_DIR', $raw), 'loadFile merges no defaults');
+    assertSameValue('env-token', ConfigLoader::load($rawBase)['GITHUB_TOKEN'], 'load still applies env override');
+});
+assertSameValue([], ConfigLoader::loadFile(tempProject([])), 'loadFile returns empty array for empty config dir');
+$missingBase = createTempDirectory('mini-s3-config-missing-');
+assertSameValue([], ConfigLoader::loadFile($missingBase), 'loadFile returns empty array when config file is missing');
+$badBase = createTempDirectory('mini-s3-config-bad-');
+mkdir($badBase . '/config', 0777, true);
+file_put_contents($badBase . '/config/config.php', '<?php return "not-an-array";');
+assertThrows(fn() => ConfigLoader::loadFile($badBase), 'loadFile rejects non-array config');
+
 $emptyBase = tempProject([]);
 assertThrows(fn() => ConfigLoader::load($emptyBase), 'empty credentials fail closed');
 

@@ -192,7 +192,7 @@ func (r *AdminRenderer) formInterface(action string, values map[string]interface
 	b.WriteString(r.e(getStr(values, "secret_key", "")))
 	b.WriteString(`" required></label>`)
 
-	b.WriteString(`<label class="checkbox-label"><input type="checkbox" name="public_read_all_buckets" value="1"`)
+	b.WriteString(`<label class="checkbox-label"><input type="hidden" name="public_read_all_buckets" value="0"><input type="checkbox" name="public_read_all_buckets" value="1"`)
 	b.WriteString(checked(values, "public_read_all_buckets"))
 	b.WriteString(`> Public read all buckets</label>`)
 

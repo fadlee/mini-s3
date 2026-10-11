@@ -116,6 +116,7 @@ final class AdminRenderer
         return '<label><span class="field-label">Data directory</span><input name="data_dir" value="' . $this->e((string) ($values['data_dir'] ?? '')) . '" required></label>'
             . '<label><span class="field-label">Access key</span><input name="access_key" value="' . $this->e((string) ($values['access_key'] ?? '')) . '" required></label>'
             . '<label><span class="field-label">Secret key</span><input type="password" name="secret_key" value="' . $this->e((string) ($values['secret_key'] ?? '')) . '" required></label>'
+            . '<input type="hidden" name="public_read_all_buckets" value="0">'
             . '<label class="checkbox-label"><input type="checkbox" name="public_read_all_buckets" value="1"' . $this->checked($values, 'public_read_all_buckets') . '> Public read all buckets</label>'
             . '<details><summary>Advanced</summary>'
             . '<label><span class="field-label">Max request size</span><input type="number" min="1" name="max_request_size" value="' . $this->e((string) ($values['max_request_size'] ?? '104857600')) . '"></label>'
