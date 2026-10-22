@@ -134,8 +134,18 @@ $zip->close();
 $installService = new AdminUpgradeService($baseDir, $dataDir, $entryFile, releaseFetcher('v1.0.2'), function (string $url, string $destination) use ($zipPath): void {
     copy($zipPath, $destination);
 });
+// Only exercised when OPcache is enabled for CLI, e.g. php -d opcache.enable_cli=1.
+$opcacheCached = false;
+if (function_exists('opcache_compile_file') && filter_var(ini_get('opcache.enable_cli'), FILTER_VALIDATE_BOOLEAN)) {
+    ini_set('opcache.file_update_protection', '0');
+    @opcache_compile_file($entryFile);
+    $opcacheCached = (bool) @opcache_is_script_cached($entryFile);
+}
 $result = $installService->upgrade('v1.0.1');
 assertSameValue(true, $result['ok'], 'upgrade succeeds');
+if ($opcacheCached) {
+    assertSameValue(false, opcache_is_script_cached($entryFile), 'upgrade invalidates opcache for the entry file');
+}
 assertContainsValue("define('MINI_S3_VERSION', 'v1.0.2');", (string) file_get_contents($entryFile), 'entry file is replaced with new version');
 assertSameValue(false, str_contains((string) file_get_contents($entryFile), 'ignored'), 'htaccess content is not written into entry file');
 $backups = glob($dataDir . '/.upgrade-backups/*/index.php') ?: [];

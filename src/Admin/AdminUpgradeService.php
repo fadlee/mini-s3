@@ -255,9 +255,11 @@ final class AdminUpgradeService
             if (!rename($siblingNewPath, $this->entryFile)) {
                 @unlink($siblingNewPath);
                 $restored = @copy($backupPath, $this->entryFile);
+                $this->invalidateOpcache();
                 return ['ok' => false, 'message' => $restored ? 'Upgrade failed and rollback succeeded.' : 'Upgrade failed and rollback failed. Restore backup manually.'];
             }
 
+            $this->invalidateOpcache();
             $this->clearCachedStatus();
 
             return ['ok' => true, 'message' => 'Mini S3 upgraded to ' . $latestVersion . '.', 'backupPath' => $backupPath];
@@ -267,6 +269,27 @@ final class AdminUpgradeService
             @unlink($zipPath);
             @unlink($newPath);
         }
+    }
+
+    /**
+     * Drop the cached bytecode of the entry file so the next request runs the
+     * new version, even with opcache.validate_timestamps=0 or a long
+     * opcache.revalidate_freq. Silently skipped when OPcache is unavailable,
+     * disabled, or restricted via opcache.restrict_api.
+     */
+    private function invalidateOpcache(): void
+    {
+        clearstatcache(true, $this->entryFile);
+        if (!function_exists('opcache_invalidate')) {
+            return;
+        }
+
+        $enabledKey = PHP_SAPI === 'cli' ? 'opcache.enable_cli' : 'opcache.enable';
+        if (!filter_var(ini_get($enabledKey), FILTER_VALIDATE_BOOLEAN)) {
+            return;
+        }
+
+        @opcache_invalidate($this->entryFile, true);
     }
 
     private function normalizeVersion(string $version): string
