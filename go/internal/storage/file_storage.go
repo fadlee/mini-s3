@@ -206,10 +206,12 @@ func (s *FileStorage) ObjectExists(bucket, key string) bool {
 	return err == nil && !info.IsDir()
 }
 
-// ObjectMetadata returns size and MIME type for an object, or nil if not found.
+// ObjectMetadata returns size, MIME type and modification time (Unix
+// seconds) for an object, or nil if not found.
 type ObjectMetadata struct {
 	Size     int64
 	MimeType string
+	ModTime  int64
 }
 
 func (s *FileStorage) ObjectMetadata(bucket, key string) (*ObjectMetadata, error) {
@@ -227,6 +229,7 @@ func (s *FileStorage) ObjectMetadata(bucket, key string) (*ObjectMetadata, error
 	return &ObjectMetadata{
 		Size:     info.Size(),
 		MimeType: s.detectMimeType(path),
+		ModTime:  info.ModTime().Unix(),
 	}, nil
 }
 

@@ -66,7 +66,7 @@ func main() {
 		cfg.AuthDebugLog,
 		cfg.AllowHostCandidateFallbacks,
 	)
-	s3Router := s3.New(st, authenticator, cfg.MaxRequestSize, cfg.PublicReadAllBuckets)
+	s3Router := s3.New(st, authenticator, cfg.MaxRequestSize, cfg.PublicReadAllBuckets, cfg.PublicCacheControl)
 	var s3Handler http.Handler = s3Router
 	if !configReady {
 		s3Handler = http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {

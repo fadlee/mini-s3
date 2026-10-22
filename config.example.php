@@ -13,6 +13,7 @@ return [
     'AUTH_DEBUG_LOG' => '',
     'ALLOW_HOST_CANDIDATE_FALLBACKS' => false,
     'PUBLIC_READ_ALL_BUCKETS' => true,
+    'PUBLIC_CACHE_CONTROL' => 'public, max-age=3600',
     'ADMIN_USERNAME' => 'admin',
     'ADMIN_PASSWORD_HASH' => '',
     'GITHUB_TOKEN' => '',

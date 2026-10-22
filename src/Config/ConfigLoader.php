@@ -21,6 +21,7 @@ final class ConfigLoader
             'AUTH_DEBUG_LOG' => '',
             'ALLOW_HOST_CANDIDATE_FALLBACKS' => false,
             'PUBLIC_READ_ALL_BUCKETS' => true,
+            'PUBLIC_CACHE_CONTROL' => 'public, max-age=3600',
             'ADMIN_USERNAME' => 'admin',
             'ADMIN_PASSWORD_HASH' => '',
             'GITHUB_TOKEN' => '',
@@ -68,6 +69,7 @@ final class ConfigLoader
         $config['AUTH_DEBUG_LOG'] = trim((string) ($config['AUTH_DEBUG_LOG'] ?? ''));
         $config['ALLOW_HOST_CANDIDATE_FALLBACKS'] = (bool) ($config['ALLOW_HOST_CANDIDATE_FALLBACKS'] ?? false);
         $config['PUBLIC_READ_ALL_BUCKETS'] = (bool) ($config['PUBLIC_READ_ALL_BUCKETS'] ?? false);
+        $config['PUBLIC_CACHE_CONTROL'] = self::headerValue((string) ($config['PUBLIC_CACHE_CONTROL'] ?? ''), 'public, max-age=3600');
         $config['ADMIN_USERNAME'] = trim((string) ($config['ADMIN_USERNAME'] ?? 'admin'));
         if ($config['ADMIN_USERNAME'] === '') {
             $config['ADMIN_USERNAME'] = 'admin';
@@ -132,6 +134,7 @@ final class ConfigLoader
             'MINI_S3_DATA_DIR' => 'DATA_DIR',
             'MINI_S3_AUTH_DEBUG_LOG' => 'AUTH_DEBUG_LOG',
             'MINI_S3_GITHUB_TOKEN' => 'GITHUB_TOKEN',
+            'MINI_S3_PUBLIC_CACHE_CONTROL' => 'PUBLIC_CACHE_CONTROL',
         ];
 
         foreach ($stringMap as $envName => $configKey) {
@@ -173,6 +176,16 @@ final class ConfigLoader
         $value = getenv($name);
         if ($value === false || $value === '') {
             return null;
+        }
+
+        return $value;
+    }
+
+    private static function headerValue(string $value, string $default): string
+    {
+        $value = trim($value);
+        if ($value === '' || preg_match('/[\r\n]/', $value) === 1) {
+            return $default;
         }
 
         return $value;

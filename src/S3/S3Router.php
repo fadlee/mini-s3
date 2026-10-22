@@ -21,7 +21,8 @@ final class S3Router
         private readonly RequestValidator $validator,
         private readonly SigV4Authenticator $authenticator,
         private readonly int $maxRequestSize,
-        private readonly bool $publicReadAllBuckets = false
+        private readonly bool $publicReadAllBuckets = false,
+        private readonly string $publicCacheControl = 'public, max-age=3600'
     ) {
     }
 
@@ -294,6 +295,13 @@ final class S3Router
             $this->response->error(404, 'NoSuchKey', 'Object not found', $this->resource($bucket, $key));
         }
         $fileSize = (int) $metadata['size'];
+        $mtime = (int) $metadata['mtime'];
+        $etag = $this->validator->objectEtag($mtime, $fileSize);
+        if ($this->isNotModified($etag, $mtime)) {
+            $this->response->sendNotModified($etag, $mtime, $this->cacheControl());
+            exit;
+        }
+
         $fp = $this->storage->openObjectReadStream($bucket, $key);
         $mimeType = (string) $metadata['mimeType'];
         $range = $this->request->getHeader('range');
@@ -301,7 +309,7 @@ final class S3Router
         $end = max(0, $fileSize - 1);
         $length = $fileSize;
         $status = 200;
-        if ($range !== null && $range !== '') {
+        if ($range !== null && $range !== '' && $this->validator->isRangeApplicable($this->request->getHeader('if-range'), $etag, $mtime)) {
             [$isValidRange, $start, $end] = $this->validator->parseRange($range, $fileSize);
             if (!$isValidRange) {
                 fclose($fp);
@@ -315,7 +323,7 @@ final class S3Router
             $this->response->sendRangeHeader($start, $end, $fileSize);
         }
 
-        $this->response->sendObjectHeaders($status, $length, $mimeType, basename($key));
+        $this->response->sendObjectHeaders($status, $length, $mimeType, $etag, $mtime, $this->cacheControl());
 
         if ($length === 0) {
             fclose($fp);
@@ -357,8 +365,31 @@ final class S3Router
             $this->response->error(404, 'NoSuchKey', 'Resource not found', $this->resource($bucket, $key));
         }
 
-        $this->response->sendObjectHeaders(200, (int) $metadata['size'], (string) $metadata['mimeType'], basename($key), false);
+        $size = (int) $metadata['size'];
+        $mtime = (int) $metadata['mtime'];
+        $etag = $this->validator->objectEtag($mtime, $size);
+        if ($this->isNotModified($etag, $mtime)) {
+            $this->response->sendNotModified($etag, $mtime, $this->cacheControl());
+            exit;
+        }
+
+        $this->response->sendObjectHeaders(200, $size, (string) $metadata['mimeType'], $etag, $mtime, $this->cacheControl());
         exit;
+    }
+
+    private function isNotModified(string $etag, int $mtime): bool
+    {
+        return $this->validator->isNotModified(
+            $this->request->getHeader('if-none-match'),
+            $this->request->getHeader('if-modified-since'),
+            $etag,
+            $mtime
+        );
+    }
+
+    private function cacheControl(): string
+    {
+        return $this->publicReadAllBuckets ? $this->publicCacheControl : 'private';
     }
 
     private function handleDelete(string $bucket, string $key): never

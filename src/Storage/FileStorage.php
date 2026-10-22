@@ -127,13 +127,15 @@ HTACCESS;
         }
 
         $size = filesize($filePath);
-        if ($size === false) {
+        $mtime = filemtime($filePath);
+        if ($size === false || $mtime === false) {
             throw new RuntimeException('Failed to read file metadata');
         }
 
         return [
             'size' => $size,
             'mimeType' => $this->detectMimeType($filePath),
+            'mtime' => $mtime,
         ];
     }
 

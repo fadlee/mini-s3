@@ -66,7 +66,8 @@ try {
         $validator,
         $authenticator,
         (int) $config['MAX_REQUEST_SIZE'],
-        (bool) ($config['PUBLIC_READ_ALL_BUCKETS'] ?? false)
+        (bool) ($config['PUBLIC_READ_ALL_BUCKETS'] ?? false),
+        (string) $config['PUBLIC_CACHE_CONTROL']
     );
 
     $router->handle();

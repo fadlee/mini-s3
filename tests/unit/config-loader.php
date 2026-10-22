@@ -95,11 +95,13 @@ withEnv([
     'MINI_S3_CREDENTIALS_JSON' => '{"env-key":"env-secret"}',
     'MINI_S3_PUBLIC_READ_ALL_BUCKETS' => 'false',
     'MINI_S3_GITHUB_TOKEN' => 'env-token',
+    'MINI_S3_PUBLIC_CACHE_CONTROL' => 'public, max-age=60',
 ], function () use ($base): void {
     $config = ConfigLoader::load($base);
     assertSameValue(['env-key' => 'env-secret'], $config['CREDENTIALS'], 'env credentials override file');
     assertSameValue(false, $config['PUBLIC_READ_ALL_BUCKETS'], 'env boolean override file');
     assertSameValue('env-token', $config['GITHUB_TOKEN'], 'env github token override file');
+    assertSameValue('public, max-age=60', $config['PUBLIC_CACHE_CONTROL'], 'env public cache control override file');
 });
 
 withEnv(['MINI_S3_CREDENTIALS_JSON' => '{bad-json'], function () use ($base): void {
@@ -135,6 +137,18 @@ assertThrows(fn() => ConfigLoader::load($emptyBase), 'empty credentials fail clo
 $defaultBase = tempProject(['CREDENTIALS' => ['default-key' => 'default-secret']]);
 $defaultConfig = ConfigLoader::load($defaultBase);
 assertSameValue(true, $defaultConfig['PUBLIC_READ_ALL_BUCKETS'], 'public read defaults to true');
+assertSameValue('public, max-age=3600', $defaultConfig['PUBLIC_CACHE_CONTROL'], 'public cache control has a default');
+
+$cacheBase = tempProject([
+    'CREDENTIALS' => ['cache-key' => 'cache-secret'],
+    'PUBLIC_CACHE_CONTROL' => '  public, max-age=31536000, immutable ',
+]);
+assertSameValue('public, max-age=31536000, immutable', ConfigLoader::load($cacheBase)['PUBLIC_CACHE_CONTROL'], 'public cache control loads from config file');
+$headerInjectionBase = tempProject([
+    'CREDENTIALS' => ['cache-key' => 'cache-secret'],
+    'PUBLIC_CACHE_CONTROL' => "public\r\nX-Evil: 1",
+]);
+assertSameValue('public, max-age=3600', ConfigLoader::load($headerInjectionBase)['PUBLIC_CACHE_CONTROL'], 'public cache control with line breaks falls back to default');
 assertSameValue('admin', $defaultConfig['ADMIN_USERNAME'], 'admin username defaults to admin');
 
 $usernameBase = tempProject([

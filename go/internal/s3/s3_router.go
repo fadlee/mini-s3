@@ -30,16 +30,18 @@ type S3Router struct {
 	authenticator        *auth.SigV4Authenticator
 	maxRequestSize       int64
 	publicReadAllBuckets bool
+	publicCacheControl   string
 }
 
 // New creates an S3Router.
-func New(st *storage.FileStorage, authenticator *auth.SigV4Authenticator, maxRequestSize int64, publicReadAllBuckets bool) *S3Router {
+func New(st *storage.FileStorage, authenticator *auth.SigV4Authenticator, maxRequestSize int64, publicReadAllBuckets bool, publicCacheControl string) *S3Router {
 	return &S3Router{
 		storage:              st,
 		validator:            &RequestValidator{},
 		authenticator:        authenticator,
 		maxRequestSize:       maxRequestSize,
 		publicReadAllBuckets: publicReadAllBuckets,
+		publicCacheControl:   publicCacheControl,
 	}
 }
 
@@ -472,6 +474,12 @@ func (r *S3Router) handleGet(ctx *minihttp.RequestContext, resp *S3Response, buc
 	}
 
 	fileSize := metadata.Size
+	etag := r.validator.ObjectETag(metadata.ModTime, fileSize)
+	if r.isNotModified(ctx, etag, metadata.ModTime) {
+		resp.SendNotModified(etag, metadata.ModTime, r.cacheControl())
+		return
+	}
+
 	f, err := r.storage.OpenObjectReadStream(bucket, key)
 	if err != nil {
 		resp.XMLError(500, "InternalError", "Internal server error", r.resource(bucket, key))
@@ -490,7 +498,7 @@ func (r *S3Router) handleGet(ctx *minihttp.RequestContext, resp *S3Response, buc
 	length := fileSize
 	status := 200
 
-	if rangeHeader != "" {
+	if rangeHeader != "" && r.validator.IsRangeApplicable(ctx.GetHeader("if-range"), etag, metadata.ModTime) {
 		result := r.validator.ParseRange(rangeHeader, fileSize)
 		if !result.Valid {
 			resp.SendInvalidRangeHeader(fileSize)
@@ -508,7 +516,7 @@ func (r *S3Router) handleGet(ctx *minihttp.RequestContext, resp *S3Response, buc
 		resp.SendRangeHeader(start, end, fileSize)
 	}
 
-	resp.SendObjectHeaders(status, length, mimeType, baseName(key), true)
+	resp.SendObjectHeaders(status, length, mimeType, etag, metadata.ModTime, r.cacheControl())
 
 	if length == 0 {
 		return
@@ -534,7 +542,24 @@ func (r *S3Router) handleHead(ctx *minihttp.RequestContext, resp *S3Response, bu
 		return
 	}
 
-	resp.SendObjectHeaders(200, metadata.Size, metadata.MimeType, baseName(key), false)
+	etag := r.validator.ObjectETag(metadata.ModTime, metadata.Size)
+	if r.isNotModified(ctx, etag, metadata.ModTime) {
+		resp.SendNotModified(etag, metadata.ModTime, r.cacheControl())
+		return
+	}
+
+	resp.SendObjectHeaders(200, metadata.Size, metadata.MimeType, etag, metadata.ModTime, r.cacheControl())
+}
+
+func (r *S3Router) isNotModified(ctx *minihttp.RequestContext, etag string, modTime int64) bool {
+	return r.validator.IsNotModified(ctx.GetHeader("if-none-match"), ctx.GetHeader("if-modified-since"), etag, modTime)
+}
+
+func (r *S3Router) cacheControl() string {
+	if r.publicReadAllBuckets {
+		return r.publicCacheControl
+	}
+	return "private"
 }
 
 func (r *S3Router) handleDelete(ctx *minihttp.RequestContext, resp *S3Response, bucket, key string) {

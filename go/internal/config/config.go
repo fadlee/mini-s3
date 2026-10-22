@@ -11,6 +11,10 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+// DefaultPublicCacheControl is the Cache-Control sent for objects served
+// while public read is enabled, unless public_cache_control overrides it.
+const DefaultPublicCacheControl = "public, max-age=3600"
+
 // Config holds all runtime configuration for mini-s3.
 type Config struct {
 	DataDir                     string            `yaml:"data_dir"`
@@ -23,6 +27,7 @@ type Config struct {
 	AuthDebugLog                string            `yaml:"auth_debug_log"`
 	AllowHostCandidateFallbacks bool              `yaml:"allow_host_candidate_fallbacks"`
 	PublicReadAllBuckets        bool              `yaml:"public_read_all_buckets"`
+	PublicCacheControl          string            `yaml:"public_cache_control"`
 	Admin                       AdminConfig       `yaml:"admin"`
 	GitHubToken                 string            `yaml:"github_token"`
 }
@@ -102,6 +107,7 @@ func defaults() *Config {
 		AuthDebugLog:                "",
 		AllowHostCandidateFallbacks: false,
 		PublicReadAllBuckets:        true,
+		PublicCacheControl:          DefaultPublicCacheControl,
 		Admin: AdminConfig{
 			Username:      "admin",
 			PasswordHash:  "",
@@ -121,6 +127,9 @@ func applyEnvOverrides(cfg *Config) error {
 	}
 	if v := envString("MINI_S3_GITHUB_TOKEN"); v != "" {
 		cfg.GitHubToken = v
+	}
+	if v := envString("MINI_S3_PUBLIC_CACHE_CONTROL"); v != "" {
+		cfg.PublicCacheControl = v
 	}
 	if v := envString("MINI_S3_ADMIN_USERNAME"); v != "" {
 		cfg.Admin.Username = v
@@ -197,6 +206,10 @@ func normalize(cfg *Config) {
 	}
 	cfg.Admin.PasswordHash = strings.TrimSpace(cfg.Admin.PasswordHash)
 	cfg.GitHubToken = strings.TrimSpace(cfg.GitHubToken)
+	cfg.PublicCacheControl = strings.TrimSpace(cfg.PublicCacheControl)
+	if cfg.PublicCacheControl == "" || strings.ContainsAny(cfg.PublicCacheControl, "\r\n") {
+		cfg.PublicCacheControl = DefaultPublicCacheControl
+	}
 
 	// Normalize credentials: trim keys, drop empty.
 	creds := make(map[string]string, len(cfg.Credentials))

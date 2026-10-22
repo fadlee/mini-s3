@@ -197,16 +197,24 @@ func (r *S3Response) DeleteResult(deletedKeys []string, errors []DeleteError) {
 }
 
 // SendObjectHeaders sends standard object download headers.
-func (r *S3Response) SendObjectHeaders(status int, length int64, mimeType, filename string, attachment bool) {
+func (r *S3Response) SendObjectHeaders(status int, length int64, mimeType, etag string, lastModified int64, cacheControl string) {
 	r.w.Header().Set("Accept-Ranges", "bytes")
 	r.w.Header().Set("Content-Type", mimeType)
 	r.w.Header().Set("Content-Length", strconv.FormatInt(length, 10))
-	if attachment {
-		r.w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="%s"`, escapeFilename(filename)))
-	}
-	r.w.Header().Set("Cache-Control", "private")
-	r.w.Header().Set("Pragma", "public")
+	r.sendValidatorHeaders(etag, lastModified, cacheControl)
 	r.w.WriteHeader(status)
+}
+
+// SendNotModified sends a 304 response with the object's validators.
+func (r *S3Response) SendNotModified(etag string, lastModified int64, cacheControl string) {
+	r.sendValidatorHeaders(etag, lastModified, cacheControl)
+	r.w.WriteHeader(http.StatusNotModified)
+}
+
+func (r *S3Response) sendValidatorHeaders(etag string, lastModified int64, cacheControl string) {
+	r.w.Header().Set("ETag", etag)
+	r.w.Header().Set("Last-Modified", time.Unix(lastModified, 0).UTC().Format(http.TimeFormat))
+	r.w.Header().Set("Cache-Control", cacheControl)
 }
 
 // SendRangeHeader sends the Content-Range header for a partial response.
@@ -238,12 +246,4 @@ func (r *S3Response) sendXML(v interface{}, httpStatus int) {
 func formatLastModified(timestamp int64) string {
 	t := time.Unix(timestamp, 0).UTC()
 	return t.Format("2006-01-02T15:04:05.000Z")
-}
-
-// escapeFilename escapes backslashes and double quotes for use in a
-// Content-Disposition header, matching PHP's addcslashes($filename, "\\\"").
-func escapeFilename(filename string) string {
-	filename = strings.ReplaceAll(filename, "\\", "\\\\")
-	filename = strings.ReplaceAll(filename, "\"", "\\\"")
-	return filename
 }

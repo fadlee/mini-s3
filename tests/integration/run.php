@@ -323,6 +323,25 @@ assertEq('4', (string) filesize($tmpDir . '/range-valid.body'), 'Valid range res
 signedRequest($phpBin, $sigv4Helper, $requestHelper, $accessKey, $secretKey, $signBaseUrl, $signHost, 'GET', '/' . $testBucket . '/multi.bin', null, $tmpDir . '/range-invalid.body', $tmpDir . '/range-invalid.meta', ['Range: bytes=99999-100000']);
 assertEq('416', metaStatus($tmpDir . '/range-invalid.meta', $phpBin), 'Invalid range request should return 416');
 
+$objectPath = $root . '/data/' . $testBucket . '/' . $testKey;
+clearstatcache();
+$objectEtag = '"' . dechex((int) filemtime($objectPath)) . '-' . dechex((int) filesize($objectPath)) . '"';
+$objectUri = '/' . $testBucket . '/' . $testKey;
+runRequest($phpBin, $requestHelper, 'GET', $objectUri, null, $tmpDir . '/inm.body', $tmpDir . '/inm.meta', ['Host: ' . $signHost, 'If-None-Match: ' . $objectEtag]);
+assertEq('304', metaStatus($tmpDir . '/inm.meta', $phpBin), 'Matching If-None-Match should return 304');
+assertEq('0', (string) filesize($tmpDir . '/inm.body'), '304 response should have no body');
+runRequest($phpBin, $requestHelper, 'HEAD', $objectUri, null, $tmpDir . '/inm-head.body', $tmpDir . '/inm-head.meta', ['Host: ' . $signHost, 'If-None-Match: W/' . $objectEtag]);
+assertEq('304', metaStatus($tmpDir . '/inm-head.meta', $phpBin), 'Weak If-None-Match on HEAD should return 304');
+runRequest($phpBin, $requestHelper, 'GET', $objectUri, null, $tmpDir . '/inm-miss.body', $tmpDir . '/inm-miss.meta', ['Host: ' . $signHost, 'If-None-Match: "stale"']);
+assertEq('200', metaStatus($tmpDir . '/inm-miss.meta', $phpBin), 'Stale If-None-Match should return 200');
+assertSameFile($tmpDir . '/hello.txt', $tmpDir . '/inm-miss.body', 'Stale If-None-Match should return full body');
+runRequest($phpBin, $requestHelper, 'GET', $objectUri, null, $tmpDir . '/ims.body', $tmpDir . '/ims.meta', ['Host: ' . $signHost, 'If-Modified-Since: ' . gmdate('D, d M Y H:i:s', time() + 60) . ' GMT']);
+assertEq('304', metaStatus($tmpDir . '/ims.meta', $phpBin), 'Unchanged If-Modified-Since should return 304');
+runRequest($phpBin, $requestHelper, 'GET', $objectUri, null, $tmpDir . '/if-range-miss.body', $tmpDir . '/if-range-miss.meta', ['Host: ' . $signHost, 'Range: bytes=0-3', 'If-Range: "stale"']);
+assertEq('200', metaStatus($tmpDir . '/if-range-miss.meta', $phpBin), 'Mismatched If-Range should ignore Range');
+runRequest($phpBin, $requestHelper, 'GET', $objectUri, null, $tmpDir . '/if-range-hit.body', $tmpDir . '/if-range-hit.meta', ['Host: ' . $signHost, 'Range: bytes=0-3', 'If-Range: ' . $objectEtag]);
+assertEq('206', metaStatus($tmpDir . '/if-range-hit.meta', $phpBin), 'Matching If-Range should honor Range');
+
 echo "[PASS] All integration scenarios passed\n";
 
 function signedRequest(string $phpBin, string $sigv4Helper, string $requestHelper, string $accessKey, string $secretKey, string $signBaseUrl, string $signHost, string $method, string $uri, ?string $bodyFile, string $outBodyFile, string $outMetaFile, array $extraHeaders = []): void

@@ -25,7 +25,7 @@ func TestS3RouterListing(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	router := New(storage.New(base), auth.New(nil, nil, false, 0, 0, "", false), 0, true)
+	router := New(storage.New(base), auth.New(nil, nil, false, 0, 0, "", false), 0, true, "public, max-age=3600")
 	request := func(query string) (int, string) {
 		req := httptest.NewRequest("GET", "/bucket?"+query, nil)
 		rec := httptest.NewRecorder()
@@ -97,7 +97,7 @@ func TestS3RouterListingRawByteCursor(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	router := New(st, nil, 0, true)
+	router := New(st, nil, 0, true, "public, max-age=3600")
 	var token string
 	for i, want := range []string{"a%FF.txt", "z.txt"} {
 		rec := httptest.NewRecorder()
@@ -137,7 +137,7 @@ func TestListingTokenRawContext(t *testing.T) {
 }
 
 func TestS3RouterListingRejectsNonStringAfter(t *testing.T) {
-	router := New(storage.New(t.TempDir()), nil, 0, true)
+	router := New(storage.New(t.TempDir()), nil, 0, true, "public, max-age=3600")
 	for _, after := range []string{"null", "42", "false", "[]", "{}"} {
 		t.Run(after, func(t *testing.T) {
 			token := base64.RawURLEncoding.EncodeToString([]byte(`{"version":2,"bucket":"bucket","prefix":"","delimiter":"","after":` + after + `}`))

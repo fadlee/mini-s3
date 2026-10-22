@@ -2,6 +2,7 @@ package s3
 
 import (
 	"net"
+	"net/http"
 	"regexp"
 	"strconv"
 	"strings"
@@ -98,6 +99,47 @@ type RangeResult struct {
 	Valid bool
 	Start int64
 	End   int64
+}
+
+// ObjectETag derives an ETag from modification time and size. It is not an
+// MD5: the "-" keeps clients from verifying it as a content hash.
+func (v *RequestValidator) ObjectETag(modTime, size int64) string {
+	return `"` + strconv.FormatInt(modTime, 16) + "-" + strconv.FormatInt(size, 16) + `"`
+}
+
+// IsNotModified evaluates If-None-Match (which takes precedence) and
+// If-Modified-Since against the object's ETag and modification time.
+func (v *RequestValidator) IsNotModified(ifNoneMatch, ifModifiedSince, etag string, modTime int64) bool {
+	if strings.TrimSpace(ifNoneMatch) != "" {
+		for _, candidate := range strings.Split(ifNoneMatch, ",") {
+			candidate = strings.TrimSpace(candidate)
+			if candidate == "*" || strings.TrimPrefix(candidate, "W/") == etag {
+				return true
+			}
+		}
+		return false
+	}
+
+	if strings.TrimSpace(ifModifiedSince) != "" {
+		since, err := http.ParseTime(strings.TrimSpace(ifModifiedSince))
+		return err == nil && modTime <= since.Unix()
+	}
+
+	return false
+}
+
+// IsRangeApplicable reports whether a Range header should be honored given
+// If-Range: it must strongly match the ETag or exactly match the date.
+func (v *RequestValidator) IsRangeApplicable(ifRange, etag string, modTime int64) bool {
+	ifRange = strings.TrimSpace(ifRange)
+	if ifRange == "" {
+		return true
+	}
+	if strings.HasPrefix(ifRange, `"`) || strings.HasPrefix(ifRange, "W/") {
+		return ifRange == etag
+	}
+	date, err := http.ParseTime(ifRange)
+	return err == nil && date.Unix() == modTime
 }
 
 // ParseRange parses an HTTP Range header value against the given file size.

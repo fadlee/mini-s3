@@ -165,3 +165,50 @@ func TestIsOversizedRequest(t *testing.T) {
 		t.Error("empty content length should be ignored")
 	}
 }
+
+func TestConditionalRequestHelpers(t *testing.T) {
+	v := &RequestValidator{}
+	const modTime = int64(1761170000)
+	etag := v.ObjectETag(modTime, 31143)
+	if etag != `"68f95250-79a7"` {
+		t.Fatalf("ObjectETag = %s", etag)
+	}
+	date := "Wed, 22 Oct 2025 21:53:20 GMT"
+	earlier := "Wed, 22 Oct 2025 21:53:19 GMT"
+
+	notModified := []struct {
+		name, ifNoneMatch, ifModifiedSince string
+		want                               bool
+	}{
+		{"etag match", etag, "", true},
+		{"weak etag in list", `"other", W/` + etag, "", true},
+		{"wildcard", "*", "", true},
+		{"If-None-Match wins over date", `"other"`, date, false},
+		{"unchanged since", "", date, true},
+		{"modified after", "", earlier, false},
+		{"invalid date", "", "garbage", false},
+		{"no conditionals", "", "", false},
+	}
+	for _, tt := range notModified {
+		if got := v.IsNotModified(tt.ifNoneMatch, tt.ifModifiedSince, etag, modTime); got != tt.want {
+			t.Errorf("IsNotModified(%s) = %v, want %v", tt.name, got, tt.want)
+		}
+	}
+
+	rangeCases := []struct {
+		ifRange string
+		want    bool
+	}{
+		{"", true},
+		{etag, true},
+		{`"other"`, false},
+		{"W/" + etag, false},
+		{date, true},
+		{earlier, false},
+	}
+	for _, tt := range rangeCases {
+		if got := v.IsRangeApplicable(tt.ifRange, etag, modTime); got != tt.want {
+			t.Errorf("IsRangeApplicable(%q) = %v, want %v", tt.ifRange, got, tt.want)
+		}
+	}
+}

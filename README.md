@@ -392,6 +392,7 @@ return [
     'AUTH_DEBUG_LOG' => '', // Optional, e.g. /tmp/mini-s3-auth-debug.log
     'ALLOW_HOST_CANDIDATE_FALLBACKS' => false, // Keep false unless your proxy rewrites Host
     'PUBLIC_READ_ALL_BUCKETS' => false, // Set true to allow unsigned GET/HEAD for all buckets
+    'PUBLIC_CACHE_CONTROL' => 'public, max-age=3600', // Cache-Control for objects while public read is on
     'ADMIN_USERNAME' => 'admin',
     'ADMIN_PASSWORD_HASH' => '',
     'GITHUB_TOKEN' => '', // Optional GitHub token for higher release-check rate limits
@@ -442,6 +443,7 @@ The table maps each setting to its key in each edition. Use `config.yaml` keys f
 | Max request size | `max_request_size` | `MAX_REQUEST_SIZE` | `MINI_S3_MAX_REQUEST_SIZE` (both) | `104857600` (100 MiB) | Maximum request body size in bytes (returns 413 when exceeded). |
 | Credentials | `credentials` | `CREDENTIALS` | `MINI_S3_CREDENTIALS_JSON` (both) | empty | Access key to secret key map. Required unless legacy mode is enabled. |
 | Public read | `public_read_all_buckets` | `PUBLIC_READ_ALL_BUCKETS` | `MINI_S3_PUBLIC_READ_ALL_BUCKETS` (both) | `true` (both) | Allow unsigned GET/HEAD (and bucket listing) on all buckets. Set `false` to require signatures. |
+| Public cache control | `public_cache_control` | `PUBLIC_CACHE_CONTROL` | `MINI_S3_PUBLIC_CACHE_CONTROL` (both) | `public, max-age=3600` | `Cache-Control` sent on object GET/HEAD while public read is on. Objects are served as `private` when public read is off. Use `public, max-age=31536000, immutable` when object keys never get overwritten (for example, hashed filenames). |
 | Clock skew | `clock_skew_seconds` | `CLOCK_SKEW_SECONDS` | Go: `MINI_S3_CLOCK_SKEW_SECONDS` | `900` | Allowed difference between request time and server time. |
 | Max presign expiry | `max_presign_expires` | `MAX_PRESIGN_EXPIRES` | Go: `MINI_S3_MAX_PRESIGN_EXPIRES` | `604800` (7 days) | Maximum lifetime of presigned URLs in seconds. |
 | Auth debug log | `auth_debug_log` | `AUTH_DEBUG_LOG` | `MINI_S3_AUTH_DEBUG_LOG` (both) | empty (off) | File that receives signature debug output. See [Troubleshooting](#signature-mismatch-signaturedoesnotmatch). |
@@ -457,7 +459,8 @@ Notes:
 
 - Environment variables override file values in both editions. Empty values are ignored.
 - The Go edition reads a few settings that the PHP edition does not: `MINI_S3_CLOCK_SKEW_SECONDS`, `MINI_S3_MAX_PRESIGN_EXPIRES`, `MINI_S3_ALLOW_LEGACY_ACCESS_KEY_ONLY`, `MINI_S3_ALLOWED_ACCESS_KEYS`, `MINI_S3_ADMIN_USERNAME`, `MINI_S3_ADMIN_PASSWORD_HASH`.
-- The PHP edition reads only `MINI_S3_DATA_DIR`, `MINI_S3_AUTH_DEBUG_LOG`, `MINI_S3_GITHUB_TOKEN`, `MINI_S3_MAX_REQUEST_SIZE`, `MINI_S3_PUBLIC_READ_ALL_BUCKETS`, `MINI_S3_ALLOW_HOST_CANDIDATE_FALLBACKS`, and `MINI_S3_CREDENTIALS_JSON`.
+- The PHP edition reads only `MINI_S3_DATA_DIR`, `MINI_S3_AUTH_DEBUG_LOG`, `MINI_S3_GITHUB_TOKEN`, `MINI_S3_MAX_REQUEST_SIZE`, `MINI_S3_PUBLIC_READ_ALL_BUCKETS`, `MINI_S3_PUBLIC_CACHE_CONTROL`, `MINI_S3_ALLOW_HOST_CANDIDATE_FALLBACKS`, and `MINI_S3_CREDENTIALS_JSON`.
+- Object GET/HEAD responses carry `ETag` (derived from modification time and size, not an MD5) and `Last-Modified`, and answer `If-None-Match`/`If-Modified-Since` with `304 Not Modified`. `If-Range` is honored for range requests.
 - The Go edition expects `MINI_S3_CREDENTIALS_JSON` as a JSON object such as `{"key":"secret"}`. The PHP edition expects the same format.
 
 ## Security

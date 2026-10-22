@@ -70,6 +70,55 @@ final class RequestValidator
         return (int) $contentLength > $maxRequestSize;
     }
 
+    public function objectEtag(int $mtime, int $size): string
+    {
+        // Not an MD5: the "-" keeps clients from verifying it as a content hash.
+        return '"' . dechex($mtime) . '-' . dechex($size) . '"';
+    }
+
+    public function isNotModified(?string $ifNoneMatch, ?string $ifModifiedSince, string $etag, int $mtime): bool
+    {
+        if ($ifNoneMatch !== null && trim($ifNoneMatch) !== '') {
+            foreach (explode(',', $ifNoneMatch) as $candidate) {
+                $candidate = trim($candidate);
+                if ($candidate === '*' || $this->stripWeak($candidate) === $etag) {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        if ($ifModifiedSince !== null && trim($ifModifiedSince) !== '') {
+            $since = strtotime($ifModifiedSince);
+
+            return $since !== false && $mtime <= $since;
+        }
+
+        return false;
+    }
+
+    public function isRangeApplicable(?string $ifRange, string $etag, int $mtime): bool
+    {
+        if ($ifRange === null || trim($ifRange) === '') {
+            return true;
+        }
+
+        $ifRange = trim($ifRange);
+        if (str_starts_with($ifRange, '"') || str_starts_with($ifRange, 'W/')) {
+            return $ifRange === $etag;
+        }
+
+        $date = strtotime($ifRange);
+
+        return $date !== false && $date === $mtime;
+    }
+
+    private function stripWeak(string $etag): string
+    {
+        return str_starts_with($etag, 'W/') ? substr($etag, 2) : $etag;
+    }
+
     public function parseRange(string $range, int $fileSize): array
     {
         if (!preg_match('/^bytes=(\d*)-(\d*)$/', trim($range), $matches)) {

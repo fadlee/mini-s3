@@ -26,7 +26,7 @@ func TestS3RouterRejectsTraversalUploadID(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	router := New(storage.New(dataDir), auth.New(nil, nil, false, 0, 0, "", false), 0, true)
+	router := New(storage.New(dataDir), auth.New(nil, nil, false, 0, 0, "", false), 0, true, "public, max-age=3600")
 	// Handlers are called directly because signing SigV4 requests is out of
 	// scope here; ServeHTTP only adds auth in front of the same dispatch.
 	call := func(method, target, body string, handle func(*minihttp.RequestContext, *S3Response, string, string)) (int, string) {
@@ -76,7 +76,7 @@ func TestS3RouterRejectsTraversalUploadID(t *testing.T) {
 }
 
 func TestS3RouterRejectsProtectedObjectKey(t *testing.T) {
-	router := New(storage.New(t.TempDir()), auth.New(nil, nil, false, 0, 0, "", false), 0, true)
+	router := New(storage.New(t.TempDir()), auth.New(nil, nil, false, 0, 0, "", false), 0, true, "public, max-age=3600")
 	req := httptest.NewRequest("PUT", "/bucket/a/.htaccess", strings.NewReader("x"))
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, req)

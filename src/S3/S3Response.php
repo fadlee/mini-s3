@@ -117,17 +117,28 @@ final class S3Response
         $this->sendXml($xml, 200);
     }
 
-    public function sendObjectHeaders(int $status, int $length, string $mimeType, string $filename, bool $attachment = true): void
+    public function sendObjectHeaders(int $status, int $length, string $mimeType, string $etag, int $lastModified, string $cacheControl): void
     {
         http_response_code($status);
         header('Accept-Ranges: bytes');
         header('Content-Type: ' . $mimeType);
         header('Content-Length: ' . $length);
-        if ($attachment) {
-            header('Content-Disposition: attachment; filename="' . addcslashes($filename, "\\\"") . '"');
-        }
-        header('Cache-Control: private');
-        header('Pragma: public');
+        $this->sendValidatorHeaders($etag, $lastModified, $cacheControl);
+    }
+
+    public function sendNotModified(string $etag, int $lastModified, string $cacheControl): void
+    {
+        http_response_code(304);
+        // A 304 updates the cached response's headers, so it must not carry PHP's default text/html.
+        ini_set('default_mimetype', '');
+        $this->sendValidatorHeaders($etag, $lastModified, $cacheControl);
+    }
+
+    private function sendValidatorHeaders(string $etag, int $lastModified, string $cacheControl): void
+    {
+        header('ETag: ' . $etag);
+        header('Last-Modified: ' . gmdate('D, d M Y H:i:s', $lastModified) . ' GMT');
+        header('Cache-Control: ' . $cacheControl);
     }
 
     public function sendRangeHeader(int $start, int $end, int $fileSize): void
