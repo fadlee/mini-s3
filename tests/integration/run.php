@@ -218,6 +218,7 @@ signedRequest($phpBin, $sigv4Helper, $requestHelper, $readOnlyKey, $readOnlySecr
 assertEq('200', metaStatus($tmpDir . '/ro-head.meta', $phpBin), 'Read-only key HEAD should succeed');
 $readOnlyWrites = [
     ['PUT', '/' . $testBucket . '/ro-upload.txt', $tmpDir . '/hello.txt'],
+    ['PUT', '/' . $testBucket . '-ro-new', null],
     ['DELETE', '/' . $testBucket . '/' . $testKey, null],
     ['POST', '/' . $testBucket . '/?delete', $root . '/tests/integration/fixtures/delete-invalid.xml'],
     ['POST', '/' . $testBucket . '/ro-multi.bin?uploads', null],

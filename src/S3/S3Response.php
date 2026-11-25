@@ -87,12 +87,16 @@ final class S3Response
         string $key,
         string $uploadId,
         string $host,
-        string $scheme
+        string $scheme,
+        string $etag = ''
     ): never {
         $xml = new SimpleXMLElement('<?xml version="1.0" encoding="UTF-8"?><CompleteMultipartUploadResult></CompleteMultipartUploadResult>');
         $xml->addChild('Location', sprintf('%s://%s/%s/%s', $scheme, $host, $bucket, $key));
         $xml->addChild('Bucket', $bucket);
         $xml->addChild('Key', $key);
+        if ($etag !== '') {
+            $xml->addChild('ETag', $etag);
+        }
         $xml->addChild('UploadId', $uploadId);
 
         $this->sendXml($xml, 200);

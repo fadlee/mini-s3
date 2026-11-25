@@ -619,6 +619,10 @@ The PHP integration suite (`php tests/integration/run.php`) checks:
 - Range request behavior (`206` / `416`)
 - Read-only access keys: reads succeed, uploads, deletes, bulk deletes and multipart uploads return `403`
 
+`php tests/integration/http-headers.php` starts PHP's built-in server and checks response headers that the CLI harness cannot see: the `ETag` on PutObject, UploadPart and CompleteMultipartUpload, and CreateBucket (`PUT /bucket`).
+
+[Litestream](https://litestream.io) (0.5.x) has been tested against the PHP edition: continuous replication of a SQLite database, then a restore with a **read-only** key. Use `force-path-style: true` and the Mini S3 URL as `endpoint` in the replica config.
+
 ### Creating a release
 
 Maintainers create releases by pushing a tag. The tag prefix selects the edition:

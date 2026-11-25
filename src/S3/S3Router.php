@@ -126,6 +126,14 @@ final class S3Router
 
     private function handlePut(string $bucket, string $key): never
     {
+        if ($key === '') {
+            // CreateBucket (for example "aws s3 mb"). Read-only keys never get here.
+            $this->storage->createBucket($bucket);
+            header('Location: /' . $bucket);
+            http_response_code(200);
+            exit;
+        }
+
         $uploadId = $this->request->getQueryParam('uploadId');
         $partNumber = $this->request->getQueryParam('partNumber');
 
@@ -146,7 +154,7 @@ final class S3Router
                 }
                 throw $e;
             }
-            header('ETag: ' . md5_file($partPath));
+            header('ETag: ' . $this->etag($partPath));
             http_response_code(200);
             exit;
         }
@@ -159,8 +167,18 @@ final class S3Router
             }
             throw $e;
         }
+        // S3 clients (AWS SDKs, Litestream) treat a PUT without an ETag as failed.
+        header('ETag: ' . $this->etag($this->storage->objectPath($bucket, $key)));
         http_response_code(200);
         exit;
+    }
+
+    /**
+     * Quoted MD5 of the stored bytes, the ETag format S3 uses for single-part objects.
+     */
+    private function etag(string $path): string
+    {
+        return '"' . md5_file($path) . '"';
     }
 
     private function handlePost(string $bucket, string $key): never
@@ -233,7 +251,9 @@ final class S3Router
             }
 
             $scheme = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ? 'https' : 'http';
-            $this->response->completeMultipartUpload($bucket, $key, $uploadId, $this->request->getHost(), $scheme);
+            $etag = $this->etag($this->storage->objectPath($bucket, $key));
+            header('ETag: ' . $etag);
+            $this->response->completeMultipartUpload($bucket, $key, $uploadId, $this->request->getHost(), $scheme, $etag);
         }
 
         $this->response->error(
