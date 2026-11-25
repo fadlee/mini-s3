@@ -511,7 +511,7 @@ Notes:
 - Environment variables override file values in both editions. Empty values are ignored.
 - The Go edition reads a few settings that the PHP edition does not: `MINI_S3_CLOCK_SKEW_SECONDS`, `MINI_S3_MAX_PRESIGN_EXPIRES`, `MINI_S3_ALLOW_LEGACY_ACCESS_KEY_ONLY`, `MINI_S3_ALLOWED_ACCESS_KEYS`, `MINI_S3_ADMIN_USERNAME`, `MINI_S3_ADMIN_PASSWORD_HASH`.
 - The PHP edition reads only `MINI_S3_DATA_DIR`, `MINI_S3_AUTH_DEBUG_LOG`, `MINI_S3_GITHUB_TOKEN`, `MINI_S3_MAX_REQUEST_SIZE`, `MINI_S3_PUBLIC_READ_ALL_BUCKETS`, `MINI_S3_PUBLIC_CACHE_CONTROL`, `MINI_S3_ALLOW_HOST_CANDIDATE_FALLBACKS`, and `MINI_S3_CREDENTIALS_JSON`.
-- Object GET/HEAD responses carry `ETag` (derived from modification time and size, not an MD5) and `Last-Modified`, and answer `If-None-Match`/`If-Modified-Since` with `304 Not Modified`. `If-Range` is honored for range requests.
+- Object GET/HEAD responses carry `ETag` (the quoted MD5 of the object, the same value PutObject returns) and `Last-Modified`, and answer `If-None-Match`/`If-Modified-Since` with `304 Not Modified`. `If-Range` is honored for range requests.
 - The Go edition expects `MINI_S3_CREDENTIALS_JSON` as a JSON object such as `{"key":"secret"}`. The PHP edition expects the same format.
 
 ## Security
@@ -622,7 +622,9 @@ The PHP integration suite (`php tests/integration/run.php`) checks:
 - Range request behavior (`206` / `416`)
 - Read-only access keys: reads succeed, uploads, deletes, bulk deletes and multipart uploads return `403`
 
-`php tests/integration/http-headers.php` starts PHP's built-in server and checks response headers that the CLI harness cannot see: the `ETag` on PutObject, UploadPart and CompleteMultipartUpload, and CreateBucket (`PUT /bucket`).
+`php tests/integration/http-headers.php` starts PHP's built-in server and checks response headers that the CLI harness cannot see: the `ETag` on PutObject, UploadPart and CompleteMultipartUpload, that GET and HEAD return the same MD5 ETag, and CreateBucket (`PUT /bucket`).
+
+Object MD5s are cached in `<data dir>/.etag-cache/` (one small file per object, reused while the file's modification time and size are unchanged), so GET and HEAD do not re-read large files. Deleting that folder is safe; it is rebuilt on demand. Multipart objects get the MD5 of the whole file, not the AWS `<md5>-<parts>` form.
 
 [Litestream](https://litestream.io) (0.5.x) has been tested against both editions: continuous replication of a SQLite database followed by a restore (on the PHP edition, with a **read-only** key). Use `force-path-style: true` and the Mini S3 URL as `endpoint` in the replica config.
 

@@ -175,7 +175,12 @@ func (r *S3Router) handlePut(ctx *minihttp.RequestContext, resp *S3Response, buc
 		return
 	}
 	// S3 clients (AWS SDKs, Litestream) treat a PUT without an ETag as failed.
-	resp.Writer().Header().Set("ETag", quotedETag(r.storage.ObjectPath(bucket, key)))
+	etag, err := r.storage.RefreshObjectETag(bucket, key)
+	if err != nil {
+		resp.XMLError(500, "InternalError", "Internal server error", r.resource(bucket, key))
+		return
+	}
+	resp.Writer().Header().Set("ETag", etag)
 	resp.Writer().WriteHeader(http.StatusOK)
 }
 
@@ -311,7 +316,11 @@ func (r *S3Router) handleCompleteMultipart(ctx *minihttp.RequestContext, resp *S
 
 	r.storage.CleanupMultipartUpload(bucket, key, uploadID)
 
-	etag := quotedETag(r.storage.ObjectPath(bucket, key))
+	etag, err := r.storage.RefreshObjectETag(bucket, key)
+	if err != nil {
+		resp.XMLError(500, "InternalError", "Internal server error", r.resource(bucket, key))
+		return
+	}
 	resp.Writer().Header().Set("ETag", etag)
 	scheme := ctx.GetScheme()
 	resp.CompleteMultipartUpload(bucket, key, uploadID, ctx.GetHost(), scheme, etag)
@@ -488,7 +497,11 @@ func (r *S3Router) handleGet(ctx *minihttp.RequestContext, resp *S3Response, buc
 	}
 
 	fileSize := metadata.Size
-	etag := r.validator.ObjectETag(metadata.ModTime, fileSize)
+	etag, err := r.storage.ObjectETag(bucket, key, metadata.ModTime, fileSize)
+	if err != nil {
+		resp.XMLError(500, "InternalError", "Internal server error", r.resource(bucket, key))
+		return
+	}
 	if r.isNotModified(ctx, etag, metadata.ModTime) {
 		resp.SendNotModified(etag, metadata.ModTime, r.cacheControl())
 		return
@@ -556,7 +569,11 @@ func (r *S3Router) handleHead(ctx *minihttp.RequestContext, resp *S3Response, bu
 		return
 	}
 
-	etag := r.validator.ObjectETag(metadata.ModTime, metadata.Size)
+	etag, err := r.storage.ObjectETag(bucket, key, metadata.ModTime, metadata.Size)
+	if err != nil {
+		resp.XMLError(500, "InternalError", "Internal server error", r.resource(bucket, key))
+		return
+	}
 	if r.isNotModified(ctx, etag, metadata.ModTime) {
 		resp.SendNotModified(etag, metadata.ModTime, r.cacheControl())
 		return
@@ -651,8 +668,8 @@ func (r *S3Router) resource(bucket, key string) string {
 
 // --- helpers ---
 
-// quotedETag is the quoted MD5 of the stored bytes, the ETag format S3 uses
-// for single-part objects.
+// quotedETag is the quoted MD5 of a multipart part, the ETag S3 returns for
+// UploadPart.
 func quotedETag(path string) string {
 	return `"` + md5File(path) + `"`
 }

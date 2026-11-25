@@ -57,7 +57,8 @@ func ScanStats(dataDir string) Stats {
 		if !entry.IsDir() {
 			continue
 		}
-		if entry.Name() == ".multipart" {
+		// Internal directories (.multipart, .etag-cache, .upgrade-cache) are not buckets.
+		if strings.HasPrefix(entry.Name(), ".") {
 			continue
 		}
 

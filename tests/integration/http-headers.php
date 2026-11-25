@@ -53,6 +53,15 @@ $body = "hello etag\n";
 [$status, $headers] = s3Request('PUT', $host, '/' . $bucket . '/hello.txt', $body, $accessKey, $secretKey);
 check($status === 200, 'PutObject returns 200');
 check(($headers['etag'] ?? '') === '"' . md5($body) . '"', 'PutObject returns the quoted MD5 as ETag, got ' . var_export($headers['etag'] ?? null, true));
+[$status, $headers, $downloaded] = s3Request('GET', $host, '/' . $bucket . '/hello.txt', '', $accessKey, $secretKey);
+check($status === 200 && $downloaded === $body, 'GetObject returns the uploaded body');
+check(($headers['etag'] ?? '') === '"' . md5($body) . '"', 'GetObject ETag matches the PutObject ETag (MD5), got ' . var_export($headers['etag'] ?? null, true));
+[$status, $headers] = s3Request('HEAD', $host, '/' . $bucket . '/hello.txt', '', $accessKey, $secretKey);
+check(($headers['etag'] ?? '') === '"' . md5($body) . '"', 'HeadObject ETag matches the PutObject ETag (MD5)');
+$replacement = "HELLO ETAG\n";
+[, $headers] = s3Request('PUT', $host, '/' . $bucket . '/hello.txt', $replacement, $accessKey, $secretKey);
+[, $headers] = s3Request('HEAD', $host, '/' . $bucket . '/hello.txt', '', $accessKey, $secretKey);
+check(($headers['etag'] ?? '') === '"' . md5($replacement) . '"', 'Same-size overwrite within the same second updates the ETag');
 
 [$status, , $xml] = s3Request('POST', $host, '/' . $bucket . '/multi.bin?uploads', '', $accessKey, $secretKey);
 preg_match('#<UploadId>([^<]+)</UploadId>#', $xml, $m);
@@ -65,6 +74,8 @@ $complete = '<CompleteMultipartUpload><Part><PartNumber>1</PartNumber><ETag>"' .
 [$status, $headers, $xml] = s3Request('POST', $host, '/' . $bucket . '/multi.bin?uploadId=' . $uploadId, $complete, $accessKey, $secretKey);
 check($status === 200, 'CompleteMultipartUpload returns 200');
 check(str_contains($xml, '<ETag>"' . md5($part) . '"</ETag>'), 'CompleteMultipartUpload result includes the ETag');
+[, $headers] = s3Request('HEAD', $host, '/' . $bucket . '/multi.bin', '', $accessKey, $secretKey);
+check(($headers['etag'] ?? '') === '"' . md5($part) . '"', 'HeadObject ETag of a multipart object matches CompleteMultipartUpload');
 
 if ($failures > 0) {
     exit(1);

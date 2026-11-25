@@ -7,6 +7,7 @@ namespace MiniS3\Admin;
 use FilesystemIterator;
 use RecursiveDirectoryIterator;
 use RecursiveIteratorIterator;
+use MiniS3\Storage\FileStorage;
 use RuntimeException;
 
 final class AdminFileExplorer
@@ -230,7 +231,11 @@ final class AdminFileExplorer
             throw new RuntimeException('Failed to move uploaded file');
         }
 
-        return $prefix === '' ? $name : $prefix . '/' . $name;
+        $key = $prefix === '' ? $name : $prefix . '/' . $name;
+        // Keep the S3 ETag cache in step with the replaced file.
+        (new FileStorage($this->dataDir))->refreshObjectETag($bucket, $key);
+
+        return $key;
     }
 
     public function objectInfo(string $bucket, string $objectPath): array

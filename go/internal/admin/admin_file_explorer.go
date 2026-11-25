@@ -9,6 +9,8 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+
+	"github.com/fadlee/mini-s3/internal/storage"
 )
 
 // AdminFileExplorer provides file management operations with path traversal
@@ -288,16 +290,24 @@ func (e *AdminFileExplorer) UploadFile(bucket, prefix string, fileHeader *multip
 	if err != nil {
 		return "", fmt.Errorf("failed to create file: %w", err)
 	}
-	defer dst.Close()
 
 	if _, err := io.Copy(dst, src); err != nil {
+		dst.Close()
+		return "", fmt.Errorf("failed to write file: %w", err)
+	}
+	if err := dst.Close(); err != nil {
 		return "", fmt.Errorf("failed to write file: %w", err)
 	}
 
-	if prefix == "" {
-		return name, nil
+	key := name
+	if prefix != "" {
+		key = prefix + "/" + name
 	}
-	return prefix + "/" + name, nil
+	// Keep the S3 ETag cache in step with the replaced file.
+	if _, err := storage.New(e.dataDir).RefreshObjectETag(bucket, key); err != nil {
+		return "", fmt.Errorf("failed to read uploaded file: %w", err)
+	}
+	return key, nil
 }
 
 // ObjectInfo returns metadata about a specific file.

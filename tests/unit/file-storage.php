@@ -93,6 +93,26 @@ file_put_contents($customDataDir . '/.htaccess', 'custom');
 (new FileStorage($customDataDir))->ensureDataDirExists();
 assertSameValue('custom', file_get_contents($customDataDir . '/.htaccess'), 'existing htaccess is not overwritten');
 
+// ETag: quoted MD5, cached while mtime and size are unchanged.
+$etagRoot = sys_get_temp_dir() . '/mini-s3-etag-' . bin2hex(random_bytes(4));
+$etagStorage = new FileStorage($etagRoot);
+$etagStorage->createBucket('b');
+mkdir($etagRoot . '/b/dir', 0777, true);
+file_put_contents($etagRoot . '/b/dir/file.txt', 'hello');
+$etagMtime = (int) filemtime($etagRoot . '/b/dir/file.txt');
+assertSameValue('"' . md5('hello') . '"', $etagStorage->objectETag('b', 'dir/file.txt', $etagMtime, 5), 'objectETag is the quoted MD5');
+$cacheFiles = glob($etagRoot . '/.etag-cache/*/*') ?: [];
+assertSameValue(1, count($cacheFiles), 'objectETag stores one cache entry');
+assertSameValue($etagMtime . ' 5 ' . md5('hello') . "\n", (string) @file_get_contents($cacheFiles[0] ?? ''), 'cache entry format is "<mtime> <size> <md5>"');
+file_put_contents($cacheFiles[0], $etagMtime . ' 5 ' . str_repeat('a', 32) . "\n");
+assertSameValue('"' . str_repeat('a', 32) . '"', $etagStorage->objectETag('b', 'dir/file.txt', $etagMtime, 5), 'cached MD5 is reused while mtime and size match');
+assertSameValue('"' . md5('hello') . '"', $etagStorage->objectETag('b', 'dir/file.txt', $etagMtime + 1, 5), 'cache is ignored when mtime changes');
+file_put_contents($etagRoot . '/b/dir/file.txt', 'HELLO');
+assertSameValue('"' . md5('HELLO') . '"', $etagStorage->refreshObjectETag('b', 'dir/file.txt'), 'refresh recomputes after a same-size rewrite');
+assertSameValue('"' . md5('HELLO') . '"', $etagStorage->objectETag('b', 'dir/file.txt', (int) filemtime($etagRoot . '/b/dir/file.txt'), 5), 'refreshed MD5 is cached');
+assertSameValue([], array_map('basename', array_filter(glob($etagRoot . '/*', GLOB_ONLYDIR) ?: [], fn($d) => basename($d) !== 'b')), 'cache directory is hidden from bucket globs');
+removeTreeForTest($etagRoot);
+
 removeTreeForTest($base);
 removeTreeForTest($attackRoot);
 removeTreeForTest($htRoot);

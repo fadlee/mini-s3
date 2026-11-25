@@ -70,12 +70,6 @@ final class RequestValidator
         return (int) $contentLength > $maxRequestSize;
     }
 
-    public function objectEtag(int $mtime, int $size): string
-    {
-        // Not an MD5: the "-" keeps clients from verifying it as a content hash.
-        return '"' . dechex($mtime) . '-' . dechex($size) . '"';
-    }
-
     public function isNotModified(?string $ifNoneMatch, ?string $ifModifiedSince, string $etag, int $mtime): bool
     {
         if ($ifNoneMatch !== null && trim($ifNoneMatch) !== '') {

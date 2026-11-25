@@ -362,7 +362,7 @@ assertEq('416', metaStatus($tmpDir . '/range-invalid.meta', $phpBin), 'Invalid r
 
 $objectPath = $root . '/data/' . $testBucket . '/' . $testKey;
 clearstatcache();
-$objectEtag = '"' . dechex((int) filemtime($objectPath)) . '-' . dechex((int) filesize($objectPath)) . '"';
+$objectEtag = '"' . md5_file($objectPath) . '"';
 $objectUri = '/' . $testBucket . '/' . $testKey;
 runRequest($phpBin, $requestHelper, 'GET', $objectUri, null, $tmpDir . '/inm.body', $tmpDir . '/inm.meta', ['Host: ' . $signHost, 'If-None-Match: ' . $objectEtag]);
 assertEq('304', metaStatus($tmpDir . '/inm.meta', $phpBin), 'Matching If-None-Match should return 304');

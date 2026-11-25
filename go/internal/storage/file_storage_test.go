@@ -2,7 +2,9 @@ package storage
 
 import (
 	"bytes"
+	"crypto/md5"
 	"encoding/hex"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -180,5 +182,55 @@ func TestMultipartUpload(t *testing.T) {
 	st.CleanupMultipartUpload(bucket, key, uploadID)
 	if st.MultipartDirExists(bucket, key, uploadID) {
 		t.Error("multipart dir should be cleaned up")
+	}
+}
+
+func TestObjectETagIsCachedMD5(t *testing.T) {
+	dataDir := t.TempDir()
+	st := New(dataDir)
+	path := filepath.Join(dataDir, "b", "dir", "file.txt")
+	if err := os.MkdirAll(filepath.Dir(path), 0777); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte("hello"), 0666); err != nil {
+		t.Fatal(err)
+	}
+	info, _ := os.Stat(path)
+	mtime := info.ModTime().Unix()
+	const helloMD5 = `"5d41402abc4b2a76b9719d911017c592"`
+
+	etag, err := st.ObjectETag("b", "dir/file.txt", mtime, 5)
+	if err != nil || etag != helloMD5 {
+		t.Fatalf("ObjectETag = %q %v, want %s", etag, err, helloMD5)
+	}
+	entries, _ := filepath.Glob(filepath.Join(dataDir, ".etag-cache", "*", "*"))
+	if len(entries) != 1 {
+		t.Fatalf("cache entries = %v, want one", entries)
+	}
+	data, _ := os.ReadFile(entries[0])
+	if want := fmt.Sprintf("%d 5 5d41402abc4b2a76b9719d911017c592\n", mtime); string(data) != want {
+		t.Errorf("cache entry = %q, want %q (same format as the PHP edition)", data, want)
+	}
+
+	// The cached MD5 is reused while mtime and size match, ignored otherwise.
+	fake := fmt.Sprintf("%d 5 %s\n", mtime, strings.Repeat("a", 32))
+	if err := os.WriteFile(entries[0], []byte(fake), 0666); err != nil {
+		t.Fatal(err)
+	}
+	if etag, _ := st.ObjectETag("b", "dir/file.txt", mtime, 5); etag != `"`+strings.Repeat("a", 32)+`"` {
+		t.Errorf("cached ETag not reused: %s", etag)
+	}
+	if etag, _ := st.ObjectETag("b", "dir/file.txt", mtime+1, 5); etag != helloMD5 {
+		t.Errorf("stale cache used after mtime change: %s", etag)
+	}
+
+	// A same-size rewrite in the same second is caught by RefreshObjectETag.
+	if err := os.WriteFile(path, []byte("HELLO"), 0666); err != nil {
+		t.Fatal(err)
+	}
+	refreshed, err := st.RefreshObjectETag("b", "dir/file.txt")
+	want := fmt.Sprintf(`"%x"`, md5.Sum([]byte("HELLO")))
+	if err != nil || refreshed != want {
+		t.Errorf("RefreshObjectETag = %q %v, want %s", refreshed, err, want)
 	}
 }

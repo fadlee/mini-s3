@@ -101,12 +101,6 @@ type RangeResult struct {
 	End   int64
 }
 
-// ObjectETag derives an ETag from modification time and size. It is not an
-// MD5: the "-" keeps clients from verifying it as a content hash.
-func (v *RequestValidator) ObjectETag(modTime, size int64) string {
-	return `"` + strconv.FormatInt(modTime, 16) + "-" + strconv.FormatInt(size, 16) + `"`
-}
-
 // IsNotModified evaluates If-None-Match (which takes precedence) and
 // If-Modified-Since against the object's ETag and modification time.
 func (v *RequestValidator) IsNotModified(ifNoneMatch, ifModifiedSince, etag string, modTime int64) bool {

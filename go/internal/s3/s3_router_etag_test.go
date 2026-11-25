@@ -49,6 +49,20 @@ func TestS3RouterReturnsETagsAndCreatesBuckets(t *testing.T) {
 		t.Errorf("PutObject = %d ETag %q, want 200 %q", rec.Code, got, quotedMD5("hello etag\n"))
 	}
 
+	// GET and HEAD return the same MD5 ETag as the PUT, also after a
+	// same-size overwrite within the same second.
+	for _, body := range []string{"hello etag\n", "HELLO ETAG\n"} {
+		call("PUT", "/bucket/hello.txt", body, "hello.txt", router.handlePut)
+		for _, method := range []string{"GET", "HEAD"} {
+			req := httptest.NewRequest(method, "/bucket/hello.txt", nil)
+			got := httptest.NewRecorder()
+			router.ServeHTTP(got, req)
+			if etag := got.Header().Get("ETag"); got.Code != http.StatusOK || etag != quotedMD5(body) {
+				t.Errorf("%s after PUT %q = %d ETag %q, want %q", method, body, got.Code, etag, quotedMD5(body))
+			}
+		}
+	}
+
 	rec = call("POST", "/bucket/multi.bin?uploads", "", "multi.bin", router.handlePost)
 	var initiated struct {
 		UploadID string `xml:"UploadId"`
@@ -75,5 +89,10 @@ func TestS3RouterReturnsETagsAndCreatesBuckets(t *testing.T) {
 	}
 	if got := rec.Header().Get("ETag"); got != quotedMD5(part) {
 		t.Errorf("CompleteMultipartUpload ETag header %q, want %q", got, quotedMD5(part))
+	}
+	head := httptest.NewRecorder()
+	router.ServeHTTP(head, httptest.NewRequest("HEAD", "/bucket/multi.bin", nil))
+	if got := head.Header().Get("ETag"); got != quotedMD5(part) {
+		t.Errorf("HEAD multipart object ETag %q, want %q", got, quotedMD5(part))
 	}
 }

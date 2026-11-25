@@ -105,6 +105,7 @@ PLAN.md "Security-critical ports" before marking any row below `[x]`.
 | `AUTH_DEBUG_LOG` not editable from the UI | [P] | [ ] | Prevents arbitrary file writes from an admin session |
 | Admin password minimum length (8) | [P] | [ ] | |
 | ETag on PutObject / UploadPart / CompleteMultipartUpload (quoted MD5) | [x] | [x] | AWS SDK v2 clients such as Litestream fail with "no ETag returned" without it. Tests: PHP `tests/integration/http-headers.php`, Go `internal/s3/s3_router_etag_test.go` |
+| GET/HEAD ETag = MD5, cached in `<data>/.etag-cache/` | [x] | [x] | Shared layout and format (`<mtime> <size> <md5>`, file name `sha256(bucket NUL key)`), so a data dir can move between editions. Every write path refreshes the entry |
 | CreateBucket (`PUT /bucket`) | [x] | [x] | `aws s3 mb` needs it. Before the fix PHP returned 500 and Go wrote a *file* named after the bucket |
 
 ## Config & infra

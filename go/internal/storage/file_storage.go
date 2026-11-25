@@ -1,6 +1,7 @@
 package storage
 
 import (
+	"crypto/md5"
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
@@ -11,10 +12,16 @@ import (
 	"path/filepath"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 )
 
 const multipartRoot = ".multipart"
+
+// etagCacheRoot holds cached object MD5s. Same layout and format as the PHP
+// edition, so a data directory can be shared:
+// <data>/.etag-cache/<2 hex>/<sha256(bucket NUL key)> holding "<mtime> <size> <md5>".
+const etagCacheRoot = ".etag-cache"
 
 var (
 	ErrRequestTooLarge = errors.New("request body exceeds maximum size")
@@ -237,6 +244,70 @@ func (s *FileStorage) ObjectMetadata(bucket, key string) (*ObjectMetadata, error
 		MimeType: s.detectMimeType(path),
 		ModTime:  info.ModTime().Unix(),
 	}, nil
+}
+
+// ObjectETag returns the quoted MD5 of the object, the ETag S3 returns for
+// single-part objects. The MD5 is cached and reused while the file's mtime
+// (Unix seconds) and size are unchanged, so GET and HEAD do not re-read large
+// files. Every write path calls RefreshObjectETag, which keeps the cache
+// correct even when a file is replaced within the same second by one of the
+// same size.
+func (s *FileStorage) ObjectETag(bucket, key string, modTime, size int64) (string, error) {
+	if data, err := os.ReadFile(s.etagCachePath(bucket, key)); err == nil {
+		fields := strings.Fields(string(data))
+		if len(fields) == 3 && fields[0] == strconv.FormatInt(modTime, 10) && fields[1] == strconv.FormatInt(size, 10) && isMD5Hex(fields[2]) {
+			return `"` + fields[2] + `"`, nil
+		}
+	}
+	return s.RefreshObjectETag(bucket, key)
+}
+
+// RefreshObjectETag recomputes the MD5 of the stored object and updates the cache.
+func (s *FileStorage) RefreshObjectETag(bucket, key string) (string, error) {
+	path := s.ObjectPath(bucket, key)
+	f, err := os.Open(path)
+	if err != nil {
+		return "", err
+	}
+	defer f.Close()
+	info, err := f.Stat()
+	if err != nil {
+		return "", err
+	}
+	h := md5.New()
+	if _, err := io.Copy(h, f); err != nil {
+		return "", err
+	}
+	sum := hex.EncodeToString(h.Sum(nil))
+
+	// Best effort: an unwritable cache only costs a recomputation next time.
+	cachePath := s.etagCachePath(bucket, key)
+	if err := os.MkdirAll(filepath.Dir(cachePath), 0777); err == nil {
+		line := strconv.FormatInt(info.ModTime().Unix(), 10) + " " + strconv.FormatInt(info.Size(), 10) + " " + sum + "\n"
+		tmp := cachePath + ".tmp." + randomSuffix()
+		if os.WriteFile(tmp, []byte(line), 0666) == nil && os.Rename(tmp, cachePath) != nil {
+			os.Remove(tmp)
+		}
+	}
+	return `"` + sum + `"`, nil
+}
+
+func (s *FileStorage) etagCachePath(bucket, key string) string {
+	sum := sha256.Sum256([]byte(bucket + "\x00" + key))
+	name := hex.EncodeToString(sum[:])
+	return filepath.Join(s.dataDir, etagCacheRoot, name[:2], name)
+}
+
+func isMD5Hex(value string) bool {
+	if len(value) != 32 {
+		return false
+	}
+	for _, c := range value {
+		if !(c >= '0' && c <= '9' || c >= 'a' && c <= 'f') {
+			return false
+		}
+	}
+	return true
 }
 
 // OpenObjectReadStream opens the object for reading.

@@ -25,7 +25,7 @@ func TestS3RouterObjectCachingHeaders(t *testing.T) {
 	if err := os.Chtimes(path, modTime, modTime); err != nil {
 		t.Fatal(err)
 	}
-	etag := `"68f95250-c"`
+	etag := quotedMD5("\xff\xd8\xff\xe0fakejpeg")
 	lastModified := "Wed, 22 Oct 2025 21:53:20 GMT"
 	cache := "public, max-age=31536000, immutable"
 	router := New(storage.New(dataDir), auth.New(nil, nil, false, 0, 0, "", false), 1024, true, cache)

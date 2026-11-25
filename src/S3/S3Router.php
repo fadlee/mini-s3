@@ -169,13 +169,13 @@ final class S3Router
             throw $e;
         }
         // S3 clients (AWS SDKs, Litestream) treat a PUT without an ETag as failed.
-        header('ETag: ' . $this->etag($this->storage->objectPath($bucket, $key)));
+        header('ETag: ' . $this->storage->refreshObjectETag($bucket, $key));
         http_response_code(200);
         exit;
     }
 
     /**
-     * Quoted MD5 of the stored bytes, the ETag format S3 uses for single-part objects.
+     * Quoted MD5 of a multipart part, the ETag S3 returns for UploadPart.
      */
     private function etag(string $path): string
     {
@@ -252,7 +252,7 @@ final class S3Router
             }
 
             $scheme = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ? 'https' : 'http';
-            $etag = $this->etag($this->storage->objectPath($bucket, $key));
+            $etag = $this->storage->refreshObjectETag($bucket, $key);
             header('ETag: ' . $etag);
             $this->response->completeMultipartUpload($bucket, $key, $uploadId, $this->request->getHost(), $scheme, $etag);
         }
@@ -337,7 +337,7 @@ final class S3Router
         }
         $fileSize = (int) $metadata['size'];
         $mtime = (int) $metadata['mtime'];
-        $etag = $this->validator->objectEtag($mtime, $fileSize);
+        $etag = $this->storage->objectETag($bucket, $key, $mtime, $fileSize);
         if ($this->isNotModified($etag, $mtime)) {
             $this->response->sendNotModified($etag, $mtime, $this->cacheControl());
             exit;
@@ -408,7 +408,7 @@ final class S3Router
 
         $size = (int) $metadata['size'];
         $mtime = (int) $metadata['mtime'];
-        $etag = $this->validator->objectEtag($mtime, $size);
+        $etag = $this->storage->objectETag($bucket, $key, $mtime, $size);
         if ($this->isNotModified($etag, $mtime)) {
             $this->response->sendNotModified($etag, $mtime, $this->cacheControl());
             exit;
