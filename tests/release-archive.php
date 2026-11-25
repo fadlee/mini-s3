@@ -99,10 +99,10 @@ function smokeBundledEntrypoint(string $root, string $entrypoint, string $tmpDir
     assertFileContains('MINI_S3_CREDENTIALS_JSON', $tmpDir . '/bundle-admin.body', 'bundled installer should say keys come from the environment');
 
     $bundleSource = (string) file_get_contents($entrypoint);
-    preg_match("/ALPINE_VERSION = '([0-9.]+)'/", $bundleSource, $alpineMatch);
-    runRequest($root, 'GET', '/_/assets/alpine-' . ($alpineMatch[1] ?? 'missing') . '.js', null, $tmpDir . '/bundle-alpine.body', $tmpDir . '/bundle-alpine.meta', ['Host: ' . $host], $env);
-    assertEq('200', metaStatus($tmpDir . '/bundle-alpine.meta', $phpBin), 'bundled release should serve self-hosted Alpine');
-    assertFileContains('Alpine', $tmpDir . '/bundle-alpine.body', 'bundled Alpine asset should contain Alpine.js');
+    preg_match("/SCRIPT_HASH = '([0-9a-f]+)'/", $bundleSource, $scriptMatch);
+    runRequest($root, 'GET', '/_/assets/admin-' . ($scriptMatch[1] ?? 'missing') . '.js', null, $tmpDir . '/bundle-script.body', $tmpDir . '/bundle-script.meta', ['Host: ' . $host], $env);
+    assertEq('200', metaStatus($tmpDir . '/bundle-script.meta', $phpBin), 'bundled release should serve the self-hosted admin script');
+    assertFileContains('initExplorer', $tmpDir . '/bundle-script.body', 'bundled admin script should contain the admin UI code');
 
     $bodyFile = $tmpDir . '/bundle-hello.txt';
     file_put_contents($bodyFile, "hello bundled release\n");

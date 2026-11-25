@@ -550,7 +550,7 @@ location ~ ^/(data|config)(/|$) {
 
 #### PHP edition: admin panel
 
-- Admin pages are sent with `Cache-Control: no-store`, `X-Frame-Options: DENY` and a Content Security Policy. Alpine.js is bundled into the release and served from `/_/assets/`, with no third-party CDN.
+- Admin pages are sent with `Cache-Control: no-store`, `X-Frame-Options: DENY` and a Content Security Policy that allows script only from the server itself (no inline script, no `eval`). The admin UI script is plain JavaScript bundled into the release and served from `/_/assets/`, with no third-party CDN.
 - The session cookie is `HttpOnly`, `SameSite=Lax`, limited to `/_`, and `Secure` on HTTPS (including behind a proxy that sends `X-Forwarded-Proto: https`).
 - After 5 failed logins from one IP in 15 minutes, that IP is locked out for 15 minutes. Behind a reverse proxy every client shares the proxy IP, so the lockout then applies to everyone.
 - Log out is a POST with a CSRF token. Admin passwords must be at least 8 characters.

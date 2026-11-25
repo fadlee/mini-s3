@@ -5,7 +5,7 @@ package admin
 const rendererCSS = `:root { --bg: #F5F6F8; --surface: #FFFFFF; --border: #E3E5EA; --line: #EEF0F3; --text: #12141A; --text-2: #3A3F4B; --muted: #5C6270; --accent: #2052B8; --accent-hover: #173F8F; --accent-bg: #EBF0FA; --ok: #1E7A46; --ok-bg: #EAF5EE; --warn: #7A4E00; --warn-bg: #FFF7E6; --warn-border: #F0DDB0; --danger: #A12B27; --danger-bg: #FDF0EF; --danger-border: #F0C9C7; --mono: "Geist Mono", ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace; }
 * { box-sizing: border-box; }
 body { font-family: "Geist", "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; margin: 0; background: var(--bg); color: var(--text); font-size: 14px; line-height: 1.45; -webkit-font-smoothing: antialiased; }
-[x-cloak] { display: none !important; }
+[hidden] { display: none !important; }
 .hidden { display: none !important; }
 .visually-hidden { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 a { color: var(--accent); }
@@ -199,10 +199,11 @@ legend { font-size: 15px; font-weight: 600; padding: 0; margin-bottom: 4px; }
 .drawer dt { color: var(--muted); }
 .drawer dd { margin: 0; word-break: break-all; }
 
-.dialog-shell { position: fixed; inset: 0; z-index: 40; overflow-y: auto; }
-.dialog-overlay { position: fixed; inset: 0; background: rgba(18, 20, 26, 0.35); }
-.dialog-wrap { position: relative; display: flex; min-height: 100vh; align-items: center; justify-content: center; padding: 16px; }
-.dialog-panel { position: relative; width: min(480px, 100%); border-radius: 14px; background: var(--surface); border: 1px solid var(--border); padding: 24px; box-shadow: 0 24px 60px rgba(18, 20, 26, 0.2); }
+.dialog-panel { width: min(480px, calc(100% - 32px)); max-width: none; border-radius: 14px; color: var(--text); background: var(--surface); border: 1px solid var(--border); padding: 24px; box-shadow: 0 24px 60px rgba(18, 20, 26, 0.2); }
+.dialog-panel::backdrop { background: rgba(18, 20, 26, 0.35); }
+.dialog-panel[open] { animation: dialog-in 0.15s ease-out; }
+@keyframes dialog-in { from { opacity: 0; transform: translateY(6px) scale(0.98); } }
+@media (prefers-reduced-motion: reduce) { .dialog-panel[open] { animation: none; } }
 .dialog-close { position: absolute; right: 12px; top: 12px; width: 32px; height: 32px; min-height: 32px; padding: 0; background: transparent; color: var(--muted); border-radius: 50%; font-size: 18px; line-height: 1; }
 .dialog-close:hover { background: var(--bg); color: var(--text); }
 .dialog-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 18px; }
@@ -270,29 +271,3 @@ label > span.field-label { flex: 0 0 220px; }
   .files-table tr { padding: 10px 0; border-top: 1px solid var(--line); }
   .files-table td { border-top: 0; padding: 4px 12px; }
 }`
-
-// filesScriptJS contains the Alpine.js component code for the file explorer,
-// ported verbatim from AdminRenderer.php's filesScript() method.
-const filesScriptJS = `function miniS3Explorer(csrf,bucket,prefix,summary){return {` +
-	`csrf:csrf,bucket:bucket,prefix:prefix,search:"",selectedItems:[],details:null,statusMessage:summary,statusError:false,busy:false,dialogOpen:false,dialogAction:"",dialogTitle:"",dialogMessage:"",dialogPath:"",dialogName:"",dialogShowFile:false,dialogIsConfirm:false,dialogConfirmPayload:null,dialogError:"",` +
-	`init(){const key="miniS3:"+this.bucket+":"+this.prefix;const saved=sessionStorage.getItem(key);if(saved){try{const s=JSON.parse(saved);if(typeof s.search==="string"){this.search=s.search;this.$nextTick(()=>this.filterList());}if(typeof s.scrollY==="number"){this.$nextTick(()=>window.scrollTo(0,s.scrollY));}}catch(e){}sessionStorage.removeItem(key);}},` +
-	`openDetails(info){this.details=info;},` +
-	`saveState(){sessionStorage.setItem("miniS3:"+this.bucket+":"+this.prefix,JSON.stringify({search:this.search,scrollY:window.scrollY}));},` +
-	`filterList(){const q=this.search.trim().toLowerCase();document.querySelectorAll("[data-searchable]").forEach((el)=>{el.classList.toggle("hidden",q!==""&&!String(el.dataset.searchable||"").includes(q));});},` +
-	`visibleCheckboxes(){return Array.from(document.querySelectorAll(".files-table tbody tr:not(.hidden) input[type=checkbox]"));},` +
-	`get allSelected(){const boxes=this.visibleCheckboxes();return boxes.length>0&&boxes.every((b)=>this.selectedItems.includes(b.value));},` +
-	`toggleSelectAll(checked){const values=this.visibleCheckboxes().map((b)=>b.value);if(checked){this.selectedItems=Array.from(new Set([...this.selectedItems,...values]));}else{this.selectedItems=this.selectedItems.filter((v)=>!values.includes(v));}},` +
-	`setStatus(message,isError=false){if(this.dialogOpen){this.dialogError=isError?message:"";return;}this.statusMessage=message;this.statusError=isError;},` +
-	`openDialog(title,message,action,path,name,showFile){this.dialogIsConfirm=false;this.dialogConfirmPayload=null;this.dialogError="";this.dialogTitle=title;this.dialogMessage=message||"";this.dialogAction=action;this.dialogPath=path||"";this.dialogName=name||"";this.dialogShowFile=showFile;this.dialogOpen=true;this.busy=false;if(!showFile){this.$nextTick(()=>{const el=this.$refs.dialogNameInput;if(el){el.focus();el.select();}});}},` +
-	`openConfirm(title,message,payload){this.dialogIsConfirm=true;this.dialogConfirmPayload=payload;this.dialogError="";this.dialogTitle=title;this.dialogMessage=message||"";this.dialogAction="";this.dialogPath="";this.dialogName="";this.dialogShowFile=false;this.dialogOpen=true;this.busy=false;},` +
-	`openCreateBucket(){this.openDialog("Create bucket","Enter a new bucket name.","create_bucket","","",false);},` +
-	`openCreateFolder(){this.openDialog("Create folder","Create a folder inside the current bucket.","create_folder","","",false);},` +
-	`openUpload(){this.openDialog("Upload file","Upload to the current folder.","upload","","",true);},` +
-	`renameBucket(name){this.openDialog("Rename bucket","Choose a new bucket name.","rename_bucket",name,name,false);},` +
-	`renameObject(path,name){this.openDialog("Rename item","Choose a new name.","rename_object",path,name,false);},` +
-	`deleteBucket(name){this.openConfirm("Delete bucket","Delete bucket "+name+" and all its contents?",{action:"delete_bucket",csrf_token:this.csrf,bucket:name});},` +
-	`deleteObject(path){this.openConfirm("Delete item","Delete "+path+"? This cannot be undone.",{action:"delete_object",csrf_token:this.csrf,bucket:this.bucket,path:path});},` +
-	`bulkDelete(){if(this.selectedItems.length===0){this.setStatus("Select at least one item.",true);return;}this.openConfirm("Delete selected","Delete "+this.selectedItems.length+" selected item(s)?",{action:"bulk_delete",csrf_token:this.csrf,bucket:this.bucket,prefix:this.prefix,items:this.selectedItems});},` +
-	`submitDialog(){if(this.dialogIsConfirm){if(this.dialogConfirmPayload){this.request(this.dialogConfirmPayload);}return;}if(this.dialogAction!=="upload"&&this.dialogName.trim()===""){this.setStatus("Name is required.",true);return;}if(this.dialogAction==="upload"){const file=this.$refs.uploadFile?.files?.[0];if(!file){this.setStatus("Choose a file first.",true);return;}const fd=new FormData();fd.append("csrf_token",this.csrf);fd.append("action","upload");fd.append("bucket",this.bucket);fd.append("prefix",this.prefix);fd.append("file",file);this.request(fd,true);return;}const payload={action:this.dialogAction,csrf_token:this.csrf,bucket:this.bucket,prefix:this.prefix};if(this.dialogAction==="create_bucket"||this.dialogAction==="rename_bucket"){payload.name=this.dialogName.trim();}if(this.dialogAction==="create_folder"){payload.path=this.prefix?this.prefix+"/"+this.dialogName.trim():this.dialogName.trim();}if(this.dialogAction==="rename_object"){payload.path=this.dialogPath;payload.name=this.dialogName.trim();}this.request(payload);},` +
-	`async request(payload,isForm=false){if(this.busy){return;}this.busy=true;this.setStatus("",false);const options={method:"POST",headers:{Accept:"application/json"}};if(isForm){options.body=payload;}else{const fd=new FormData();Object.entries(payload).forEach(([key,value])=>{if(Array.isArray(value)){value.forEach((item)=>fd.append(key+"[]",item));}else{fd.append(key,String(value));}});options.body=fd;}try{const res=await fetch("/_/files",options);const data=await res.json().catch(()=>({ok:false,message:"Invalid response"}));if(!res.ok||!data.ok){this.setStatus(data.message||"Request failed",true);this.busy=false;return;}this.saveState();window.location.href=data.redirect||"/_/files";}catch(e){this.setStatus("Request failed. Check your connection and try again.",true);this.busy=false;}}` +
-	`}}`

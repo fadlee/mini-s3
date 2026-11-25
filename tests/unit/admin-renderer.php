@@ -18,6 +18,15 @@ function assertContainsText(string $needle, string $haystack, string $message): 
     }
 }
 
+function assertTrue(bool $condition, string $message): void
+{
+    global $failures;
+    if (!$condition) {
+        $failures++;
+        fwrite(STDERR, "[FAIL] {$message}" . PHP_EOL);
+    }
+}
+
 function assertNotContainsText(string $needle, string $haystack, string $message): void
 {
     global $failures;
@@ -68,7 +77,10 @@ assertContainsText('Upgrade ready', $html, 'flash message is rendered');
 assertContainsText('<form method="post" action="/_/logout" class="plain nav-logout"><input type="hidden" name="csrf_token" value="csrf-token">', $html, 'logout is a CSRF-protected POST');
 assertNotContainsText('href="/_/logout"', $html, 'logout is not a GET link');
 assertNotContainsText('unpkg.com', $html, 'no third-party CDN scripts');
-assertContainsText('<script defer src="/_/assets/alpine-' . MiniS3\Admin\AdminAssets::ALPINE_VERSION . '.js"></script>', $html, 'self-hosted Alpine is loaded');
+assertContainsText('<script defer src="/_/assets/admin-' . MiniS3\Admin\AdminAssets::SCRIPT_HASH . '.js"></script>', $html, 'self-hosted admin script is loaded');
+$adminJsSource = (string) file_get_contents(__DIR__ . '/../../go/internal/admin/assets/admin.js');
+assertTrue(MiniS3\Admin\AdminAssets::script() === $adminJsSource, 'AdminAssets matches admin.js (run php scripts/build-admin-assets.php)');
+assertTrue(MiniS3\Admin\AdminAssets::SCRIPT_HASH === substr(hash('sha256', $adminJsSource), 0, 12), 'script hash matches admin.js, as the Go edition computes it');
 assertContainsText('<a class="nav-link" href="/_" aria-current="page">', $html, 'current nav item is marked');
 assertNotContainsText('href="/_/files" aria-current', $html, 'other nav items are not marked');
 assertContainsText('<div class="error" role="alert">boom</div>', (new AdminRenderer())->dashboard(['data_dir' => '', 'status' => 'ok', 'bucket_count' => 1, 'object_count' => 0, 'total_bytes' => 0], [], '', [], 'Error: boom', 'csrf-token'), 'error flash renders as error');
@@ -130,7 +142,9 @@ assertContainsText('"awscli"', $keysHtml, 'AWS CLI snippet is available');
 assertContainsText('force_path_style = true', $keysHtml, 'rclone snippet is available');
 assertContainsText('forcePathStyle: true', $keysHtml, 'JavaScript snippet is available');
 assertContainsText('AWS_USE_PATH_STYLE_ENDPOINT=true', $keysHtml, 'Laravel snippet is available');
-assertContainsText('function miniS3Keys()', $keysHtml, 'keys script is rendered');
+assertContainsText('<div data-keys>', $keysHtml, 'keys page is wired to the admin script');
+assertContainsText('<option value="AKREADONLY" selected>', $keysHtml, 'the new key is selected in the snippet picker');
+assertContainsText('data-tab="laravel">Laravel</button>', $keysHtml, 'snippet tabs are rendered on the server');
 
 $envKeysHtml = (new AdminRenderer())->keys(['envkey' => ['secret' => 's', 'access' => 'readwrite', 'label' => '', 'created' => 0]], 'https://s3.example.test', 'csrf-token', '', '', true);
 assertContainsText('MINI_S3_CREDENTIALS_JSON', $envKeysHtml, 'env-managed keys explain where they come from');
@@ -159,19 +173,19 @@ $filesHtml = (new AdminRenderer())->files([
     ],
 ], 'photos', '', 'csrf-token', 'Ready');
 assertContainsText('href="/_/files"', $filesHtml, 'files page renders breadcrumb root');
-assertContainsText('x-data="miniS3Explorer(', $filesHtml, 'files page initializes Alpine explorer');
-assertContainsText('x-on:click="openUpload()"', $filesHtml, 'files page renders upload action');
+assertContainsText('<div data-explorer data-csrf="csrf-token" data-bucket="photos" data-prefix="">', $filesHtml, 'files page is wired to the admin script');
+assertContainsText('data-action="upload"', $filesHtml, 'files page renders upload action');
 assertContainsText('cover.png', $filesHtml, 'files page renders file name');
 assertContainsText('download=1', $filesHtml, 'files page renders download link');
 assertContainsText('path=cover.png&download=0', $filesHtml, 'raster image preview thumbnail is rendered');
 assertNotContainsText('path=logo.svg&download=0', $filesHtml, 'svg files get no inline preview');
-assertContainsText('x-model="search"', $filesHtml, 'files page renders Alpine search binding');
-assertContainsText('x-dialog x-model="dialogOpen"', $filesHtml, 'files page renders Alpine dialog');
-assertContainsText('renameObject(\'cover.png\', \'cover.png\')', $filesHtml, 'files page renders Alpine rename handler');
-assertContainsText('function miniS3Explorer(csrf,bucket,prefix,summary)', $filesHtml, 'files page renders Alpine component factory');
+assertContainsText('data-filter', $filesHtml, 'files page renders the filter box');
+assertContainsText('<dialog class="dialog-panel"', $filesHtml, 'files page renders a native dialog');
+assertContainsText('data-action="rename-object" data-path="cover.png" data-name="cover.png"', $filesHtml, 'files page renders rename action');
+assertContainsText('data-status>1 folders, 2 files</div>', $filesHtml, 'files page renders the listing summary');
 assertContainsText('New bucket', $filesHtml, 'files page renders create bucket action');
-assertContainsText('x-on:click="openDetails(', $filesHtml, 'clicking a file opens its details');
-assertNotContainsText('window.location.href=\'/_/files?bucket=photos&path=cover.png&download=1\'', $filesHtml, 'clicking a file row does not download it');
+assertContainsText('data-details="', $filesHtml, 'clicking a file opens its details');
+assertNotContainsText('data-href="/_/files?bucket=photos&amp;path=cover.png&amp;download=1"', $filesHtml, 'clicking a file row does not download it');
 assertContainsText('class="drawer"', $filesHtml, 'files page renders the details drawer');
 assertContainsText('class="bucket-rail"', $filesHtml, 'bucket rail is shown inside a bucket');
 $dashboardWithBuckets = (new AdminRenderer())->dashboard(['data_dir' => '/d', 'status' => 'ok', 'bucket_count' => 1, 'object_count' => 2, 'total_bytes' => 10, 'buckets' => [['name' => 'pics <x>', 'object_count' => 2, 'total_bytes' => 10]]], ['CREDENTIALS' => ['k' => ['secret' => 's', 'access' => 'read', 'label' => '', 'created' => 0]]], 'https://s3.example.test', [], '', 'csrf-token');
@@ -196,6 +210,15 @@ $unavailableHtml = (new AdminRenderer())->dashboard([
 assertContainsText('Auto-upgrade is only available for generated release installs.', $unavailableHtml, 'unavailable update state is rendered');
 assertNotContainsText('Upgrade to', $unavailableHtml, 'unavailable state has no upgrade button');
 assertNotContainsText('Check update', $unavailableHtml, 'source install has no check update button');
+
+// Pages get all behaviour from the admin script, so the CSP can forbid inline
+// script: no inline <script> code, inline event handlers or Alpine directives.
+$warningHtml = (new AdminRenderer())->dashboard(['data_dir' => '', 'status' => 'ok', 'bucket_count' => 0, 'object_count' => 0, 'total_bytes' => 0], [], '', [], '', 'csrf-token', ['http' => 'Served over HTTP.']);
+assertContainsText('data-dismiss-key="miniS3:dismiss:http"', $warningHtml, 'warnings can be dismissed');
+foreach (['dashboard' => $html, 'warnings' => $warningHtml, 'login' => $loginHtml, 'installer' => $installerHtml, 'settings' => $settingsHtml, 'security' => $securityHtml, 'keys' => $keysHtml, 'files' => $filesHtml] as $page => $pageHtml) {
+    $found = preg_match('/<script(?![^>]*\b(?:src=|type="application\/json"))[^>]*>|\son[a-z]+=|\sx-[a-z]+|@click/', $pageHtml, $match);
+    assertTrue($found === 0, $page . ' page has no inline behaviour' . ($found ? ': ' . $match[0] : ''));
+}
 
 if ($failures > 0) {
     exit(1);

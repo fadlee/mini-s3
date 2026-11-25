@@ -45,14 +45,14 @@ func (r *AdminRenderer) Login(errMsg, csrfToken string) string {
 		b.WriteString(r.e(errMsg))
 		b.WriteString(`</span></div>`)
 	}
-	b.WriteString(`<form method="post" action="/_" x-data="{ show: false }">`)
+	b.WriteString(`<form method="post" action="/_">`)
 	b.WriteString(`<input type="hidden" name="csrf_token" value="`)
 	b.WriteString(r.e(csrfToken))
 	b.WriteString(`">`)
 	b.WriteString(`<label>Username<input name="username" autocomplete="username" required autofocus></label>`)
 	b.WriteString(`<div class="stack"><label for="login-password">Password</label>`)
-	b.WriteString(`<div class="password-row"><input id="login-password" type="password" name="password" autocomplete="current-password" required x-bind:type="show ? 'text' : 'password'">`)
-	b.WriteString(`<button type="button" aria-label="Show password" x-bind:aria-pressed="show.toString()" x-on:click="show = !show" x-text="show ? 'Hide' : 'Show'">Show</button></div></div>`)
+	b.WriteString(`<div class="password-row"><input id="login-password" type="password" name="password" autocomplete="current-password" required>`)
+	b.WriteString(`<button type="button" aria-label="Show password" aria-pressed="false" data-toggle-password="login-password">Show</button></div></div>`)
 	b.WriteString(`<button type="submit">Sign in</button>`)
 	b.WriteString(`</form>`)
 	b.WriteString(`<details><summary>Forgot the password?</summary>`)
@@ -118,40 +118,37 @@ func (r *AdminRenderer) Files(buckets []BucketInfo, listing *ListObjectsResult, 
 	summary := fmt.Sprintf("%d folders, %d files", folderCount, fileCount)
 
 	var b strings.Builder
-	b.WriteString(`<div x-data="miniS3Explorer(`)
-	b.WriteString(jsString(csrfToken))
-	b.WriteString(`, `)
-	b.WriteString(jsString(currentBucket))
-	b.WriteString(`, `)
-	b.WriteString(jsString(currentPrefix))
-	b.WriteString(`, `)
-	b.WriteString(jsString(summary))
-	b.WriteString(`)" x-init="init()">`)
+	b.WriteString(`<div data-explorer data-csrf="`)
+	b.WriteString(r.e(csrfToken))
+	b.WriteString(`" data-bucket="`)
+	b.WriteString(r.e(currentBucket))
+	b.WriteString(`" data-prefix="`)
+	b.WriteString(r.e(currentPrefix))
+	b.WriteString(`">`)
 	b.WriteString(r.flashMessage(flashMessage))
 	b.WriteString(`<div class="files-layout">`)
 	b.WriteString(r.bucketRail(buckets, currentBucket))
 	b.WriteString(`<div class="files-main">`)
 	b.WriteString(r.filesBreadcrumbs(currentBucket, currentPrefix))
 	b.WriteString(`<div class="toolbar">`)
-	b.WriteString(`<div class="toolbar-group toolbar-grow"><input type="search" aria-label="Filter this list" placeholder="Filter this list" x-model="search" x-on:input="filterList()"></div>`)
+	b.WriteString(`<div class="toolbar-group toolbar-grow"><input type="search" aria-label="Filter this list" placeholder="Filter this list" data-filter></div>`)
 	b.WriteString(`<div class="toolbar-group">`)
-	b.WriteString(`<button type="button" class="secondary" x-on:click="openCreateBucket()">New bucket</button>`)
+	b.WriteString(`<button type="button" class="secondary" data-action="create-bucket">New bucket</button>`)
 	if currentBucket != "" {
-		b.WriteString(`<button type="button" class="secondary" x-on:click="openCreateFolder()">New folder</button><button type="button" x-on:click="openUpload()">Upload file</button>`)
+		b.WriteString(`<button type="button" class="secondary" data-action="create-folder">New folder</button><button type="button" data-action="upload">Upload file</button>`)
 	}
 	b.WriteString(`</div></div>`)
 	if currentBucket == "" {
 		b.WriteString(r.bucketGrid(buckets))
 	} else {
-		b.WriteString(r.objectTable(currentBucket, currentPrefix, listing))
+		b.WriteString(r.objectTable(currentBucket, currentPrefix, listing, summary))
 	}
 	b.WriteString(`</div>`)
 	if currentBucket != "" {
 		b.WriteString(fileDrawerHTML)
 	}
 	b.WriteString(`</div>`)
-	b.WriteString(r.filesModal())
-	b.WriteString(r.filesScript())
+	b.WriteString(filesModalHTML)
 	b.WriteString(`</div>`)
 	return r.layout("Buckets & files", b.String(), true)
 }
@@ -319,16 +316,13 @@ func (r *AdminRenderer) document(title, body string) string {
 	b.WriteString(rendererCSS)
 	b.WriteString(`</style>`)
 	b.WriteString(`<script defer src="`)
-	b.WriteString(r.e(alpinePath))
+	b.WriteString(r.e(adminScriptPath))
 	b.WriteString(`"></script>`)
 	b.WriteString(`</head><body>`)
 	b.WriteString(body)
-	b.WriteString(copyScript)
 	b.WriteString(`</body></html>`)
 	return b.String()
 }
-
-const copyScript = `<script>document.addEventListener("click",function(e){var b=e.target.closest("[data-copy]");if(!b||!navigator.clipboard){return;}navigator.clipboard.writeText(b.getAttribute("data-copy")).then(function(){var t=b.textContent;b.textContent="Copied";setTimeout(function(){b.textContent=t;},1200);});});</script>`
 
 func (r *AdminRenderer) filesBreadcrumbs(currentBucket, currentPrefix string) string {
 	var b strings.Builder
@@ -385,8 +379,8 @@ func (r *AdminRenderer) bucketGrid(buckets []BucketInfo) string {
 		b.WriteString(r.e(formatBytes(bucket.TotalBytes)))
 		b.WriteString(`</p>`)
 		b.WriteString(`<div class="row-actions">`)
-		b.WriteString(r.iconButton(iconRename, "Rename", `x-on:click="renameBucket(`+jsString(name)+`)"`, ""))
-		b.WriteString(r.iconButton(iconDelete, "Delete", `x-on:click="deleteBucket(`+jsString(name)+`)"`, "danger"))
+		b.WriteString(r.iconButton(iconRename, "Rename", `data-action="rename-bucket" data-name="`+r.e(name)+`"`, ""))
+		b.WriteString(r.iconButton(iconDelete, "Delete", `data-action="delete-bucket" data-name="`+r.e(name)+`"`, "danger"))
 		b.WriteString(`</div></section>`)
 	}
 	b.WriteString(`</div>`)
@@ -416,7 +410,7 @@ func (r *AdminRenderer) bucketRail(buckets []BucketInfo, currentBucket string) s
 	return b.String()
 }
 
-func (r *AdminRenderer) objectTable(bucket, prefix string, listing *ListObjectsResult) string {
+func (r *AdminRenderer) objectTable(bucket, prefix string, listing *ListObjectsResult, summary string) string {
 	var folders []FolderInfo
 	var files []FileInfo
 	if listing != nil {
@@ -425,11 +419,13 @@ func (r *AdminRenderer) objectTable(bucket, prefix string, listing *ListObjectsR
 	}
 
 	var b strings.Builder
-	b.WriteString(`<div class="status-line muted" x-bind:class="statusError ? 'error-text' : ''" x-text="statusMessage"></div>`)
-	b.WriteString(`<div class="selection-bar" x-show="selectedItems.length" x-cloak><span x-text="selectedItems.length + ' selected'"></span>`)
-	b.WriteString(`<button type="button" class="danger" x-on:click="bulkDelete()">Delete selected</button>`)
-	b.WriteString(`<button type="button" class="link-button" x-on:click="selectedItems = []">Clear</button></div>`)
-	b.WriteString(`<section class="panel panel-flush"><div class="files-table-wrap"><table class="files-table"><thead><tr><th><input type="checkbox" x-bind:checked="allSelected" x-on:change="toggleSelectAll($event.target.checked)" aria-label="Select all"></th><th>Name</th><th>Size</th><th>Modified</th><th><span class="visually-hidden">Actions</span></th></tr></thead><tbody>`)
+	b.WriteString(`<div class="status-line muted" role="status" data-status>`)
+	b.WriteString(r.e(summary))
+	b.WriteString(`</div>`)
+	b.WriteString(`<div class="selection-bar" data-selection-bar hidden><span data-selection-count></span>`)
+	b.WriteString(`<button type="button" class="danger" data-action="bulk-delete">Delete selected</button>`)
+	b.WriteString(`<button type="button" class="link-button" data-action="clear-selection">Clear</button></div>`)
+	b.WriteString(`<section class="panel panel-flush"><div class="files-table-wrap"><table class="files-table"><thead><tr><th><input type="checkbox" data-select-all aria-label="Select all"></th><th>Name</th><th>Size</th><th>Modified</th><th><span class="visually-hidden">Actions</span></th></tr></thead><tbody>`)
 
 	if prefix != "" {
 		parent := parentDir(prefix)
@@ -446,11 +442,11 @@ func (r *AdminRenderer) objectTable(bucket, prefix string, listing *ListObjectsR
 		folderURL := `/_/files?bucket=` + url.QueryEscape(bucket) + `&prefix=` + url.QueryEscape(path)
 		b.WriteString(`<tr class="row-clickable" data-searchable="`)
 		b.WriteString(r.e(strings.ToLower(name)))
-		b.WriteString(`" x-on:click="window.location.href=`)
-		b.WriteString(jsString(folderURL))
-		b.WriteString(`"><td x-on:click.stop><input type="checkbox" value="`)
+		b.WriteString(`" data-href="`)
+		b.WriteString(r.e(folderURL))
+		b.WriteString(`"><td data-stop><input type="checkbox" data-select value="`)
 		b.WriteString(r.e(path))
-		b.WriteString(`" x-model="selectedItems" aria-label="Select `)
+		b.WriteString(`" aria-label="Select `)
 		b.WriteString(r.e(name))
 		b.WriteString(`"></td><td><a href="`)
 		b.WriteString(folderURL)
@@ -460,9 +456,9 @@ func (r *AdminRenderer) objectTable(bucket, prefix string, listing *ListObjectsR
 		b.WriteString(r.e(fmt.Sprintf("%d", folder.ObjectCount)))
 		b.WriteString(` items</td><td class="num">`)
 		b.WriteString(r.e(formatDate(folder.Modified)))
-		b.WriteString(`</td><td x-on:click.stop><div class="row-actions">`)
-		b.WriteString(r.iconButton(iconRename, "Rename", `x-on:click="renameObject(`+jsString(path)+`, `+jsString(name)+`)"`, ""))
-		b.WriteString(r.iconButton(iconDelete, "Delete", `x-on:click="deleteObject(`+jsString(path)+`)"`, "danger"))
+		b.WriteString(`</td><td data-stop><div class="row-actions">`)
+		b.WriteString(r.iconButton(iconRename, "Rename", r.objectAttrs("rename-object", path, name), ""))
+		b.WriteString(r.iconButton(iconDelete, "Delete", r.objectAttrs("delete-object", path, name), "danger"))
 		b.WriteString(`</div></td></tr>`)
 	}
 
@@ -487,27 +483,23 @@ func (r *AdminRenderer) objectTable(bucket, prefix string, listing *ListObjectsR
 		}))
 		b.WriteString(`<tr class="row-clickable" data-searchable="`)
 		b.WriteString(r.e(strings.ToLower(name)))
-		b.WriteString(`" x-on:click="openDetails(`)
+		b.WriteString(`" data-details="`)
 		b.WriteString(details)
-		b.WriteString(`)" x-bind:class="details &amp;&amp; details.path === `)
-		b.WriteString(r.e(jsString(path)))
-		b.WriteString(` ? 'is-active' : ''"><td x-on:click.stop><input type="checkbox" value="`)
+		b.WriteString(`"><td data-stop><input type="checkbox" data-select value="`)
 		b.WriteString(r.e(path))
-		b.WriteString(`" x-model="selectedItems" aria-label="Select `)
+		b.WriteString(`" aria-label="Select `)
 		b.WriteString(r.e(name))
-		b.WriteString(`"></td><td><button type="button" class="link-button file-name" x-on:click.stop="openDetails(`)
-		b.WriteString(details)
-		b.WriteString(`)">`)
+		b.WriteString(`"></td><td><button type="button" class="link-button file-name" data-action="details">`)
 		b.WriteString(icon)
 		b.WriteString(r.e(name))
 		b.WriteString(`</button></td><td class="num">`)
 		b.WriteString(r.e(formatBytes(file.Size)))
 		b.WriteString(`</td><td class="num">`)
 		b.WriteString(r.e(formatDate(file.Modified)))
-		b.WriteString(`</td><td x-on:click.stop><div class="row-actions">`)
+		b.WriteString(`</td><td data-stop><div class="row-actions">`)
 		b.WriteString(r.iconButton(iconDownload, "Download", `href="`+downloadURL+`"`, "", true))
-		b.WriteString(r.iconButton(iconRename, "Rename", `x-on:click="renameObject(`+jsString(path)+`, `+jsString(name)+`)"`, ""))
-		b.WriteString(r.iconButton(iconDelete, "Delete", `x-on:click="deleteObject(`+jsString(path)+`)"`, "danger"))
+		b.WriteString(r.iconButton(iconRename, "Rename", r.objectAttrs("rename-object", path, name), ""))
+		b.WriteString(r.iconButton(iconDelete, "Delete", r.objectAttrs("delete-object", path, name), "danger"))
 		b.WriteString(`</div></td></tr>`)
 	}
 
@@ -519,14 +511,31 @@ func (r *AdminRenderer) objectTable(bucket, prefix string, listing *ListObjectsR
 	return b.String()
 }
 
-const fileDrawerHTML = `<aside class="drawer" aria-label="File details" x-show="details" x-cloak x-on:keydown.escape.window="if (!dialogOpen) { details = null }">` +
-	`<template x-if="details"><div class="drawer-inner">` +
-	`<div class="drawer-head"><h2 x-text="details.name"></h2><button type="button" class="drawer-close" aria-label="Close details" x-on:click="details = null">&times;</button></div>` +
-	`<template x-if="details.preview"><img class="drawer-preview" x-bind:src="details.preview" x-bind:alt="'Preview of ' + details.name"></template>` +
-	`<div class="drawer-actions"><a class="button" x-bind:href="details.download">Download</a><button type="button" class="secondary" x-on:click="renameObject(details.path, details.name)">Rename</button></div>` +
-	`<dl><dt>Type</dt><dd x-text="details.type"></dd><dt>Size</dt><dd x-text="details.size"></dd><dt>Modified</dt><dd x-text="details.modified"></dd><dt>Key</dt><dd><code x-text="details.path"></code></dd></dl>` +
-	`<button type="button" class="danger-outline" x-on:click="deleteObject(details.path)">Delete file&hellip;</button>` +
-	`</div></template></aside>`
+func (r *AdminRenderer) objectAttrs(action, path, name string) string {
+	return `data-action="` + action + `" data-path="` + r.e(path) + `" data-name="` + r.e(name) + `"`
+}
+
+const fileDrawerHTML = `<aside class="drawer" aria-label="File details" data-drawer hidden><div class="drawer-inner">` +
+	`<div class="drawer-head"><h2 data-detail="name"></h2><button type="button" class="drawer-close" aria-label="Close details" data-action="close-details">&times;</button></div>` +
+	`<img class="drawer-preview" data-detail-preview alt="" hidden>` +
+	`<div class="drawer-actions"><a class="button" data-detail-download href="#">Download</a><button type="button" class="secondary" data-action="rename-object" data-detail-target>Rename</button></div>` +
+	`<dl><dt>Type</dt><dd data-detail="type"></dd><dt>Size</dt><dd data-detail="size"></dd><dt>Modified</dt><dd data-detail="modified"></dd><dt>Key</dt><dd><code data-detail="path"></code></dd></dl>` +
+	`<button type="button" class="danger-outline" data-action="delete-object" data-detail-target>Delete file&hellip;</button>` +
+	`</div></aside>`
+
+const filesModalHTML = `<dialog class="dialog-panel" aria-labelledby="dialog-title" data-dialog>` +
+	`<button type="button" class="dialog-close" data-action="close-dialog" aria-label="Close">&times;</button>` +
+	`<form method="dialog" class="plain">` +
+	`<h2 id="dialog-title" data-dialog-title></h2>` +
+	`<p class="muted" data-dialog-message></p>` +
+	`<div class="dialog-error" role="alert" data-dialog-error hidden></div>` +
+	`<label data-dialog-name-row>Name<input autocomplete="off" data-dialog-name></label>` +
+	`<label data-dialog-file-row hidden>File<input type="file" data-dialog-file></label>` +
+	`<div class="dialog-actions">` +
+	`<button type="button" class="dialog-secondary" data-action="close-dialog">Cancel</button>` +
+	`<button type="submit" data-dialog-submit>Confirm</button>` +
+	`</div>` +
+	`</form></dialog>`
 
 func fileBadge(name string) string {
 	ext := strings.ToUpper(strings.TrimPrefix(filepath.Ext(name), "."))
@@ -566,27 +575,6 @@ func plural(n int, word string) string {
 		return groupThousands(int64(n)) + " " + word
 	}
 	return groupThousands(int64(n)) + " " + word + "s"
-}
-
-func (r *AdminRenderer) filesModal() string {
-	return `<div x-dialog x-model="dialogOpen" x-cloak class="dialog-shell">` +
-		`<div x-dialog:overlay x-transition.opacity class="dialog-overlay"></div>` +
-		`<div class="dialog-wrap">` +
-		`<div x-dialog:panel x-transition class="dialog-panel">` +
-		`<button type="button" class="dialog-close" x-on:click="$dialog.close()" aria-label="Close">&times;</button>` +
-		`<div><h2 x-dialog:title x-text="dialogTitle"></h2>` +
-		`<div class="mt-2 muted"><p x-text="dialogMessage"></p></div></div>` +
-		`<div x-show="dialogError" x-cloak class="dialog-error" x-text="dialogError"></div>` +
-		`<label x-show="!dialogShowFile && !dialogIsConfirm" x-cloak>Name<input x-ref="dialogNameInput" x-model="dialogName" x-on:keydown.enter="submitDialog()"></label>` +
-		`<label x-show="dialogShowFile" x-cloak>File<input type="file" x-ref="uploadFile"></label>` +
-		`<div class="dialog-actions">` +
-		`<button type="button" class="dialog-secondary" x-on:click="$dialog.close()">Cancel</button>` +
-		`<button type="button" x-on:click="submitDialog()" x-bind:disabled="busy" x-bind:class="dialogIsConfirm ? 'danger' : ''" x-text="busy ? 'Working...' : (dialogIsConfirm ? 'Delete' : 'Confirm')"></button>` +
-		`</div></div></div></div>`
-}
-
-func (r *AdminRenderer) filesScript() string {
-	return `<script>` + filesScriptJS + `</script>`
 }
 
 func (r *AdminRenderer) connectPanel(endpoint string) string {
@@ -765,14 +753,13 @@ func (r *AdminRenderer) connectionConfig(cfg *config.Config, endpoint string) st
 
 	return `<section class="panel"><h2>Connection config</h2>` +
 		`<p>Copy these values into applications that need to connect to this Mini S3 server.</p>` +
-		`<div class="snippet-actions"><button type="button" onclick="toggleSensitive(this)">Show sensitive</button></div>` +
+		`<div class="snippet-actions"><button type="button" aria-pressed="false" data-toggle-masked>Show sensitive</button></div>` +
 		`<h3>Generic S3 env vars</h3>` +
-		`<div class="snippet-actions"><button type="button" onclick="copySnippet('generic-snippet')">Copy generic</button></div>` +
+		`<div class="snippet-actions"><button type="button" class="secondary" data-copy="` + r.e(generic) + `">Copy generic</button></div>` +
 		`<pre id="generic-snippet" data-masked="` + r.e(genericMasked) + `" data-full="` + r.e(generic) + `">` + r.e(genericMasked) + `</pre>` +
 		`<h3>Laravel .env</h3>` +
-		`<div class="snippet-actions"><button type="button" onclick="copySnippet('laravel-snippet')">Copy Laravel</button></div>` +
+		`<div class="snippet-actions"><button type="button" class="secondary" data-copy="` + r.e(laravel) + `">Copy Laravel</button></div>` +
 		`<pre id="laravel-snippet" data-masked="` + r.e(laravelMasked) + `" data-full="` + r.e(laravel) + `">` + r.e(laravelMasked) + `</pre>` +
-		`<script>let miniS3ShowSensitive=false;function toggleSensitive(button){miniS3ShowSensitive=!miniS3ShowSensitive;document.querySelectorAll("pre[data-masked]").forEach(function(el){el.textContent=miniS3ShowSensitive?el.dataset.full:el.dataset.masked;});button.textContent=miniS3ShowSensitive?"Hide sensitive":"Show sensitive";}function copySnippet(id){var el=document.getElementById(id);if(!el){return;}navigator.clipboard.writeText(el.textContent);}</script>` +
 		`</section>`
 }
 
@@ -811,25 +798,6 @@ func formatDate(timestamp int64) string {
 		return "-"
 	}
 	return time.Unix(timestamp, 0).UTC().Format("2006-01-02 15:04")
-}
-
-func jsString(value string) string {
-	encoded, err := json.Marshal(value)
-	if err != nil {
-		return "''"
-	}
-	// json.Marshal produces a double-quoted string; convert to single-quoted
-	// with hex-escaped quotes, matching PHP's JSON_HEX_APOS | JSON_HEX_QUOT
-	s := string(encoded)
-	if len(s) < 2 {
-		return "''"
-	}
-	inner := s[1 : len(s)-1]
-	// Escape single quotes and double quotes for JS single-quoted string
-	inner = strings.ReplaceAll(inner, `\u0026`, `&`)
-	inner = strings.ReplaceAll(inner, `\u003c`, `<`)
-	inner = strings.ReplaceAll(inner, `\u003e`, `>`)
-	return "'" + inner + "'"
 }
 
 func mask(value string) string {

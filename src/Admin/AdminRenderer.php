@@ -34,7 +34,7 @@ final class AdminRenderer
 :root { --bg: #F5F6F8; --surface: #FFFFFF; --border: #E3E5EA; --line: #EEF0F3; --text: #12141A; --text-2: #3A3F4B; --muted: #5C6270; --accent: #2052B8; --accent-hover: #173F8F; --accent-bg: #EBF0FA; --ok: #1E7A46; --ok-bg: #EAF5EE; --warn: #7A4E00; --warn-bg: #FFF7E6; --warn-border: #F0DDB0; --danger: #A12B27; --danger-bg: #FDF0EF; --danger-border: #F0C9C7; --mono: "Geist Mono", ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace; }
 * { box-sizing: border-box; }
 body { font-family: "Geist", "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; margin: 0; background: var(--bg); color: var(--text); font-size: 14px; line-height: 1.45; -webkit-font-smoothing: antialiased; }
-[x-cloak] { display: none !important; }
+[hidden] { display: none !important; }
 .hidden { display: none !important; }
 .visually-hidden { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 a { color: var(--accent); }
@@ -228,10 +228,11 @@ legend { font-size: 15px; font-weight: 600; padding: 0; margin-bottom: 4px; }
 .drawer dt { color: var(--muted); }
 .drawer dd { margin: 0; word-break: break-all; }
 
-.dialog-shell { position: fixed; inset: 0; z-index: 40; overflow-y: auto; }
-.dialog-overlay { position: fixed; inset: 0; background: rgba(18, 20, 26, 0.35); }
-.dialog-wrap { position: relative; display: flex; min-height: 100vh; align-items: center; justify-content: center; padding: 16px; }
-.dialog-panel { position: relative; width: min(480px, 100%); border-radius: 14px; background: var(--surface); border: 1px solid var(--border); padding: 24px; box-shadow: 0 24px 60px rgba(18, 20, 26, 0.2); }
+.dialog-panel { width: min(480px, calc(100% - 32px)); max-width: none; border-radius: 14px; color: var(--text); background: var(--surface); border: 1px solid var(--border); padding: 24px; box-shadow: 0 24px 60px rgba(18, 20, 26, 0.2); }
+.dialog-panel::backdrop { background: rgba(18, 20, 26, 0.35); }
+.dialog-panel[open] { animation: dialog-in 0.15s ease-out; }
+@keyframes dialog-in { from { opacity: 0; transform: translateY(6px) scale(0.98); } }
+@media (prefers-reduced-motion: reduce) { .dialog-panel[open] { animation: none; } }
 .dialog-close { position: absolute; right: 12px; top: 12px; width: 32px; height: 32px; min-height: 32px; padding: 0; background: transparent; color: var(--muted); border-radius: 50%; font-size: 18px; line-height: 1; }
 .dialog-close:hover { background: var(--bg); color: var(--text); }
 .dialog-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 18px; }
@@ -332,12 +333,12 @@ CSS;
         $body = '<h1>Sign in to admin</h1>'
             . '<p class="lead">Manage buckets, files and access keys.</p>'
             . $errorHtml
-            . '<form method="post" action="/_" x-data="{ show: false }">'
+            . '<form method="post" action="/_">'
             . $this->csrfField($csrfToken)
             . '<label>Username<input name="username" autocomplete="username" required autofocus></label>'
             . '<div class="stack"><label for="login-password">Password</label>'
-            . '<div class="password-row"><input id="login-password" type="password" name="password" autocomplete="current-password" required x-bind:type="show ? \'text\' : \'password\'">'
-            . '<button type="button" aria-label="Show password" x-bind:aria-pressed="show.toString()" x-on:click="show = !show" x-text="show ? \'Hide\' : \'Show\'">Show</button></div></div>'
+            . '<div class="password-row"><input id="login-password" type="password" name="password" autocomplete="current-password" required>'
+            . '<button type="button" aria-label="Show password" aria-pressed="false" data-toggle-password="login-password">Show</button></div></div>'
             . '<button type="submit">Sign in</button>'
             . '</form>'
             . '<details><summary>Forgot the password?</summary>'
@@ -434,22 +435,17 @@ CSS;
      */
     public function keys(array $credentials, string $endpoint, string $csrfToken, string $flashMessage, string $newKey = '', bool $managedByEnv = false): string
     {
-        $keyList = [];
-        foreach ($credentials as $accessKey => $entry) {
-            $keyList[] = ['key' => (string) $accessKey, 'label' => (string) $entry['label'], 'access' => (string) $entry['access']];
-        }
         $initialSecrets = $newKey !== '' && isset($credentials[$newKey]) ? [$newKey => (string) $credentials[$newKey]['secret']] : [];
         $selected = $newKey !== '' ? $newKey : (string) (array_key_first($credentials) ?? '');
+        $templates = $this->snippetTemplates($endpoint);
         $state = [
             'csrf' => $csrfToken,
-            'keys' => $keyList,
             'secrets' => (object) $initialSecrets,
-            'selected' => $selected,
-            'templates' => $this->snippetTemplates($endpoint),
+            'templates' => $templates,
         ];
 
         $body = '<script type="application/json" id="keys-state">' . $this->jsonForScript($state) . '</script>'
-            . '<div x-data="miniS3Keys()" x-init="init()">'
+            . '<div data-keys>'
             . $this->flashMessage($flashMessage)
             . '<section class="panel"><h2>What are access keys?</h2>'
             . '<p>Apps and tools (AWS CLI, rclone, Laravel, SDKs) connect to Mini S3 with an <strong>access key</strong> and its <strong>secret</strong>. Create one key per app, so you can remove one app without touching the others.</p>'
@@ -464,9 +460,8 @@ CSS;
                 ? '<div class="notice">These keys come from the <code>MINI_S3_CREDENTIALS_JSON</code> environment variable. Change that variable to add or remove keys.</div>'
                 : $this->createKeyForm($csrfToken))
             . $this->keysTable($credentials, $csrfToken, $managedByEnv)
-            . ($credentials === [] ? '' : $this->snippetsPanel())
-            . '</div>'
-            . $this->keysScript();
+            . ($credentials === [] ? '' : $this->snippetsPanel($credentials, $selected, $templates))
+            . '</div>';
 
         return $this->layout('Access keys', $body, $csrfToken);
     }
@@ -474,24 +469,23 @@ CSS;
     public function files(array $buckets, array $listing, string $currentBucket, string $currentPrefix, string $csrfToken, string $flashMessage): string
     {
         $summary = count((array) ($listing['folders'] ?? [])) . ' folders, ' . count((array) ($listing['files'] ?? [])) . ' files';
-        $actions = '<button type="button" class="secondary" x-on:click="openCreateBucket()">New bucket</button>'
-            . ($currentBucket === '' ? '' : '<button type="button" class="secondary" x-on:click="openCreateFolder()">New folder</button><button type="button" x-on:click="openUpload()">Upload file</button>');
-        $body = '<div x-data="miniS3Explorer(' . $this->jsString($csrfToken) . ', ' . $this->jsString($currentBucket) . ', ' . $this->jsString($currentPrefix) . ', ' . $this->jsString($summary) . ')" x-init="init()">'
+        $actions = '<button type="button" class="secondary" data-action="create-bucket">New bucket</button>'
+            . ($currentBucket === '' ? '' : '<button type="button" class="secondary" data-action="create-folder">New folder</button><button type="button" data-action="upload">Upload file</button>');
+        $body = '<div data-explorer data-csrf="' . $this->e($csrfToken) . '" data-bucket="' . $this->e($currentBucket) . '" data-prefix="' . $this->e($currentPrefix) . '">'
             . $this->flashMessage($flashMessage)
             . '<div class="files-layout">'
             . $this->bucketRail($buckets, $currentBucket)
             . '<div class="files-main">'
             . $this->filesBreadcrumbs($currentBucket, $currentPrefix)
             . '<div class="toolbar">'
-            . '<div class="toolbar-group toolbar-grow"><input type="search" aria-label="Filter this list" placeholder="Filter this list" x-model="search" x-on:input="filterList()"></div>'
+            . '<div class="toolbar-group toolbar-grow"><input type="search" aria-label="Filter this list" placeholder="Filter this list" data-filter></div>'
             . '<div class="toolbar-group">' . $actions . '</div>'
             . '</div>'
-            . ($currentBucket === '' ? $this->bucketGrid($buckets) : $this->objectTable($currentBucket, $currentPrefix, $listing))
+            . ($currentBucket === '' ? $this->bucketGrid($buckets) : $this->objectTable($currentBucket, $currentPrefix, $listing, $summary))
             . '</div>'
             . ($currentBucket === '' ? '' : $this->fileDrawer())
             . '</div>'
             . $this->filesModal()
-            . $this->filesScript()
             . '</div>';
 
         return $this->layout('Buckets & files', $body, $csrfToken);
@@ -571,9 +565,9 @@ CSS;
         $html = '';
         foreach ($warnings as $id => $message) {
             $storageKey = 'miniS3:dismiss:' . $id;
-            $html .= '<div class="warning" x-data="{hidden: localStorage.getItem(' . $this->jsString($storageKey) . ') === \'1\'}" x-show="!hidden">'
+            $html .= '<div class="warning" data-dismiss-key="' . $this->e($storageKey) . '">'
                 . '<span>' . $this->e($message) . '</span>'
-                . '<button type="button" class="link-button" x-on:click="localStorage.setItem(' . $this->jsString($storageKey) . ', \'1\'); hidden = true">Dismiss</button>'
+                . '<button type="button" class="link-button" data-dismiss>Dismiss</button>'
                 . '</div>';
         }
 
@@ -700,7 +694,7 @@ CSS;
 
     private function copyButton(string $value, string $label): string
     {
-        return $this->iconButton(self::ICON_COPY, $label, 'x-on:click="copy(' . $this->jsString($value) . ', $el)"');
+        return $this->iconButton(self::ICON_COPY, $label, 'data-copy="' . $this->e($value) . '"');
     }
 
     private function createKeyForm(string $csrfToken): string
@@ -732,13 +726,12 @@ CSS;
             $label = (string) $entry['label'];
             $isRead = $entry['access'] === 'read';
             $created = (int) $entry['created'];
-            $js = $this->jsString($accessKey);
             $rows .= '<tr>'
                 . '<td>' . ($label === '' ? '<span class="muted">No label</span>' : $this->e($label)) . '</td>'
                 . '<td><code>' . $this->e($accessKey) . '</code> ' . $this->copyButton($accessKey, 'Copy access key')
-                . '<div class="secret-row"><code x-show="secrets[' . $js . ']" x-text="secrets[' . $js . ']" x-cloak></code>'
-                . '<button type="button" class="link-button" x-on:click="toggleSecret(' . $js . ')" x-text="secrets[' . $js . '] ? \'Hide secret\' : \'Show secret\'">Show secret</button>'
-                . '<button type="button" class="link-button" x-show="secrets[' . $js . ']" x-cloak x-on:click="copy(secrets[' . $js . '], $el)">Copy secret</button>'
+                . '<div class="secret-row" data-secret-row="' . $this->e($accessKey) . '"><code data-secret-value hidden></code>'
+                . '<button type="button" class="link-button" data-secret-toggle>Show secret</button>'
+                . '<button type="button" class="link-button" data-secret-copy hidden>Copy secret</button>'
                 . '</div></td>'
                 . '<td>' . ($isRead ? '<span class="badge badge-read">Read only</span>' : '<span class="badge badge-rw">Read &amp; write</span>') . '</td>'
                 . '<td>' . ($created > 0 ? $this->e($this->formatDate($created)) : '<span class="muted">-</span>') . '</td>'
@@ -774,21 +767,37 @@ CSS;
             . '</form></details>';
     }
 
-    private function snippetsPanel(): string
+    /**
+     * @param array<string, array{secret: string, access: string, label: string, created: int}> $credentials
+     * @param array<string, array{title: string, hint: string, body: string}> $templates
+     */
+    private function snippetsPanel(array $credentials, string $selected, array $templates): string
     {
+        $options = '';
+        foreach ($credentials as $accessKey => $entry) {
+            $accessKey = (string) $accessKey;
+            $text = $accessKey
+                . ((string) $entry['label'] === '' ? '' : ' (' . $entry['label'] . ')')
+                . ($entry['access'] === 'read' ? ' - read only' : '');
+            $options .= '<option value="' . $this->e($accessKey) . '"' . ($accessKey === $selected ? ' selected' : '') . '>' . $this->e($text) . '</option>';
+        }
+        $tabs = '';
+        foreach ($templates as $id => $template) {
+            $active = $id === 'env';
+            $tabs .= '<button type="button" role="tab" class="tab' . ($active ? ' active' : '') . '" aria-selected="' . ($active ? 'true' : 'false') . '" data-tab="' . $this->e($id) . '">' . $this->e($template['title']) . '</button>';
+        }
+
         return '<section class="panel" id="connect"><h2>Connection settings</h2>'
             . '<p class="muted">Pick a key and a tool, then copy. Replace <code>your-bucket</code> with your bucket name.</p>'
             . '<div class="inline-form">'
-            . '<label class="stacked">Key<select x-model="selected"><template x-for="k in keys" :key="k.key"><option :value="k.key" x-text="k.key + (k.label ? \' (\' + k.label + \')\' : \'\') + (k.access === \'read\' ? \' - read only\' : \'\')" :selected="k.key === selected"></option></template></select></label>'
+            . '<label class="stacked">Key<select data-snippet-key>' . $options . '</select></label>'
             . '</div>'
-            . '<div class="tabs" role="tablist">'
-            . '<template x-for="(t, id) in templates" :key="id"><button type="button" role="tab" class="tab" :class="tab === id ? \'active\' : \'\'" :aria-selected="tab === id" x-on:click="tab = id" x-text="t.title"></button></template>'
-            . '</div>'
-            . '<p class="muted" x-text="templates[tab] ? templates[tab].hint : \'\'"></p>'
-            . '<pre x-text="snippet()"></pre>'
+            . '<div class="tabs" role="tablist">' . $tabs . '</div>'
+            . '<p class="muted" data-snippet-hint></p>'
+            . '<pre data-snippet></pre>'
             . '<div class="snippet-actions">'
-            . '<button type="button" x-on:click="toggleSecret(selected)" x-text="secrets[selected] ? \'Hide secret\' : \'Show secret\'"></button>'
-            . '<button type="button" x-on:click="copySnippet($el)">Copy</button>'
+            . '<button type="button" data-snippet-secret>Show secret</button>'
+            . '<button type="button" data-snippet-copy>Copy</button>'
             . '</div>'
             . '</section>';
     }
@@ -837,21 +846,6 @@ CSS;
         ];
     }
 
-    private function keysScript(): string
-    {
-        return '<script>'
-            . 'function miniS3Keys(){const state=JSON.parse(document.getElementById("keys-state").textContent);return {'
-            . 'csrf:state.csrf,keys:state.keys,secrets:state.secrets||{},selected:state.selected,templates:state.templates,tab:"env",'
-            . 'init(){},'
-            . 'async fetchSecret(key){if(this.secrets[key]){return this.secrets[key];}const fd=new FormData();fd.append("csrf_token",this.csrf);fd.append("action","reveal");fd.append("access_key",key);const res=await fetch("/_/keys",{method:"POST",body:fd,headers:{Accept:"application/json"}});const data=await res.json().catch(()=>({ok:false,message:"Invalid response"}));if(!res.ok||!data.ok){alert(data.message||"Could not load the secret.");return "";}this.secrets={...this.secrets,[key]:data.secret};return data.secret;},'
-            . 'async toggleSecret(key){if(this.secrets[key]){const next={...this.secrets};delete next[key];this.secrets=next;return;}await this.fetchSecret(key);},'
-            . 'snippet(){const t=this.templates[this.tab];if(!t||!this.selected){return "";}const secret=this.secrets[this.selected]||"<click Show secret>";return t.body.split("{{ACCESS_KEY}}").join(this.selected).split("{{SECRET_KEY}}").join(secret);},'
-            . 'async copySnippet(el){const t=this.templates[this.tab];if(!t){return;}const secret=await this.fetchSecret(this.selected);if(!secret){return;}this.copy(t.body.split("{{ACCESS_KEY}}").join(this.selected).split("{{SECRET_KEY}}").join(secret),el);},'
-            . 'copy(text,el){navigator.clipboard.writeText(text).then(()=>{if(!el){return;}const old=el.getAttribute("data-tooltip");el.setAttribute("data-tooltip","Copied");if(el.tagName==="BUTTON"&&!el.classList.contains("icon-btn")){const label=el.textContent;el.textContent="Copied";setTimeout(()=>{el.textContent=label;},1200);}setTimeout(()=>{if(old!==null){el.setAttribute("data-tooltip",old);}},1200);});}'
-            . '}}'
-            . '</script>';
-    }
-
     private function jsonForScript(mixed $value): string
     {
         return (string) json_encode($value, JSON_UNESCAPED_SLASHES | JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT);
@@ -897,10 +891,8 @@ CSS;
         return '<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">'
             . '<title>' . $this->e($title) . '</title>'
             . '<style>' . self::CSS . '</style>'
-            . '<script defer src="' . $this->e(AdminAssets::alpinePath()) . '"></script>'
-            . '</head><body>' . $body
-            . '<script>document.addEventListener("click",function(e){var b=e.target.closest("[data-copy]");if(!b||!navigator.clipboard){return;}navigator.clipboard.writeText(b.getAttribute("data-copy")).then(function(){var t=b.textContent;b.textContent="Copied";setTimeout(function(){b.textContent=t;},1200);});});</script>'
-            . '</body></html>';
+            . '<script defer src="' . $this->e(AdminAssets::scriptPath()) . '"></script>'
+            . '</head><body>' . $body . '</body></html>';
     }
 
     private function filesBreadcrumbs(string $currentBucket, string $currentPrefix): string
@@ -938,8 +930,8 @@ CSS;
                 . '<p class="bucket-meta">' . $this->e((string) ($bucket['object_count'] ?? 0)) . ' objects</p>'
                 . '<p class="bucket-meta">' . $this->e($this->formatBytes((int) ($bucket['total_bytes'] ?? 0))) . '</p>'
                 . '<div class="row-actions">'
-                . $this->iconButton(self::ICON_RENAME, 'Rename', 'x-on:click="renameBucket(' . $this->jsString($name) . ')"')
-                . $this->iconButton(self::ICON_DELETE, 'Delete', 'x-on:click="deleteBucket(' . $this->jsString($name) . ')"', 'danger')
+                . $this->iconButton(self::ICON_RENAME, 'Rename', 'data-action="rename-bucket" data-name="' . $this->e($name) . '"')
+                . $this->iconButton(self::ICON_DELETE, 'Delete', 'data-action="delete-bucket" data-name="' . $this->e($name) . '"', 'danger')
                 . '</div></section>';
         }
 
@@ -961,15 +953,15 @@ CSS;
         return '<nav class="bucket-rail" aria-label="Buckets"><span class="nav-heading">Buckets</span><ul>' . $items . '</ul></nav>';
     }
 
-    private function objectTable(string $bucket, string $prefix, array $listing): string
+    private function objectTable(string $bucket, string $prefix, array $listing, string $summary): string
     {
         $folders = (array) ($listing['folders'] ?? []);
         $files = (array) ($listing['files'] ?? []);
-        $html = '<div class="status-line muted" x-bind:class="statusError ? \'error-text\' : \'\'" x-text="statusMessage"></div>';
-        $html .= '<div class="selection-bar" x-show="selectedItems.length" x-cloak><span x-text="selectedItems.length + \' selected\'"></span>'
-            . '<button type="button" class="danger" x-on:click="bulkDelete()">Delete selected</button>'
-            . '<button type="button" class="link-button" x-on:click="selectedItems = []">Clear</button></div>';
-        $html .= '<section class="panel panel-flush"><div class="files-table-wrap"><table class="files-table"><thead><tr><th><input type="checkbox" x-bind:checked="allSelected" x-on:change="toggleSelectAll($event.target.checked)" aria-label="Select all"></th><th>Name</th><th>Size</th><th>Modified</th><th><span class="visually-hidden">Actions</span></th></tr></thead><tbody>';
+        $html = '<div class="status-line muted" role="status" data-status>' . $this->e($summary) . '</div>';
+        $html .= '<div class="selection-bar" data-selection-bar hidden><span data-selection-count></span>'
+            . '<button type="button" class="danger" data-action="bulk-delete">Delete selected</button>'
+            . '<button type="button" class="link-button" data-action="clear-selection">Clear</button></div>';
+        $html .= '<section class="panel panel-flush"><div class="files-table-wrap"><table class="files-table"><thead><tr><th><input type="checkbox" data-select-all aria-label="Select all"></th><th>Name</th><th>Size</th><th>Modified</th><th><span class="visually-hidden">Actions</span></th></tr></thead><tbody>';
 
         if ($prefix !== '') {
             $parent = dirname($prefix);
@@ -981,14 +973,14 @@ CSS;
             $path = (string) ($folder['path'] ?? '');
             $name = (string) ($folder['name'] ?? '');
             $folderUrl = '/_/files?bucket=' . rawurlencode($bucket) . '&prefix=' . rawurlencode($path);
-            $html .= '<tr class="row-clickable" data-searchable="' . $this->e(strtolower($name)) . '" x-on:click="window.location.href=' . $this->jsString($folderUrl) . '">'
-                . '<td x-on:click.stop><input type="checkbox" value="' . $this->e($path) . '" x-model="selectedItems" aria-label="Select ' . $this->e($name) . '"></td>'
+            $html .= '<tr class="row-clickable" data-searchable="' . $this->e(strtolower($name)) . '" data-href="' . $this->e($folderUrl) . '">'
+                . '<td data-stop><input type="checkbox" data-select value="' . $this->e($path) . '" aria-label="Select ' . $this->e($name) . '"></td>'
                 . '<td><a href="' . $folderUrl . '" class="file-name"><span class="file-icon" aria-hidden="true">DIR</span>' . $this->e($name) . '/</a></td>'
                 . '<td class="num">' . $this->e((string) ($folder['object_count'] ?? 0)) . ' items</td>'
                 . '<td class="num">' . $this->e($this->formatDate((int) ($folder['modified'] ?? 0))) . '</td>'
-                . '<td x-on:click.stop><div class="row-actions">'
-                . $this->iconButton(self::ICON_RENAME, 'Rename', 'x-on:click="renameObject(' . $this->jsString($path) . ', ' . $this->jsString($name) . ')"')
-                . $this->iconButton(self::ICON_DELETE, 'Delete', 'x-on:click="deleteObject(' . $this->jsString($path) . ')"', 'danger')
+                . '<td data-stop><div class="row-actions">'
+                . $this->iconButton(self::ICON_RENAME, 'Rename', $this->objectAttrs('rename-object', $path, $name))
+                . $this->iconButton(self::ICON_DELETE, 'Delete', $this->objectAttrs('delete-object', $path, $name), 'danger')
                 . '</div></td></tr>';
         }
 
@@ -1012,15 +1004,15 @@ CSS;
                 'preview' => $previewUrl,
                 'download' => $downloadUrl,
             ]);
-            $html .= '<tr class="row-clickable" data-searchable="' . $this->e(strtolower($name)) . '" x-on:click="openDetails(' . $this->e($details) . ')" x-bind:class="details &amp;&amp; details.path === ' . $this->e($this->jsString($path)) . ' ? \'is-active\' : \'\'">'
-                . '<td x-on:click.stop><input type="checkbox" value="' . $this->e($path) . '" x-model="selectedItems" aria-label="Select ' . $this->e($name) . '"></td>'
-                . '<td><button type="button" class="link-button file-name" x-on:click.stop="openDetails(' . $this->e($details) . ')">' . $icon . $this->e($name) . '</button></td>'
+            $html .= '<tr class="row-clickable" data-searchable="' . $this->e(strtolower($name)) . '" data-details="' . $this->e($details) . '">'
+                . '<td data-stop><input type="checkbox" data-select value="' . $this->e($path) . '" aria-label="Select ' . $this->e($name) . '"></td>'
+                . '<td><button type="button" class="link-button file-name" data-action="details">' . $icon . $this->e($name) . '</button></td>'
                 . '<td class="num">' . $this->e($this->formatBytes((int) ($file['size'] ?? 0))) . '</td>'
                 . '<td class="num">' . $this->e($this->formatDate((int) ($file['modified'] ?? 0))) . '</td>'
-                . '<td x-on:click.stop><div class="row-actions">'
+                . '<td data-stop><div class="row-actions">'
                 . $this->iconButton(self::ICON_DOWNLOAD, 'Download', 'href="' . $downloadUrl . '"', '', true)
-                . $this->iconButton(self::ICON_RENAME, 'Rename', 'x-on:click="renameObject(' . $this->jsString($path) . ', ' . $this->jsString($name) . ')"')
-                . $this->iconButton(self::ICON_DELETE, 'Delete', 'x-on:click="deleteObject(' . $this->jsString($path) . ')"', 'danger')
+                . $this->iconButton(self::ICON_RENAME, 'Rename', $this->objectAttrs('rename-object', $path, $name))
+                . $this->iconButton(self::ICON_DELETE, 'Delete', $this->objectAttrs('delete-object', $path, $name), 'danger')
                 . '</div></td></tr>';
         }
 
@@ -1038,67 +1030,37 @@ CSS;
         return $extension === '' || strlen($extension) > 4 ? 'FILE' : $extension;
     }
 
+    private function objectAttrs(string $action, string $path, string $name): string
+    {
+        return 'data-action="' . $action . '" data-path="' . $this->e($path) . '" data-name="' . $this->e($name) . '"';
+    }
+
     private function fileDrawer(): string
     {
-        return '<aside class="drawer" aria-label="File details" x-show="details" x-cloak x-on:keydown.escape.window="if (!dialogOpen) { details = null }">'
-            . '<template x-if="details"><div class="drawer-inner">'
-            . '<div class="drawer-head"><h2 x-text="details.name"></h2><button type="button" class="drawer-close" aria-label="Close details" x-on:click="details = null">&times;</button></div>'
-            . '<template x-if="details.preview"><img class="drawer-preview" x-bind:src="details.preview" x-bind:alt="\'Preview of \' + details.name"></template>'
-            . '<div class="drawer-actions"><a class="button" x-bind:href="details.download">Download</a><button type="button" class="secondary" x-on:click="renameObject(details.path, details.name)">Rename</button></div>'
-            . '<dl><dt>Type</dt><dd x-text="details.type"></dd><dt>Size</dt><dd x-text="details.size"></dd><dt>Modified</dt><dd x-text="details.modified"></dd><dt>Key</dt><dd><code x-text="details.path"></code></dd></dl>'
-            . '<button type="button" class="danger-outline" x-on:click="deleteObject(details.path)">Delete file&hellip;</button>'
-            . '</div></template></aside>';
+        return '<aside class="drawer" aria-label="File details" data-drawer hidden><div class="drawer-inner">'
+            . '<div class="drawer-head"><h2 data-detail="name"></h2><button type="button" class="drawer-close" aria-label="Close details" data-action="close-details">&times;</button></div>'
+            . '<img class="drawer-preview" data-detail-preview alt="" hidden>'
+            . '<div class="drawer-actions"><a class="button" data-detail-download href="#">Download</a><button type="button" class="secondary" data-action="rename-object" data-detail-target>Rename</button></div>'
+            . '<dl><dt>Type</dt><dd data-detail="type"></dd><dt>Size</dt><dd data-detail="size"></dd><dt>Modified</dt><dd data-detail="modified"></dd><dt>Key</dt><dd><code data-detail="path"></code></dd></dl>'
+            . '<button type="button" class="danger-outline" data-action="delete-object" data-detail-target>Delete file&hellip;</button>'
+            . '</div></aside>';
     }
 
     private function filesModal(): string
     {
-        return '<div x-dialog x-model="dialogOpen" x-cloak class="dialog-shell">'
-            . '<div x-dialog:overlay x-transition.opacity class="dialog-overlay"></div>'
-            . '<div class="dialog-wrap">'
-            . '<div x-dialog:panel x-transition class="dialog-panel">'
-            . '<button type="button" class="dialog-close" x-on:click="$dialog.close()" aria-label="Close">&times;</button>'
-            . '<div>'
-            . '<h2 x-dialog:title x-text="dialogTitle"></h2>'
-            . '<div class="mt-2 muted"><p x-text="dialogMessage"></p></div>'
-            . '</div>'
-            . '<div x-show="dialogError" x-cloak class="dialog-error" x-text="dialogError"></div>'
-            . '<label x-show="!dialogShowFile && !dialogIsConfirm" x-cloak>Name<input x-ref="dialogNameInput" x-model="dialogName" x-on:keydown.enter="submitDialog()"></label>'
-            . '<label x-show="dialogShowFile" x-cloak>File<input type="file" x-ref="uploadFile"></label>'
+        return '<dialog class="dialog-panel" aria-labelledby="dialog-title" data-dialog>'
+            . '<button type="button" class="dialog-close" data-action="close-dialog" aria-label="Close">&times;</button>'
+            . '<form method="dialog" class="plain">'
+            . '<h2 id="dialog-title" data-dialog-title></h2>'
+            . '<p class="muted" data-dialog-message></p>'
+            . '<div class="dialog-error" role="alert" data-dialog-error hidden></div>'
+            . '<label data-dialog-name-row>Name<input autocomplete="off" data-dialog-name></label>'
+            . '<label data-dialog-file-row hidden>File<input type="file" data-dialog-file></label>'
             . '<div class="dialog-actions">'
-            . '<button type="button" class="dialog-secondary" x-on:click="$dialog.close()">Cancel</button>'
-            . '<button type="button" x-on:click="submitDialog()" x-bind:disabled="busy" x-bind:class="dialogIsConfirm ? \'danger\' : \'\'" x-text="busy ? \'Working...\' : (dialogIsConfirm ? \'Delete\' : \'Confirm\')"></button>'
+            . '<button type="button" class="dialog-secondary" data-action="close-dialog">Cancel</button>'
+            . '<button type="submit" data-dialog-submit>Confirm</button>'
             . '</div>'
-            . '</div></div></div>';
-    }
-
-    private function filesScript(): string
-    {
-        return '<script>'
-            . 'function miniS3Explorer(csrf,bucket,prefix,summary){return {'
-            . 'csrf:csrf,bucket:bucket,prefix:prefix,search:"",selectedItems:[],details:null,statusMessage:summary,statusError:false,busy:false,dialogOpen:false,dialogAction:"",dialogTitle:"",dialogMessage:"",dialogPath:"",dialogName:"",dialogShowFile:false,dialogIsConfirm:false,dialogConfirmPayload:null,dialogError:"",'
-            . 'init(){const key="miniS3:"+this.bucket+":"+this.prefix;const saved=sessionStorage.getItem(key);if(saved){try{const s=JSON.parse(saved);if(typeof s.search==="string"){this.search=s.search;this.$nextTick(()=>this.filterList());}if(typeof s.scrollY==="number"){this.$nextTick(()=>window.scrollTo(0,s.scrollY));}}catch(e){}sessionStorage.removeItem(key);}},'
-            . 'openDetails(info){this.details=info;},'
-            . 'saveState(){sessionStorage.setItem("miniS3:"+this.bucket+":"+this.prefix,JSON.stringify({search:this.search,scrollY:window.scrollY}));},'
-            . 'filterList(){const q=this.search.trim().toLowerCase();document.querySelectorAll("[data-searchable]").forEach((el)=>{el.classList.toggle("hidden",q!==""&&!String(el.dataset.searchable||"").includes(q));});},'
-            . 'visibleCheckboxes(){return Array.from(document.querySelectorAll(".files-table tbody tr:not(.hidden) input[type=checkbox]"));},'
-            . 'get allSelected(){const boxes=this.visibleCheckboxes();return boxes.length>0&&boxes.every((b)=>this.selectedItems.includes(b.value));},'
-            . 'toggleSelectAll(checked){const values=this.visibleCheckboxes().map((b)=>b.value);if(checked){this.selectedItems=Array.from(new Set([...this.selectedItems,...values]));}else{this.selectedItems=this.selectedItems.filter((v)=>!values.includes(v));}},'
-            . 'setStatus(message,isError=false){if(this.dialogOpen){this.dialogError=isError?message:"";return;}this.statusMessage=message;this.statusError=isError;},'
-            . 'openDialog(title,message,action,path,name,showFile){this.dialogIsConfirm=false;this.dialogConfirmPayload=null;this.dialogError="";this.dialogTitle=title;this.dialogMessage=message||"";this.dialogAction=action;this.dialogPath=path||"";this.dialogName=name||"";this.dialogShowFile=showFile;this.dialogOpen=true;this.busy=false;if(!showFile){this.$nextTick(()=>{const el=this.$refs.dialogNameInput;if(el){el.focus();el.select();}});}},'
-            . 'openConfirm(title,message,payload){this.dialogIsConfirm=true;this.dialogConfirmPayload=payload;this.dialogError="";this.dialogTitle=title;this.dialogMessage=message||"";this.dialogAction="";this.dialogPath="";this.dialogName="";this.dialogShowFile=false;this.dialogOpen=true;this.busy=false;},'
-            . 'openCreateBucket(){this.openDialog("Create bucket","Enter a new bucket name.","create_bucket","","",false);},'
-            . 'openCreateFolder(){this.openDialog("Create folder","Create a folder inside the current bucket.","create_folder","","",false);},'
-            . 'openUpload(){this.openDialog("Upload file","Upload to the current folder.","upload","","",true);},'
-            . 'renameBucket(name){this.openDialog("Rename bucket","Choose a new bucket name.","rename_bucket",name,name,false);},'
-            . 'renameObject(path,name){this.openDialog("Rename item","Choose a new name.","rename_object",path,name,false);},'
-            . 'deleteBucket(name){this.openConfirm("Delete bucket","Delete bucket "+name+" and all its contents?",{action:"delete_bucket",csrf_token:this.csrf,bucket:name});},'
-            . 'deleteObject(path){this.openConfirm("Delete item","Delete "+path+"? This cannot be undone.",{action:"delete_object",csrf_token:this.csrf,bucket:this.bucket,path:path});},'
-            . 'bulkDelete(){if(this.selectedItems.length===0){this.setStatus("Select at least one item.",true);return;}this.openConfirm("Delete selected","Delete "+this.selectedItems.length+" selected item(s)?",{action:"bulk_delete",csrf_token:this.csrf,bucket:this.bucket,prefix:this.prefix,items:this.selectedItems});},'
-            . 'submitDialog(){if(this.dialogIsConfirm){if(this.dialogConfirmPayload){this.request(this.dialogConfirmPayload);}return;}if(this.dialogAction!=="upload"&&this.dialogName.trim()===""){this.setStatus("Name is required.",true);return;}if(this.dialogAction==="upload"){const file=this.$refs.uploadFile?.files?.[0];if(!file){this.setStatus("Choose a file first.",true);return;}const fd=new FormData();fd.append("csrf_token",this.csrf);fd.append("action","upload");fd.append("bucket",this.bucket);fd.append("prefix",this.prefix);fd.append("file",file);this.request(fd,true);return;}const payload={action:this.dialogAction,csrf_token:this.csrf,bucket:this.bucket,prefix:this.prefix};if(this.dialogAction==="create_bucket"||this.dialogAction==="rename_bucket"){payload.name=this.dialogName.trim();}if(this.dialogAction==="create_folder"){payload.path=this.prefix?this.prefix+"/"+this.dialogName.trim():this.dialogName.trim();}if(this.dialogAction==="rename_object"){payload.path=this.dialogPath;payload.name=this.dialogName.trim();}this.request(payload);},'
-            . 'async request(payload,isForm=false){if(this.busy){return;}this.busy=true;this.setStatus("",false);const options={method:"POST",headers:{Accept:"application/json"}};if(isForm){options.body=payload;}else{const fd=new FormData();Object.entries(payload).forEach(([key,value])=>{if(Array.isArray(value)){value.forEach((item)=>fd.append(key+"[]",item));}else{fd.append(key,String(value));}});options.body=fd;}try{const res=await fetch("/_/files",options);const data=await res.json().catch(()=>({ok:false,message:"Invalid response"}));if(!res.ok||!data.ok){this.setStatus(data.message||"Request failed",true);this.busy=false;return;}this.saveState();window.location.href=data.redirect||"/_/files";}catch(e){this.setStatus("Request failed. Check your connection and try again.",true);this.busy=false;}}
-'
-            . '}}'
-            . '</script>';
+            . '</form></dialog>';
     }
 
     private function flashMessage(string $message): string
@@ -1169,15 +1131,6 @@ CSS;
     private function formatDate(int $timestamp): string
     {
         return $timestamp > 0 ? date('Y-m-d H:i', $timestamp) : '-';
-    }
-
-    private function jsString(string $value): string
-    {
-        $encoded = json_encode($value, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_AMP | JSON_HEX_TAG);
-        if ($encoded === false) {
-            return "''";
-        }
-        return "'" . substr($encoded, 1, -1) . "'";
     }
 
     private function iconButton(string $icon, string $label, string $attrs, string $class = '', bool $asLink = false): string

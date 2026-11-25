@@ -42,8 +42,8 @@ func (r *AdminRouter) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	}()
 
 	// The script bundle is public: the login and installer pages need it too.
-	if req.URL.Path == alpinePath {
-		serveAlpine(w)
+	if req.URL.Path == adminScriptPath {
+		serveAdminScript(w)
 		return
 	}
 
@@ -435,10 +435,8 @@ func (r *AdminRouter) handleFileAction(explorer *AdminFileExplorer, action strin
 	case "bulk_delete":
 		bucket := strings.TrimSpace(req.FormValue("bucket"))
 		req.ParseMultipartForm(32 << 20)
-		items := req.PostForm["items"]
-		if len(items) == 0 {
-			items = req.Form["items"]
-		}
+		// The admin script sends items[] (the PHP edition's array syntax).
+		items := append(req.PostForm["items[]"], req.PostForm["items"]...)
 		if len(items) == 0 {
 			return nil, fmt.Errorf("no items selected")
 		}

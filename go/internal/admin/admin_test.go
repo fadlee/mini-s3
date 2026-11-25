@@ -7,6 +7,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -457,6 +458,30 @@ func TestFileExplorerDeleteObject(t *testing.T) {
 	// Delete folder
 	if err := explorer.DeleteObject("mybucket", "folder1"); err != nil {
 		t.Fatalf("DeleteObject folder failed: %v", err)
+	}
+}
+
+func TestFileActionBulkDeleteReadsItemsArray(t *testing.T) {
+	dir := t.TempDir()
+	explorer := NewAdminFileExplorer(dir)
+	if err := explorer.CreateBucket("photos"); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"a.txt", "b.txt", "c.txt"} {
+		os.WriteFile(filepath.Join(dir, "photos", name), []byte("x"), 0644)
+	}
+	form := url.Values{"bucket": {"photos"}, "items[]": {"a.txt", "b.txt"}}
+	req := httptest.NewRequest(http.MethodPost, "/_/files", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	router := NewAdminRouter(filepath.Join(dir, "config.yaml"), dir, "test")
+	if _, err := router.handleFileAction(explorer, "bulk_delete", req); err != nil {
+		t.Fatalf("bulk_delete: %v", err)
+	}
+	for name, want := range map[string]bool{"a.txt": false, "b.txt": false, "c.txt": true} {
+		_, err := os.Stat(filepath.Join(dir, "photos", name))
+		if exists := err == nil; exists != want {
+			t.Errorf("%s exists = %v, want %v", name, exists, want)
+		}
 	}
 }
 
@@ -1306,13 +1331,43 @@ func TestScanStatsReturnsPerBucketTotals(t *testing.T) {
 func TestRendererFilesOpensDetailsInsteadOfDownloading(t *testing.T) {
 	listing := &ListObjectsResult{Files: []FileInfo{{Name: "cover.png", Path: "cover.png", Size: 12, Mime: "image/png", IsImage: true}}}
 	html := NewAdminRenderer().Files([]BucketInfo{{Name: "photos"}}, listing, "photos", "", "csrf-token", "")
-	for _, want := range []string{`x-on:click="openDetails(`, `class="drawer"`, `class="bucket-rail"`, `openDetails(info){this.details=info;}`} {
+	for _, want := range []string{`data-details="`, `data-action="details"`, `class="drawer"`, `class="bucket-rail"`, `<dialog class="dialog-panel"`} {
 		if !strings.Contains(html, want) {
 			t.Errorf("files page is missing %q", want)
 		}
 	}
-	if strings.Contains(html, `window.location.href='/_/files?bucket=photos&path=cover.png&download=1'`) {
+	if strings.Contains(html, `data-href="/_/files?bucket=photos&amp;path=cover.png&amp;download=1"`) {
 		t.Error("clicking a file row must not download it")
+	}
+}
+
+// Pages get all behaviour from the admin script: no inline script, inline
+// event handlers or Alpine directives, so a strict CSP can forbid them.
+func TestRendererPagesHaveNoInlineScript(t *testing.T) {
+	r := NewAdminRenderer()
+	listing := &ListObjectsResult{
+		Folders: []FolderInfo{{Name: "docs", Path: "docs"}},
+		Files:   []FileInfo{{Name: "a'b\"<c>.txt", Path: "a'b\"<c>.txt", Size: 1, Mime: "text/plain"}},
+	}
+	cfg := &config.Config{Credentials: map[string]string{"AKIA": "s3cret"}}
+	pages := map[string]string{
+		"login":     r.Login("", "token"),
+		"installer": r.Installer(map[string]string{}, nil, "token"),
+		"dashboard": r.Dashboard(Stats{Status: "ok"}, cfg, "https://s3.example.test", nil, ""),
+		"files":     r.Files([]BucketInfo{{Name: "photos"}}, listing, "photos", "docs", "token", ""),
+		"buckets":   r.Files([]BucketInfo{{Name: "photos"}}, nil, "", "", "token", ""),
+	}
+	inline := regexp.MustCompile(`<script(?:\s[^>]*)?>[^<]|\son[a-z]+=|\sx-[a-z]+|@click`)
+	for name, html := range pages {
+		if m := inline.FindString(html); m != "" {
+			t.Errorf("%s page has inline behaviour: %q", name, m)
+		}
+		if !strings.Contains(html, `<script defer src="`+adminScriptPath+`"></script>`) {
+			t.Errorf("%s page does not load the admin script", name)
+		}
+	}
+	if !strings.Contains(pages["files"], `data-name="a&#39;b&#34;&lt;c&gt;.txt"`) {
+		t.Error("file names in data attributes must be HTML-escaped")
 	}
 }
 
@@ -1336,26 +1391,26 @@ func TestRendererLoginUsesAuthLayout(t *testing.T) {
 	}
 }
 
-func TestAdminServesSelfHostedAlpine(t *testing.T) {
+func TestAdminServesSelfHostedScript(t *testing.T) {
 	// No config file: the installer page and the script must both work.
 	dir := t.TempDir()
 	router := NewAdminRouter(filepath.Join(dir, "config.yaml"), dir, "test")
 
 	rr := httptest.NewRecorder()
-	router.ServeHTTP(rr, httptest.NewRequest(http.MethodGet, alpinePath, nil))
+	router.ServeHTTP(rr, httptest.NewRequest(http.MethodGet, adminScriptPath, nil))
 	if rr.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d", rr.Code)
 	}
 	if got := rr.Header().Get("Content-Type"); !strings.HasPrefix(got, "text/javascript") {
 		t.Errorf("expected text/javascript, got %q", got)
 	}
-	if !strings.Contains(rr.Body.String(), "alpine:init") {
-		t.Error("expected the Alpine bundle in the response body")
+	if rr.Body.String() != string(adminJS) {
+		t.Error("expected the admin script in the response body")
 	}
 
 	html := NewAdminRenderer().Login("", "token")
-	if !strings.Contains(html, `<script defer src="`+alpinePath+`"></script>`) {
-		t.Error("expected the page to load the self-hosted Alpine bundle")
+	if !strings.Contains(html, `<script defer src="`+adminScriptPath+`"></script>`) {
+		t.Error("expected the page to load the self-hosted admin script")
 	}
 	if strings.Contains(html, "unpkg.com") {
 		t.Error("admin pages must not load script from a CDN")

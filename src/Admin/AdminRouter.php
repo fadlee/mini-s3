@@ -26,8 +26,8 @@ final class AdminRouter
     {
         try {
             $path = parse_url($this->uri, PHP_URL_PATH) ?: '/_';
-            if ($path === AdminAssets::alpinePath()) {
-                $this->serveAlpine();
+            if ($path === AdminAssets::scriptPath()) {
+                $this->serveScript();
             }
 
             $renderer = new AdminRenderer();
@@ -96,13 +96,13 @@ final class AdminRouter
         return $this->baseDir . '/config/config.php';
     }
 
-    private function serveAlpine(): never
+    private function serveScript(): never
     {
         http_response_code(200);
         header('Content-Type: text/javascript; charset=UTF-8');
         header('Cache-Control: public, max-age=31536000, immutable');
         header('X-Content-Type-Options: nosniff');
-        echo AdminAssets::alpine();
+        echo AdminAssets::script();
         exit;
     }
 
@@ -595,8 +595,9 @@ final class AdminRouter
         header('X-Frame-Options: DENY');
         header('X-Content-Type-Options: nosniff');
         header('Referrer-Policy: same-origin');
-        // Alpine.js evaluates directive expressions, which needs 'unsafe-eval'.
-        header("Content-Security-Policy: default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; form-action 'self'; base-uri 'none'; object-src 'none'");
+        // Pages load their behaviour from the self-hosted admin script only: no
+        // inline script, no inline event handlers, no eval.
+        header("Content-Security-Policy: default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; form-action 'self'; base-uri 'none'; object-src 'none'");
     }
 
     private function html(string $html, int $status = 200): never

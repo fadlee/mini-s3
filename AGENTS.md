@@ -27,13 +27,21 @@ rm -rf dist
 
 ## Self-hosted admin JS
 
-The admin UI loads Alpine.js from `/_/assets/alpine-<version>.js`, never from
-a CDN (admin pages show S3 secrets). The JS is embedded in
-`src/Admin/AdminAssets.php` so it survives the single-file bundle; the Go
-edition embeds the same bundle from `go/internal/admin/assets/alpine.js`.
-Both files are generated: to change the Alpine version run
-`php scripts/vendor-alpine.php <version>` and commit the result. Do not edit
-them by hand.
+The admin UI's behaviour lives in one plain JavaScript file,
+`go/internal/admin/assets/admin.js`, shared by both editions and served from
+`/_/assets/admin-<hash>.js`, never from a CDN (admin pages show S3 secrets).
+The Go edition embeds it directly. The PHP edition embeds a copy in
+`src/Admin/AdminAssets.php` so it survives the single-file bundle: after
+editing `admin.js`, run `php scripts/build-admin-assets.php` and commit both
+files. Do not edit `AdminAssets.php` by hand; `tests/unit/admin-renderer.php`
+fails when it is out of date.
+
+Pages carry no inline script and no inline event handlers. The renderers
+mark elements with `data-*` attributes (`data-action`, `data-copy`, ...) and
+`admin.js` wires them up, so the PHP Content Security Policy can use
+`script-src 'self'` without `'unsafe-inline'` or `'unsafe-eval'`. Data a
+page needs goes in a `<script type="application/json">` block or a data
+attribute.
 
 ## Access keys
 
@@ -48,9 +56,9 @@ checks live in one place: `S3Router::authorize()`.
 - `src/Admin/` — admin panel (auth, config writer, dashboard stats,
   self-upgrade, file explorer/manager, HTML renderer, router). Rendering
   is done by hand-built PHP string concatenation in `AdminRenderer.php`
-  (no template engine), with a small Alpine.js layer for interactivity
-  (dialogs, search filter, file table state) embedded inline in the
-  rendered HTML/`<script>`.
+  (no template engine). Interactivity (dialogs, search filter, file table
+  state, secrets) comes from the shared `admin.js`; see "Self-hosted admin
+  JS" above.
 - `src/S3/` — S3-compatible HTTP API (request validation, router,
   XML/response building).
 - `src/Auth/` — SigV4 request signing/auth for the S3 API.

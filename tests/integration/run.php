@@ -11,7 +11,7 @@ $phpBin = getenv('PHP_BIN');
 $phpBin = is_string($phpBin) && $phpBin !== '' ? $phpBin : PHP_BINARY;
 $sigv4Helper = $root . '/tests/integration/sigv4.php';
 require_once $root . '/src/Admin/AdminAssets.php';
-define('MINI_S3_ALPINE_VERSION', MiniS3\Admin\AdminAssets::ALPINE_VERSION);
+define('MINI_S3_ADMIN_SCRIPT_PATH', MiniS3\Admin\AdminAssets::scriptPath());
 $requestHelper = $root . '/tests/integration/request.php';
 $signHost = 'mini-s3.test';
 $signBaseUrl = 'http://' . $signHost;
@@ -239,9 +239,9 @@ signedRequest($phpBin, $sigv4Helper, $requestHelper, $readOnlyKey, 'wrong-secret
 assertContains('<Code>SignatureDoesNotMatch</Code>', $tmpDir . '/ro-bad.body', 'Wrong secret should fail the signature check before the permission check');
 
 // Self-hosted admin assets are served without login.
-runRequest($phpBin, $requestHelper, 'GET', '/_/assets/alpine-' . MINI_S3_ALPINE_VERSION . '.js', null, $tmpDir . '/alpine.body', $tmpDir . '/alpine.meta', ['Host: ' . $signHost]);
-assertEq('200', metaStatus($tmpDir . '/alpine.meta', $phpBin), 'Alpine asset should be served');
-assertContains('Alpine', $tmpDir . '/alpine.body', 'Alpine asset should contain Alpine.js');
+runRequest($phpBin, $requestHelper, 'GET', MINI_S3_ADMIN_SCRIPT_PATH, null, $tmpDir . '/admin-script.body', $tmpDir . '/admin-script.meta', ['Host: ' . $signHost]);
+assertEq('200', metaStatus($tmpDir . '/admin-script.meta', $phpBin), 'admin script should be served');
+assertContains('initExplorer', $tmpDir . '/admin-script.body', 'admin script should contain the admin UI code');
 
 signedRequest($phpBin, $sigv4Helper, $requestHelper, $accessKey, $secretKey, $signBaseUrl, $signHost, 'DELETE', '/' . $testBucket . '/' . $testKey, null, $tmpDir . '/del.body', $tmpDir . '/del.meta');
 assertEq('204', metaStatus($tmpDir . '/del.meta', $phpBin), 'DELETE should succeed');

@@ -1,0 +1,566 @@
+// Mini S3 admin UI behaviour, shared by the PHP and Go editions.
+//
+// This file is the source. The PHP edition serves a copy embedded in
+// src/Admin/AdminAssets.php: after editing, run `php scripts/build-admin-assets.php`.
+//
+// Pages describe behaviour with data-* attributes and carry no inline script or
+// event handlers, so the Content Security Policy can forbid both, and eval.
+(() => {
+  "use strict";
+
+  const $ = (selector, root = document) => root.querySelector(selector);
+  const $$ = (selector, root = document) => Array.from(root.querySelectorAll(selector));
+
+  // --- copy to clipboard ---------------------------------------------------
+
+  function showCopied(el) {
+    if (el.dataset.copied) {
+      return;
+    }
+    el.dataset.copied = "1";
+    const isIcon = el.classList.contains("icon-btn");
+    const old = isIcon ? el.dataset.tooltip : el.textContent;
+    if (isIcon) {
+      el.dataset.tooltip = "Copied";
+    } else {
+      el.textContent = "Copied";
+    }
+    setTimeout(() => {
+      if (isIcon) {
+        el.dataset.tooltip = old;
+      } else {
+        el.textContent = old;
+      }
+      delete el.dataset.copied;
+    }, 1200);
+  }
+
+  function copyText(text, el) {
+    // navigator.clipboard only exists on HTTPS and localhost.
+    if (!navigator.clipboard) {
+      alert("Copying needs HTTPS. Select the text and copy it by hand.");
+      return;
+    }
+    navigator.clipboard.writeText(text).then(() => {
+      if (el) {
+        showCopied(el);
+      }
+    });
+  }
+
+  function storageGet(storage, key) {
+    try {
+      return storage.getItem(key);
+    } catch (e) {
+      return null;
+    }
+  }
+
+  function storageSet(storage, key, value) {
+    try {
+      storage.setItem(key, value);
+    } catch (e) {
+      // Storage can be disabled; the UI still works without it.
+    }
+  }
+
+  // --- behaviour every page can use ----------------------------------------
+
+  document.addEventListener("click", (event) => {
+    const copy = event.target.closest("[data-copy]");
+    if (copy) {
+      copyText(copy.dataset.copy, copy);
+      return;
+    }
+
+    const toggle = event.target.closest("[data-toggle-password]");
+    if (toggle) {
+      const input = document.getElementById(toggle.dataset.togglePassword);
+      const show = input.type === "password";
+      input.type = show ? "text" : "password";
+      toggle.setAttribute("aria-pressed", String(show));
+      toggle.textContent = show ? "Hide" : "Show";
+      return;
+    }
+
+    const masked = event.target.closest("[data-toggle-masked]");
+    if (masked) {
+      const show = masked.getAttribute("aria-pressed") !== "true";
+      $$("[data-masked]").forEach((el) => {
+        el.textContent = show ? el.dataset.full : el.dataset.masked;
+      });
+      masked.setAttribute("aria-pressed", String(show));
+      masked.textContent = show ? "Hide sensitive" : "Show sensitive";
+      return;
+    }
+
+    const dismiss = event.target.closest("[data-dismiss]");
+    if (dismiss) {
+      const box = dismiss.closest("[data-dismiss-key]");
+      storageSet(localStorage, box.dataset.dismissKey, "1");
+      box.hidden = true;
+    }
+  });
+
+  function initDismissed() {
+    $$("[data-dismiss-key]").forEach((box) => {
+      if (storageGet(localStorage, box.dataset.dismissKey) === "1") {
+        box.hidden = true;
+      }
+    });
+  }
+
+  // --- access keys page ----------------------------------------------------
+
+  function initKeys(root) {
+    const state = JSON.parse($("#keys-state").textContent);
+    const secrets = Object.assign({}, state.secrets);
+    const select = $("[data-snippet-key]", root);
+    let tab = "env";
+
+    const fill = (body, key, secret) => body.split("{{ACCESS_KEY}}").join(key).split("{{SECRET_KEY}}").join(secret);
+
+    async function fetchSecret(key) {
+      if (secrets[key]) {
+        return secrets[key];
+      }
+      const body = new FormData();
+      body.append("csrf_token", state.csrf);
+      body.append("action", "reveal");
+      body.append("access_key", key);
+      try {
+        const res = await fetch("/_/keys", { method: "POST", body, headers: { Accept: "application/json" } });
+        const data = await res.json().catch(() => ({ ok: false, message: "Invalid response" }));
+        if (!res.ok || !data.ok) {
+          alert(data.message || "Could not load the secret.");
+          return "";
+        }
+        secrets[key] = data.secret;
+        return data.secret;
+      } catch (e) {
+        alert("Could not load the secret. Check your connection and try again.");
+        return "";
+      }
+    }
+
+    function render() {
+      $$("[data-secret-row]", root).forEach((row) => {
+        const secret = secrets[row.dataset.secretRow] || "";
+        const value = $("[data-secret-value]", row);
+        value.textContent = secret;
+        value.hidden = secret === "";
+        $("[data-secret-copy]", row).hidden = secret === "";
+        $("[data-secret-toggle]", row).textContent = secret ? "Hide secret" : "Show secret";
+      });
+
+      if (!select) {
+        return;
+      }
+      const key = select.value;
+      const template = state.templates[tab];
+      $$("[data-tab]", root).forEach((button) => {
+        const active = button.dataset.tab === tab;
+        button.classList.toggle("active", active);
+        button.setAttribute("aria-selected", String(active));
+      });
+      $("[data-snippet-hint]", root).textContent = template ? template.hint : "";
+      $("[data-snippet]", root).textContent = template && key ? fill(template.body, key, secrets[key] || "<click Show secret>") : "";
+      $("[data-snippet-secret]", root).textContent = secrets[key] ? "Hide secret" : "Show secret";
+    }
+
+    async function toggleSecret(key) {
+      if (secrets[key]) {
+        delete secrets[key];
+      } else {
+        await fetchSecret(key);
+      }
+      render();
+    }
+
+    root.addEventListener("click", async (event) => {
+      const row = event.target.closest("[data-secret-row]");
+      if (row && event.target.closest("[data-secret-toggle]")) {
+        toggleSecret(row.dataset.secretRow);
+        return;
+      }
+      const copySecret = event.target.closest("[data-secret-copy]");
+      if (row && copySecret) {
+        copyText(secrets[row.dataset.secretRow] || "", copySecret);
+        return;
+      }
+      const tabButton = event.target.closest("[data-tab]");
+      if (tabButton) {
+        tab = tabButton.dataset.tab;
+        render();
+        return;
+      }
+      if (event.target.closest("[data-snippet-secret]")) {
+        toggleSecret(select.value);
+        return;
+      }
+      const copySnippet = event.target.closest("[data-snippet-copy]");
+      if (copySnippet) {
+        const key = select.value;
+        const template = state.templates[tab];
+        if (!template || !key) {
+          return;
+        }
+        const secret = await fetchSecret(key);
+        if (secret) {
+          copyText(fill(template.body, key, secret), copySnippet);
+          render();
+        }
+      }
+    });
+
+    if (select) {
+      select.addEventListener("change", render);
+    }
+    render();
+  }
+
+  // --- buckets & files page ------------------------------------------------
+
+  function initExplorer(root) {
+    const { csrf, bucket, prefix } = root.dataset;
+    const stateKey = "miniS3:" + bucket + ":" + prefix;
+    const status = $("[data-status]", root);
+    const search = $("[data-filter]", root);
+    const selectAll = $("[data-select-all]", root);
+    const selectionBar = $("[data-selection-bar]", root);
+    const drawer = $("[data-drawer]", root);
+    const dialog = $("[data-dialog]", root);
+    const field = {
+      title: $("[data-dialog-title]", dialog),
+      message: $("[data-dialog-message]", dialog),
+      error: $("[data-dialog-error]", dialog),
+      nameRow: $("[data-dialog-name-row]", dialog),
+      name: $("[data-dialog-name]", dialog),
+      fileRow: $("[data-dialog-file-row]", dialog),
+      file: $("[data-dialog-file]", dialog),
+      submit: $("[data-dialog-submit]", dialog),
+    };
+    let pending = null;
+    let busy = false;
+    let activeRow = null;
+
+    // --- list filtering and selection
+
+    const checkboxes = () => $$("input[data-select]", root);
+    const visibleCheckboxes = () => checkboxes().filter((box) => !box.closest("tr").classList.contains("hidden"));
+    const selectedPaths = () => checkboxes().filter((box) => box.checked).map((box) => box.value);
+
+    function updateSelection() {
+      const count = selectedPaths().length;
+      if (selectionBar) {
+        selectionBar.hidden = count === 0;
+        $("[data-selection-count]", selectionBar).textContent = count + " selected";
+      }
+      if (selectAll) {
+        const visible = visibleCheckboxes();
+        selectAll.checked = visible.length > 0 && visible.every((box) => box.checked);
+      }
+    }
+
+    function filterList() {
+      const query = search.value.trim().toLowerCase();
+      $$("[data-searchable]", root).forEach((el) => {
+        el.classList.toggle("hidden", query !== "" && !el.dataset.searchable.includes(query));
+      });
+      updateSelection();
+    }
+
+    // --- details drawer
+
+    function openDetails(row) {
+      const details = JSON.parse(row.dataset.details);
+      if (activeRow) {
+        activeRow.classList.remove("is-active");
+      }
+      activeRow = row;
+      row.classList.add("is-active");
+      $$("[data-detail]", drawer).forEach((el) => {
+        el.textContent = details[el.dataset.detail] || "";
+      });
+      const preview = $("[data-detail-preview]", drawer);
+      preview.hidden = !details.preview;
+      if (details.preview) {
+        preview.src = details.preview;
+        preview.alt = "Preview of " + details.name;
+      } else {
+        preview.removeAttribute("src");
+      }
+      $("[data-detail-download]", drawer).href = details.download;
+      $$("[data-detail-target]", drawer).forEach((button) => {
+        button.dataset.path = details.path;
+        button.dataset.name = details.name;
+      });
+      drawer.hidden = false;
+    }
+
+    function closeDetails() {
+      if (!drawer) {
+        return;
+      }
+      drawer.hidden = true;
+      if (activeRow) {
+        activeRow.classList.remove("is-active");
+        activeRow = null;
+      }
+    }
+
+    // --- dialog
+
+    function setBusy(value) {
+      busy = value;
+      field.submit.disabled = value;
+      field.submit.textContent = value ? "Working..." : (pending && pending.confirm ? "Delete" : "Confirm");
+    }
+
+    function showDialogError(message) {
+      field.error.textContent = message;
+      field.error.hidden = message === "";
+    }
+
+    function setStatus(message, isError) {
+      if (dialog.open) {
+        showDialogError(isError ? message : "");
+        return;
+      }
+      if (status) {
+        status.textContent = message;
+        status.classList.toggle("error-text", isError);
+      }
+    }
+
+    // options: title, message, and either action (+ path, name, file) or confirm (a payload).
+    function openDialog(options) {
+      pending = options;
+      field.title.textContent = options.title;
+      field.message.textContent = options.message || "";
+      showDialogError("");
+      const asksName = !options.confirm && !options.file;
+      field.nameRow.hidden = !asksName;
+      field.fileRow.hidden = !options.file;
+      field.name.value = options.name || "";
+      field.file.value = "";
+      field.submit.classList.toggle("danger", Boolean(options.confirm));
+      setBusy(false);
+      dialog.showModal();
+      if (asksName) {
+        field.name.focus();
+        field.name.select();
+      }
+    }
+
+    function submitDialog() {
+      const current = pending;
+      if (!current || busy) {
+        return;
+      }
+      if (current.confirm) {
+        request(current.confirm);
+        return;
+      }
+      if (current.action === "upload") {
+        const file = field.file.files[0];
+        if (!file) {
+          setStatus("Choose a file first.", true);
+          return;
+        }
+        const body = new FormData();
+        body.append("csrf_token", csrf);
+        body.append("action", "upload");
+        body.append("bucket", bucket);
+        body.append("prefix", prefix);
+        body.append("file", file);
+        request(body);
+        return;
+      }
+      const name = field.name.value.trim();
+      if (name === "") {
+        setStatus("Name is required.", true);
+        return;
+      }
+      const payload = { action: current.action, csrf_token: csrf, bucket, prefix };
+      if (current.action === "create_bucket") {
+        payload.name = name;
+      } else if (current.action === "rename_bucket") {
+        payload.bucket = current.path;
+        payload.name = name;
+      } else if (current.action === "create_folder") {
+        payload.path = prefix ? prefix + "/" + name : name;
+      } else if (current.action === "rename_object") {
+        payload.path = current.path;
+        payload.name = name;
+      }
+      request(payload);
+    }
+
+    async function request(payload) {
+      setBusy(true);
+      setStatus("", false);
+      let body = payload;
+      if (!(payload instanceof FormData)) {
+        body = new FormData();
+        Object.entries(payload).forEach(([key, value]) => {
+          if (Array.isArray(value)) {
+            value.forEach((item) => body.append(key + "[]", item));
+          } else {
+            body.append(key, String(value));
+          }
+        });
+      }
+      try {
+        const res = await fetch("/_/files", { method: "POST", body, headers: { Accept: "application/json" } });
+        const data = await res.json().catch(() => ({ ok: false, message: "Invalid response" }));
+        if (!res.ok || !data.ok) {
+          setStatus(data.message || "Request failed", true);
+          setBusy(false);
+          return;
+        }
+        storageSet(sessionStorage, stateKey, JSON.stringify({ search: search.value, scrollY: window.scrollY }));
+        window.location.href = data.redirect || "/_/files";
+      } catch (e) {
+        setStatus("Request failed. Check your connection and try again.", true);
+        setBusy(false);
+      }
+    }
+
+    // --- actions
+
+    const actions = {
+      "create-bucket": () => openDialog({ title: "Create bucket", message: "Enter a new bucket name.", action: "create_bucket" }),
+      "create-folder": () => openDialog({ title: "Create folder", message: "Create a folder inside the current bucket.", action: "create_folder" }),
+      upload: () => openDialog({ title: "Upload file", message: "Upload to the current folder.", action: "upload", file: true }),
+      "rename-bucket": (el) => openDialog({ title: "Rename bucket", message: "Choose a new bucket name.", action: "rename_bucket", path: el.dataset.name, name: el.dataset.name }),
+      "rename-object": (el) => openDialog({ title: "Rename item", message: "Choose a new name.", action: "rename_object", path: el.dataset.path, name: el.dataset.name }),
+      "delete-bucket": (el) => openDialog({
+        title: "Delete bucket",
+        message: "Delete bucket " + el.dataset.name + " and all its contents?",
+        confirm: { action: "delete_bucket", csrf_token: csrf, bucket: el.dataset.name },
+      }),
+      "delete-object": (el) => openDialog({
+        title: "Delete item",
+        message: "Delete " + el.dataset.path + "? This cannot be undone.",
+        confirm: { action: "delete_object", csrf_token: csrf, bucket, path: el.dataset.path },
+      }),
+      "bulk-delete": () => {
+        const items = selectedPaths();
+        if (items.length === 0) {
+          setStatus("Select at least one item.", true);
+          return;
+        }
+        openDialog({
+          title: "Delete selected",
+          message: "Delete " + items.length + " selected item(s)?",
+          confirm: { action: "bulk_delete", csrf_token: csrf, bucket, prefix, items },
+        });
+      },
+      "clear-selection": () => {
+        checkboxes().forEach((box) => {
+          box.checked = false;
+        });
+        updateSelection();
+      },
+      details: (el) => openDetails(el.closest("tr")),
+      "close-details": closeDetails,
+      "close-dialog": () => dialog.close(),
+    };
+
+    root.addEventListener("click", (event) => {
+      const button = event.target.closest("[data-action]");
+      if (button) {
+        actions[button.dataset.action](button);
+        return;
+      }
+      // A click elsewhere on a row opens the folder or the file details,
+      // unless it landed on a control or in a cell that keeps its own clicks.
+      if (event.target.closest("a, button, input, label, [data-stop]")) {
+        return;
+      }
+      const row = event.target.closest("tr[data-href], tr[data-details]");
+      if (!row) {
+        return;
+      }
+      if (row.dataset.href) {
+        window.location.href = row.dataset.href;
+      } else {
+        openDetails(row);
+      }
+    });
+
+    root.addEventListener("change", (event) => {
+      if (event.target === selectAll) {
+        visibleCheckboxes().forEach((box) => {
+          box.checked = selectAll.checked;
+        });
+      }
+      if (event.target.matches("input[data-select], [data-select-all]")) {
+        updateSelection();
+      }
+    });
+
+    search.addEventListener("input", filterList);
+
+    dialog.querySelector("form").addEventListener("submit", (event) => {
+      event.preventDefault();
+      submitDialog();
+    });
+
+    // A click on the backdrop lands on the <dialog> itself, outside its box.
+    dialog.addEventListener("click", (event) => {
+      if (event.target !== dialog) {
+        return;
+      }
+      const box = dialog.getBoundingClientRect();
+      const inside = event.clientX >= box.left && event.clientX <= box.right && event.clientY >= box.top && event.clientY <= box.bottom;
+      if (!inside) {
+        dialog.close();
+      }
+    });
+
+    // Escape closes an open dialog first (the browser does that), then the drawer.
+    document.addEventListener("keydown", (event) => {
+      if (event.key === "Escape" && !dialog.open) {
+        closeDetails();
+      }
+    });
+
+    // After an action the page reloads; bring back the filter and scroll position.
+    const saved = storageGet(sessionStorage, stateKey);
+    if (saved) {
+      try {
+        sessionStorage.removeItem(stateKey);
+        const state = JSON.parse(saved);
+        if (typeof state.search === "string") {
+          search.value = state.search;
+        }
+        if (typeof state.scrollY === "number") {
+          requestAnimationFrame(() => window.scrollTo(0, state.scrollY));
+        }
+      } catch (e) {
+        // Ignore a damaged saved state.
+      }
+    }
+    filterList();
+  }
+
+  function init() {
+    initDismissed();
+    const keys = $("[data-keys]");
+    if (keys) {
+      initKeys(keys);
+    }
+    const explorer = $("[data-explorer]");
+    if (explorer) {
+      initExplorer(explorer);
+    }
+  }
+
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", init);
+  } else {
+    init();
+  }
+})();
