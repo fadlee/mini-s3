@@ -373,11 +373,11 @@ After installation, log in at `/_`:
 
 | Page | Path | What it does |
 |---|---|---|
-| Dashboard | `/_` | Bucket, object, storage and key counts, the S3 endpoint, warnings about risky settings, and update checks |
-| Files | `/_/files` | Browse, upload, rename and delete buckets, folders and objects |
-| Access Keys | `/_/keys` | Create, label, change permission, view secrets and delete access keys; copy settings for env vars, Laravel, AWS CLI, rclone, s5cmd and JavaScript |
+| Overview | `/_` | Storage per bucket, the S3 endpoint with a Copy button, server health (data directory, keys, risky settings) and update checks |
+| Buckets & files | `/_/files` | Browse, upload, rename and delete buckets, folders and objects; click a file to see its details |
+| Access keys | `/_/keys` | Create, label, change permission, view secrets and delete access keys; copy settings for env vars, Laravel, AWS CLI, rclone, s5cmd and JavaScript |
 | Settings | `/_/settings` | Data directory, max upload size, public read, and advanced signature settings (`/_/config` redirects here) |
-| Security | `/_/security` | Change the admin username and password |
+| Admin account | `/_/security` | Change the admin username and password |
 
 Every setting has help text next to it. Fields set by an environment variable are shown as locked, because the environment overrides `config/config.php`.
 
@@ -385,7 +385,7 @@ Every setting has help text next to it. Fields set by an environment variable ar
 
 ### Access keys and read-only access (PHP edition)
 
-Apps connect with an access key and its secret. Create one key per app on the **Access Keys** page, so you can remove one app without touching the others. Keys are generated for you (`AK` + 18 characters; 40-character secret), and changes take effect immediately, with no restart.
+Apps connect with an access key and its secret. Create one key per app on the **Access keys** page, so you can remove one app without touching the others. Keys are generated for you (`AK` + 18 characters; 40-character secret), and changes take effect immediately, with no restart.
 
 | Permission | Allowed | Refused (`403 AccessDenied`) |
 |---|---|---|
@@ -394,7 +394,7 @@ Apps connect with an access key and its secret. Create one key per app on the **
 
 Use read-only keys for websites, CDNs and anything that should never change data. This is safer than **Public read**, which lets anyone download every object without a key.
 
-Secrets can be viewed again on the Access Keys page at any time. They are stored in `config/config.php` (which is written with `0600` permissions), because AWS Signature V4 needs the plain secret to verify requests. The last key cannot be deleted.
+Secrets can be viewed again on the Access keys page at any time. They are stored in `config/config.php` (which is written with `0600` permissions), because AWS Signature V4 needs the plain secret to verify requests. The last key cannot be deleted.
 
 ![Mini S3 access keys](docs/screenshots/access-keys.png)
 
@@ -409,7 +409,7 @@ export MINI_S3_CREDENTIALS_JSON='{"prod-key":"prod-secret","cdn-key":{"secret":"
 export MINI_S3_DATA_DIR='/var/lib/mini-s3/data'
 ```
 
-When credentials come from `MINI_S3_CREDENTIALS_JSON`, the Access Keys page lists them read-only and the installer does not generate a key.
+When credentials come from `MINI_S3_CREDENTIALS_JSON`, the Access keys page lists them read-only and the installer does not generate a key.
 
 **Option 2: Local `config/config.php`** (recommended for file-based config). Copy `config.example.php` to `config/config.php` and edit it. The file is ignored by git and should contain local deployment values only.
 
