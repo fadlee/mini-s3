@@ -10,7 +10,7 @@ namespace MiniS3\Admin;
  */
 final class AdminAssets
 {
-    public const SCRIPT_HASH = '2c64b046e2b5';
+    public const SCRIPT_HASH = '4e8289fd63a7';
 
     public static function scriptPath(): string
     {
@@ -568,7 +568,45 @@ final class AdminAssets
     filterList();
   }
 
+  // --- sizes that load after the page -----------------------------------------
+  //
+  // Counting a big data directory is slow, so pages are sent without sizes.
+  // A placeholder carries data-stat-src (a JSON URL), data-stat-key and
+  // data-stat-field: it gets that response's [key][field]. A data-stat-style
+  // such as "width" sets that CSS property instead of the text.
+
+  async function loadStats() {
+    const cells = $$("[data-stat-src]");
+    const sources = Array.from(new Set(cells.map((el) => el.dataset.statSrc)));
+    await Promise.all(
+      sources.map(async (src) => {
+        let data = {};
+        try {
+          const res = await fetch(src, { headers: { Accept: "application/json" } });
+          if (res.ok) {
+            data = await res.json();
+          }
+        } catch (e) {
+          // Leave the dashes: the rest of the page works without sizes.
+        }
+        cells
+          .filter((el) => el.dataset.statSrc === src)
+          .forEach((el) => {
+            const value = (data[el.dataset.statKey] || {})[el.dataset.statField];
+            if (el.dataset.statStyle) {
+              if (value !== undefined) {
+                el.style[el.dataset.statStyle] = value;
+              }
+            } else {
+              el.textContent = value === undefined ? "–" : value;
+            }
+          });
+      })
+    );
+  }
+
   function init() {
+    loadStats();
     initDismissed();
     const keys = $("[data-keys]");
     if (keys) {

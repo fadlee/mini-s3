@@ -5,8 +5,6 @@ declare(strict_types=1);
 namespace MiniS3\Admin;
 
 use FilesystemIterator;
-use RecursiveDirectoryIterator;
-use RecursiveIteratorIterator;
 use MiniS3\Storage\FileStorage;
 use RuntimeException;
 
@@ -30,25 +28,8 @@ final class AdminFileExplorer
                 continue;
             }
 
-            $objectCount = 0;
-            $totalBytes = 0;
-            $iterator = new RecursiveIteratorIterator(
-                new RecursiveDirectoryIterator($dir, FilesystemIterator::SKIP_DOTS)
-            );
-
-            foreach ($iterator as $file) {
-                if (!$file->isFile() || str_starts_with($file->getFilename(), '.')) {
-                    continue;
-                }
-
-                $objectCount++;
-                $totalBytes += $file->getSize();
-            }
-
             $buckets[] = [
                 'name' => $name,
-                'object_count' => $objectCount,
-                'total_bytes' => $totalBytes,
                 'modified' => filemtime($dir) ?: 0,
             ];
         }
@@ -76,12 +57,9 @@ final class AdminFileExplorer
 
             $relativePath = $prefix === '' ? $name : $prefix . '/' . $name;
             if ($item->isDir()) {
-                [$objectCount, $totalBytes] = $this->measureObjects($item->getPathname());
                 $folders[] = [
                     'name' => $name,
                     'path' => $relativePath,
-                    'object_count' => $objectCount,
-                    'total_bytes' => $totalBytes,
                     'modified' => $item->getMTime(),
                 ];
                 continue;
@@ -102,6 +80,32 @@ final class AdminFileExplorer
         usort($files, static fn(array $a, array $b): int => strcasecmp((string) $a['name'], (string) $b['name']));
 
         return ['folders' => $folders, 'files' => $files, 'bucket_root' => $bucketDir];
+    }
+
+    /**
+     * Object count and total bytes of every folder directly under $prefix,
+     * keyed by folder path. This walks each folder, so it is a separate call
+     * from listObjects() and the page asks for it after it has loaded.
+     *
+     * @return array<string, array{object_count: int, total_bytes: int}>
+     */
+    public function folderTotals(string $bucket, string $prefix = ''): array
+    {
+        $prefix = $this->normalizeRelativePath($prefix);
+        $scanDir = $this->resolveInsideBucket($bucket, $prefix, true);
+
+        $totals = [];
+        foreach (new FilesystemIterator($scanDir, FilesystemIterator::SKIP_DOTS) as $item) {
+            $name = $item->getFilename();
+            if (str_starts_with($name, '.') || !$item->isDir()) {
+                continue;
+            }
+
+            [$objectCount, $totalBytes] = AdminStats::measureDirectory($item->getPathname());
+            $totals[$prefix === '' ? $name : $prefix . '/' . $name] = ['object_count' => $objectCount, 'total_bytes' => $totalBytes];
+        }
+
+        return $totals;
     }
 
     public function createBucket(string $name): void
@@ -344,25 +348,6 @@ final class AdminFileExplorer
         }
 
         return $fullPath;
-    }
-
-    /** @return array{0: int, 1: int} object count and total bytes under a directory */
-    private function measureObjects(string $directory): array
-    {
-        $count = 0;
-        $bytes = 0;
-        $iterator = new RecursiveIteratorIterator(
-            new RecursiveDirectoryIterator($directory, FilesystemIterator::SKIP_DOTS)
-        );
-
-        foreach ($iterator as $file) {
-            if ($file->isFile() && !str_starts_with($file->getFilename(), '.')) {
-                $count++;
-                $bytes += $file->getSize();
-            }
-        }
-
-        return [$count, $bytes];
     }
 
     private function detectMimeType(string $filePath): string

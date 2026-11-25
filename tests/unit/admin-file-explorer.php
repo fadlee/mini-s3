@@ -2,6 +2,7 @@
 
 declare(strict_types=1);
 
+require_once __DIR__ . '/../../src/Admin/AdminStats.php';
 require_once __DIR__ . '/../../src/Admin/AdminFileExplorer.php';
 
 use MiniS3\Admin\AdminFileExplorer;
@@ -38,8 +39,8 @@ assertSameValue('alpha', $buckets[0]['name'] ?? null, 'lists bucket name');
 $listing = $explorer->listObjects('alpha', '');
 assertSameValue('nested', $listing['folders'][0]['name'] ?? null, 'lists folder in bucket root');
 assertSameValue('readme.txt', $listing['files'][0]['name'] ?? null, 'lists file in bucket root');
-assertSameValue(1, $listing['folders'][0]['object_count'] ?? null, 'folder reports its object count');
-assertSameValue(3, $listing['folders'][0]['total_bytes'] ?? null, 'folder reports its total size');
+$folderTotals = $explorer->folderTotals('alpha', '');
+assertSameValue(['nested' => ['object_count' => 1, 'total_bytes' => 3]], $folderTotals, 'folderTotals reports count and size per folder');
 
 $explorer->createFolder('alpha', 'docs');
 assertTrueValue(is_dir($base . '/alpha/docs'), 'creates folder');

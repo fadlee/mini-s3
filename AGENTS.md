@@ -43,6 +43,19 @@ mark elements with `data-*` attributes (`data-action`, `data-copy`, ...) and
 page needs goes in a `<script type="application/json">` block or a data
 attribute.
 
+## Sizes load after the page
+
+Walking a big data directory takes seconds, so the dashboard and the Files
+page are sent without object counts and sizes. They carry placeholders
+(`data-stat-src`, `data-stat-key`, `data-stat-field`, optional
+`data-stat-style`) and `admin.js` fills them from `/_/stats` (bucket totals)
+and `/_/folder-stats` (folders of one listing). The server formats the text
+(`statsFields` / `StatsFields`), so number and size formatting stays in one
+place per edition. Bucket totals are cached for 60 seconds, in
+`DATA_DIR/.admin-stats.json` (PHP) or in memory (Go), and the cache is
+dropped after every admin file action. Keep `ScanStats` / `AdminStats::scan`
+free of file walking.
+
 ## Access keys
 
 `CREDENTIALS` entries are either `'key' => 'secret'` (legacy, read & write) or

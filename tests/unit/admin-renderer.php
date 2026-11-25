@@ -179,7 +179,19 @@ assertContainsText('cover.png', $filesHtml, 'files page renders file name');
 assertContainsText('download=1', $filesHtml, 'files page renders download link');
 assertContainsText('path=cover.png&download=0', $filesHtml, 'raster image preview thumbnail is rendered');
 assertNotContainsText('path=logo.svg&download=0', $filesHtml, 'svg files get no inline preview');
-assertContainsText('1 items · 2 KB', $filesHtml, 'folder row shows item count and size');
+assertContainsText('data-stat-src="/_/folder-stats?bucket=photos&amp;prefix=" data-stat-key="nested" data-stat-field="summary"', $filesHtml, 'folder row size is a placeholder');
+assertContainsText('data-stat-src="/_/stats" data-stat-key="bucket:photos" data-stat-field="size"', $filesHtml, 'bucket rail size is a placeholder');
+
+$statsFields = (new AdminRenderer())->statsFields(['object_count' => 3, 'total_bytes' => 2048, 'buckets' => [
+    ['name' => 'a', 'object_count' => 1, 'total_bytes' => 512],
+    ['name' => 'b', 'object_count' => 2, 'total_bytes' => 1536],
+]]);
+assertTrue(($statsFields['all']['summary'] ?? null) === '2 buckets · 3 objects · 2 KB stored', 'stats summary is formatted on the server');
+assertTrue(($statsFields['bucket:a'] ?? null) === ['objects' => '1', 'size' => '512 B', 'share' => '25%'], 'bucket stats are formatted on the server');
+assertTrue(
+    (new AdminRenderer())->folderStatsFields(['docs' => ['object_count' => 1, 'total_bytes' => 2048]]) === ['docs' => ['summary' => '1 item · 2 KB']],
+    'folder stats are formatted on the server'
+);
 assertContainsText('data-filter', $filesHtml, 'files page renders the filter box');
 assertContainsText('<dialog class="dialog-panel"', $filesHtml, 'files page renders a native dialog');
 assertContainsText('data-action="rename-object" data-path="cover.png" data-name="cover.png"', $filesHtml, 'files page renders rename action');
@@ -189,9 +201,11 @@ assertContainsText('data-details="', $filesHtml, 'clicking a file opens its deta
 assertNotContainsText('data-href="/_/files?bucket=photos&amp;path=cover.png&amp;download=1"', $filesHtml, 'clicking a file row does not download it');
 assertContainsText('class="drawer"', $filesHtml, 'files page renders the details drawer');
 assertContainsText('class="bucket-rail"', $filesHtml, 'bucket rail is shown inside a bucket');
-$dashboardWithBuckets = (new AdminRenderer())->dashboard(['data_dir' => '/d', 'status' => 'ok', 'bucket_count' => 1, 'object_count' => 2, 'total_bytes' => 10, 'buckets' => [['name' => 'pics <x>', 'object_count' => 2, 'total_bytes' => 10]]], ['CREDENTIALS' => ['k' => ['secret' => 's', 'access' => 'read', 'label' => '', 'created' => 0]]], 'https://s3.example.test', [], '', 'csrf-token');
+$dashboardWithBuckets = (new AdminRenderer())->dashboard(['data_dir' => '/d', 'status' => 'ok', 'bucket_count' => 1, 'object_count' => 2, 'total_bytes' => 10, 'buckets' => [['name' => 'pics <x>']]], ['CREDENTIALS' => ['k' => ['secret' => 's', 'access' => 'read', 'label' => '', 'created' => 0]]], 'https://s3.example.test', [], '', 'csrf-token');
 assertContainsText('pics &lt;x&gt;', $dashboardWithBuckets, 'bucket names are escaped on the dashboard');
-assertContainsText('100%', $dashboardWithBuckets, 'bucket share of storage is shown');
+assertContainsText('data-stat-src="/_/stats" data-stat-key="bucket:pics &lt;x&gt;" data-stat-field="size"', $dashboardWithBuckets, 'bucket sizes are placeholders filled in after load');
+assertContainsText('data-stat-key="all" data-stat-field="summary"', $dashboardWithBuckets, 'dashboard summary is a placeholder');
+assertContainsText('data-stat-field="share" data-stat-style="width"', $dashboardWithBuckets, 'share bar width is a placeholder');
 assertNotContainsText('Getting started', $dashboardWithBuckets, 'checklist hides once a key and a bucket exist');
 assertContainsText('No buckets yet.', (new AdminRenderer())->files([], ['folders' => [], 'files' => []], '', '', 'csrf-token', ''), 'empty bucket list explains what to do');
 

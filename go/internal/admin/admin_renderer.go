@@ -64,13 +64,11 @@ func (r *AdminRenderer) Login(errMsg, csrfToken string) string {
 // Dashboard renders the main dashboard page.
 func (r *AdminRenderer) Dashboard(stats Stats, cfg *config.Config, endpoint string, updateStatus map[string]interface{}, flashMessage string) string {
 	var b strings.Builder
-	b.WriteString(`<p class="lead">`)
-	b.WriteString(r.e(fmt.Sprintf("%s · %s · %s stored", plural(stats.BucketCount, "bucket"), plural(stats.ObjectCount, "object"), formatBytes(stats.TotalBytes))))
-	b.WriteString(`</p>`)
+	b.WriteString(`<p class="lead" ` + r.statAttrs(statsURL, "all", "summary", "") + `>` + statsPending + `</p>`)
 	b.WriteString(r.flashMessage(flashMessage))
 	b.WriteString(r.connectPanel(endpoint))
 	b.WriteString(`<div class="split"><div class="main-col">`)
-	b.WriteString(r.bucketsPanel(stats.Buckets, stats.TotalBytes))
+	b.WriteString(r.bucketsPanel(stats.Buckets))
 	b.WriteString(r.connectionConfig(cfg, endpoint))
 	b.WriteString(`</div><div class="side-col">`)
 	b.WriteString(r.healthPanel(stats, cfg, updateStatus))
@@ -372,12 +370,9 @@ func (r *AdminRenderer) bucketGrid(buckets []BucketInfo) string {
 		b.WriteString(`">`)
 		b.WriteString(r.e(name))
 		b.WriteString(`</a></h3>`)
-		b.WriteString(`<p class="bucket-meta">`)
-		b.WriteString(r.e(fmt.Sprintf("%d", bucket.ObjectCount)))
-		b.WriteString(` objects</p>`)
-		b.WriteString(`<p class="bucket-meta">`)
-		b.WriteString(r.e(formatBytes(bucket.TotalBytes)))
-		b.WriteString(`</p>`)
+		key := "bucket:" + name
+		b.WriteString(`<p class="bucket-meta"><span ` + r.statAttrs(statsURL, key, "objects", "") + `>` + statsPending + `</span> objects</p>`)
+		b.WriteString(`<p class="bucket-meta" ` + r.statAttrs(statsURL, key, "size", "") + `>` + statsPending + `</p>`)
 		b.WriteString(`<div class="row-actions">`)
 		b.WriteString(r.iconButton(iconRename, "Rename", `data-action="rename-bucket" data-name="`+r.e(name)+`"`, ""))
 		b.WriteString(r.iconButton(iconDelete, "Delete", `data-action="delete-bucket" data-name="`+r.e(name)+`"`, "danger"))
@@ -402,9 +397,7 @@ func (r *AdminRenderer) bucketRail(buckets []BucketInfo, currentBucket string) s
 		}
 		b.WriteString(`><span>`)
 		b.WriteString(r.e(bucket.Name))
-		b.WriteString(`</span><span>`)
-		b.WriteString(r.e(formatBytes(bucket.TotalBytes)))
-		b.WriteString(`</span></a></li>`)
+		b.WriteString(`</span><span ` + r.statAttrs(statsURL, "bucket:"+bucket.Name, "size", "") + `>` + statsPending + `</span></a></li>`)
 	}
 	b.WriteString(`</ul></nav>`)
 	return b.String()
@@ -417,6 +410,8 @@ func (r *AdminRenderer) objectTable(bucket, prefix string, listing *ListObjectsR
 		folders = listing.Folders
 		files = listing.Files
 	}
+
+	folderSrc := folderStatsURL + "?bucket=" + url.QueryEscape(bucket) + "&prefix=" + url.QueryEscape(prefix)
 
 	var b strings.Builder
 	b.WriteString(`<div class="status-line muted" role="status" data-status>`)
@@ -452,9 +447,9 @@ func (r *AdminRenderer) objectTable(bucket, prefix string, listing *ListObjectsR
 		b.WriteString(folderURL)
 		b.WriteString(`" class="file-name"><span class="file-icon" aria-hidden="true">DIR</span>`)
 		b.WriteString(r.e(name))
-		b.WriteString(`/</a></td><td class="num">`)
-		b.WriteString(r.e(fmt.Sprintf("%d items · %s", folder.ObjectCount, formatBytes(folder.TotalBytes))))
-		b.WriteString(`</td><td class="num">`)
+		b.WriteString(`/</a></td><td class="num" `)
+		b.WriteString(r.statAttrs(folderSrc, path, "summary", ""))
+		b.WriteString(`>` + statsPending + `</td><td class="num">`)
 		b.WriteString(r.e(formatDate(folder.Modified)))
 		b.WriteString(`</td><td data-stop><div class="row-actions">`)
 		b.WriteString(r.iconButton(iconRename, "Rename", r.objectAttrs("rename-object", path, name), ""))
@@ -555,6 +550,53 @@ func jsonForScript(value interface{}) string {
 	return string(encoded)
 }
 
+// Where pages fetch sizes after they have loaded; see statAttrs.
+const (
+	statsURL       = "/_/stats"
+	folderStatsURL = "/_/folder-stats"
+	statsPending   = "…"
+)
+
+// StatsFields returns the text admin.js puts into the size placeholders of
+// the dashboard and the Files page, keyed like their data-stat-key attributes.
+func (r *AdminRenderer) StatsFields(totals StorageTotals) map[string]map[string]string {
+	fields := map[string]map[string]string{
+		"all": {"summary": fmt.Sprintf("%s · %s · %s stored", plural(len(totals.Buckets), "bucket"), plural(totals.ObjectCount, "object"), formatBytes(totals.TotalBytes))},
+	}
+	for _, bucket := range totals.Buckets {
+		share := 0
+		if totals.TotalBytes > 0 {
+			share = int(math.Round(float64(bucket.TotalBytes) / float64(totals.TotalBytes) * 100))
+		}
+		fields["bucket:"+bucket.Name] = map[string]string{
+			"objects": groupThousands(int64(bucket.ObjectCount)),
+			"size":    formatBytes(bucket.TotalBytes),
+			"share":   fmt.Sprintf("%d%%", share),
+		}
+	}
+	return fields
+}
+
+// FolderStatsFields does the same for the folder rows of one listing.
+func (r *AdminRenderer) FolderStatsFields(folders map[string]FolderTotals) map[string]map[string]string {
+	fields := make(map[string]map[string]string, len(folders))
+	for path, totals := range folders {
+		fields[path] = map[string]string{"summary": plural(totals.ObjectCount, "item") + " · " + formatBytes(totals.TotalBytes)}
+	}
+	return fields
+}
+
+// statAttrs marks an element as a placeholder: admin.js fetches src once per
+// page and fills the element with that response's [key][field]. A style such
+// as "width" sets that CSS property instead of the text.
+func (r *AdminRenderer) statAttrs(src, key, field, style string) string {
+	attrs := `data-stat-src="` + r.e(src) + `" data-stat-key="` + r.e(key) + `" data-stat-field="` + field + `"`
+	if style != "" {
+		attrs += ` data-stat-style="` + style + `"`
+	}
+	return attrs
+}
+
 func groupThousands(n int64) string {
 	s := fmt.Sprintf("%d", n)
 	if n < 0 {
@@ -588,7 +630,7 @@ func (r *AdminRenderer) connectPanel(endpoint string) string {
 		`</section>`
 }
 
-func (r *AdminRenderer) bucketsPanel(buckets []BucketStats, totalBytes int64) string {
+func (r *AdminRenderer) bucketsPanel(buckets []BucketInfo) string {
 	head := `<div class="panel-head"><h2>Buckets</h2><a href="/_/files">Open Files &rarr;</a></div>`
 	if len(buckets) == 0 {
 		return `<section class="panel">` + head + `<p class="muted">No buckets yet. A bucket is a top-level folder for your objects.</p></section>`
@@ -598,19 +640,15 @@ func (r *AdminRenderer) bucketsPanel(buckets []BucketStats, totalBytes int64) st
 	b.WriteString(head)
 	b.WriteString(`<div class="files-table-wrap"><table class="files-table"><thead><tr><th>Name</th><th>Objects</th><th>Size</th><th>Share of storage</th></tr></thead><tbody>`)
 	for _, bucket := range buckets {
-		share := 0
-		if totalBytes > 0 {
-			share = int(math.Round(float64(bucket.TotalBytes) / float64(totalBytes) * 100))
-		}
+		key := "bucket:" + bucket.Name
 		b.WriteString(`<tr><td><a href="/_/files?bucket=`)
 		b.WriteString(url.QueryEscape(bucket.Name))
 		b.WriteString(`"><strong>`)
 		b.WriteString(r.e(bucket.Name))
-		b.WriteString(`</strong></a></td><td class="num">`)
-		b.WriteString(groupThousands(int64(bucket.ObjectCount)))
-		b.WriteString(`</td><td class="num">`)
-		b.WriteString(r.e(formatBytes(bucket.TotalBytes)))
-		b.WriteString(fmt.Sprintf(`</td><td><span class="share"><span class="share-bar" aria-hidden="true"><span style="width: %d%%"></span></span><span class="muted">%d%%</span></span></td></tr>`, share, share))
+		b.WriteString(`</strong></a></td><td class="num" ` + r.statAttrs(statsURL, key, "objects", "") + `>` + statsPending)
+		b.WriteString(`</td><td class="num" ` + r.statAttrs(statsURL, key, "size", "") + `>` + statsPending)
+		b.WriteString(`</td><td><span class="share"><span class="share-bar" aria-hidden="true"><span ` + r.statAttrs(statsURL, key, "share", "width") + `></span></span>`)
+		b.WriteString(`<span class="muted" ` + r.statAttrs(statsURL, key, "share", "") + `>` + statsPending + `</span></span></td></tr>`)
 	}
 	b.WriteString(`</tbody></table></div></section>`)
 	return b.String()

@@ -6,6 +6,10 @@ namespace MiniS3\Admin;
 
 final class AdminRenderer
 {
+    /** Where pages fetch sizes after they have loaded; see statAttrs(). */
+    private const STATS_URL = '/_/stats';
+    private const STATS_PENDING = '…';
+
     private const ICON_RENAME = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>';
     private const ICON_DELETE = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/></svg>';
     private const ICON_DOWNLOAD = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12"/><path d="M7 10l5 5 5-5"/><path d="M5 21h14"/></svg>';
@@ -360,16 +364,13 @@ CSS;
     ): string {
         $keyCount = count((array) ($config['CREDENTIALS'] ?? []));
         $bucketCount = (int) $stats['bucket_count'];
-        $summary = $bucketCount . ($bucketCount === 1 ? ' bucket' : ' buckets')
-            . ' · ' . number_format((int) $stats['object_count']) . ((int) $stats['object_count'] === 1 ? ' object' : ' objects')
-            . ' · ' . $this->formatBytes((int) $stats['total_bytes']) . ' stored';
-        $body = '<p class="lead">' . $this->e($summary) . '</p>'
+        $body = '<p class="lead" ' . $this->statAttrs(self::STATS_URL, 'all', 'summary') . '>' . self::STATS_PENDING . '</p>'
             . $this->flashMessage($flashMessage)
             . $this->warningBanners($warnings)
             . $this->setupChecklist($keyCount, $bucketCount, $endpoint)
             . $this->connectPanel($endpoint)
             . '<div class="split">'
-            . '<div class="main-col">' . $this->bucketsPanel((array) ($stats['buckets'] ?? []), (int) $stats['total_bytes']) . '</div>'
+            . '<div class="main-col">' . $this->bucketsPanel((array) ($stats['buckets'] ?? [])) . '</div>'
             . '<div class="side-col">' . $this->healthPanel($stats, $config, $keyCount, $updateStatus) . '</div>'
             . '</div>';
 
@@ -618,9 +619,9 @@ CSS;
     }
 
     /**
-     * @param list<array{name: string, object_count: int, total_bytes: int}> $buckets
+     * @param list<array{name: string}> $buckets
      */
-    private function bucketsPanel(array $buckets, int $totalBytes): string
+    private function bucketsPanel(array $buckets): string
     {
         $head = '<div class="panel-head"><h2>Buckets</h2><a href="/_/files">Open Files &rarr;</a></div>';
         if ($buckets === []) {
@@ -630,13 +631,13 @@ CSS;
         $rows = '';
         foreach ($buckets as $bucket) {
             $name = (string) $bucket['name'];
-            $bytes = (int) $bucket['total_bytes'];
-            $share = $totalBytes > 0 ? (int) round($bytes / $totalBytes * 100) : 0;
+            $key = 'bucket:' . $name;
             $rows .= '<tr>'
                 . '<td><a href="/_/files?bucket=' . rawurlencode($name) . '"><strong>' . $this->e($name) . '</strong></a></td>'
-                . '<td class="num">' . number_format((int) $bucket['object_count']) . '</td>'
-                . '<td class="num">' . $this->e($this->formatBytes($bytes)) . '</td>'
-                . '<td><span class="share"><span class="share-bar" aria-hidden="true"><span style="width: ' . $share . '%"></span></span><span class="muted">' . $share . '%</span></span></td>'
+                . '<td class="num" ' . $this->statAttrs(self::STATS_URL, $key, 'objects') . '>' . self::STATS_PENDING . '</td>'
+                . '<td class="num" ' . $this->statAttrs(self::STATS_URL, $key, 'size') . '>' . self::STATS_PENDING . '</td>'
+                . '<td><span class="share"><span class="share-bar" aria-hidden="true"><span ' . $this->statAttrs(self::STATS_URL, $key, 'share', 'width') . '></span></span>'
+                . '<span class="muted" ' . $this->statAttrs(self::STATS_URL, $key, 'share') . '>' . self::STATS_PENDING . '</span></span></td>'
                 . '</tr>';
         }
 
@@ -927,8 +928,8 @@ CSS;
             $name = (string) ($bucket['name'] ?? '');
             $html .= '<section class="bucket-card" data-searchable="' . $this->e(strtolower($name)) . '">'
                 . '<h3><a href="/_/files?bucket=' . rawurlencode($name) . '">' . $this->e($name) . '</a></h3>'
-                . '<p class="bucket-meta">' . $this->e((string) ($bucket['object_count'] ?? 0)) . ' objects</p>'
-                . '<p class="bucket-meta">' . $this->e($this->formatBytes((int) ($bucket['total_bytes'] ?? 0))) . '</p>'
+                . '<p class="bucket-meta"><span ' . $this->statAttrs(self::STATS_URL, 'bucket:' . $name, 'objects') . '>' . self::STATS_PENDING . '</span> objects</p>'
+                . '<p class="bucket-meta" ' . $this->statAttrs(self::STATS_URL, 'bucket:' . $name, 'size') . '>' . self::STATS_PENDING . '</p>'
                 . '<div class="row-actions">'
                 . $this->iconButton(self::ICON_RENAME, 'Rename', 'data-action="rename-bucket" data-name="' . $this->e($name) . '"')
                 . $this->iconButton(self::ICON_DELETE, 'Delete', 'data-action="delete-bucket" data-name="' . $this->e($name) . '"', 'danger')
@@ -947,7 +948,7 @@ CSS;
         foreach ($buckets as $bucket) {
             $name = (string) ($bucket['name'] ?? '');
             $current = $name === $currentBucket ? ' aria-current="page"' : '';
-            $items .= '<li><a href="/_/files?bucket=' . rawurlencode($name) . '"' . $current . '><span>' . $this->e($name) . '</span><span>' . $this->e($this->formatBytes((int) ($bucket['total_bytes'] ?? 0))) . '</span></a></li>';
+            $items .= '<li><a href="/_/files?bucket=' . rawurlencode($name) . '"' . $current . '><span>' . $this->e($name) . '</span><span ' . $this->statAttrs(self::STATS_URL, 'bucket:' . $name, 'size') . '>' . self::STATS_PENDING . '</span></a></li>';
         }
 
         return '<nav class="bucket-rail" aria-label="Buckets"><span class="nav-heading">Buckets</span><ul>' . $items . '</ul></nav>';
@@ -957,6 +958,7 @@ CSS;
     {
         $folders = (array) ($listing['folders'] ?? []);
         $files = (array) ($listing['files'] ?? []);
+        $folderStatsUrl = '/_/folder-stats?bucket=' . rawurlencode($bucket) . '&prefix=' . rawurlencode($prefix);
         $html = '<div class="status-line muted" role="status" data-status>' . $this->e($summary) . '</div>';
         $html .= '<div class="selection-bar" data-selection-bar hidden><span data-selection-count></span>'
             . '<button type="button" class="danger" data-action="bulk-delete">Delete selected</button>'
@@ -976,7 +978,7 @@ CSS;
             $html .= '<tr class="row-clickable" data-searchable="' . $this->e(strtolower($name)) . '" data-href="' . $this->e($folderUrl) . '">'
                 . '<td data-stop><input type="checkbox" data-select value="' . $this->e($path) . '" aria-label="Select ' . $this->e($name) . '"></td>'
                 . '<td><a href="' . $folderUrl . '" class="file-name"><span class="file-icon" aria-hidden="true">DIR</span>' . $this->e($name) . '/</a></td>'
-                . '<td class="num">' . $this->e((string) ($folder['object_count'] ?? 0) . ' items · ' . $this->formatBytes((int) ($folder['total_bytes'] ?? 0))) . '</td>'
+                . '<td class="num" ' . $this->statAttrs($folderStatsUrl, $path, 'summary') . '>' . self::STATS_PENDING . '</td>'
                 . '<td class="num">' . $this->e($this->formatDate((int) ($folder['modified'] ?? 0))) . '</td>'
                 . '<td data-stop><div class="row-actions">'
                 . $this->iconButton(self::ICON_RENAME, 'Rename', $this->objectAttrs('rename-object', $path, $name))
@@ -1111,6 +1113,64 @@ CSS;
         }
 
         return '<div class="updates"><h3>Updates</h3>' . $body . '</div>';
+    }
+
+    /**
+     * The text admin.js puts into the size placeholders of the dashboard and
+     * the Files page, keyed like their data-stat-key attributes.
+     *
+     * @param array{object_count: int, total_bytes: int, buckets: list<array{name: string, object_count: int, total_bytes: int}>} $totals
+     * @return array<string, array<string, string>>
+     */
+    public function statsFields(array $totals): array
+    {
+        $totalBytes = (int) $totals['total_bytes'];
+        $fields = ['all' => ['summary' => $this->plural(count($totals['buckets']), 'bucket')
+            . ' · ' . $this->plural((int) $totals['object_count'], 'object')
+            . ' · ' . $this->formatBytes($totalBytes) . ' stored']];
+
+        foreach ($totals['buckets'] as $bucket) {
+            $bytes = (int) $bucket['total_bytes'];
+            $share = $totalBytes > 0 ? (int) round($bytes / $totalBytes * 100) : 0;
+            $fields['bucket:' . $bucket['name']] = [
+                'objects' => number_format((int) $bucket['object_count']),
+                'size' => $this->formatBytes($bytes),
+                'share' => $share . '%',
+            ];
+        }
+
+        return $fields;
+    }
+
+    /**
+     * @param array<string, array{object_count: int, total_bytes: int}> $folders keyed by folder path
+     * @return array<string, array<string, string>>
+     */
+    public function folderStatsFields(array $folders): array
+    {
+        $fields = [];
+        foreach ($folders as $path => $totals) {
+            $fields[(string) $path] = ['summary' => $this->plural((int) $totals['object_count'], 'item') . ' · ' . $this->formatBytes((int) $totals['total_bytes'])];
+        }
+
+        return $fields;
+    }
+
+    /**
+     * Attributes that mark an element as a placeholder: admin.js fetches $src
+     * once per page and fills the element with that response's
+     * [$key][$field]. A $style such as "width" sets that CSS property instead
+     * of the text.
+     */
+    private function statAttrs(string $src, string $key, string $field, string $style = ''): string
+    {
+        return 'data-stat-src="' . $this->e($src) . '" data-stat-key="' . $this->e($key) . '" data-stat-field="' . $field . '"'
+            . ($style === '' ? '' : ' data-stat-style="' . $style . '"');
+    }
+
+    private function plural(int $count, string $noun): string
+    {
+        return number_format($count) . ' ' . $noun . ($count === 1 ? '' : 's');
     }
 
     private function formatBytes(int $bytes): string

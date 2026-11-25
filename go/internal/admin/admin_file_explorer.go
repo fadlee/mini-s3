@@ -26,11 +26,15 @@ func NewAdminFileExplorer(dataDir string) *AdminFileExplorer {
 
 // FolderInfo holds metadata about a folder in the file explorer.
 type FolderInfo struct {
-	Name        string `json:"name"`
-	Path        string `json:"path"`
-	ObjectCount int    `json:"object_count"`
-	TotalBytes  int64  `json:"total_bytes"`
-	Modified    int64  `json:"modified"`
+	Name     string `json:"name"`
+	Path     string `json:"path"`
+	Modified int64  `json:"modified"`
+}
+
+// FolderTotals is the object count and total size under one folder.
+type FolderTotals struct {
+	ObjectCount int   `json:"object_count"`
+	TotalBytes  int64 `json:"total_bytes"`
 }
 
 // FileInfo holds metadata about a file in the file explorer.
@@ -48,6 +52,39 @@ type ListObjectsResult struct {
 	Folders    []FolderInfo `json:"folders"`
 	Files      []FileInfo   `json:"files"`
 	BucketRoot string       `json:"bucket_root"`
+}
+
+// FolderTotals measures every folder directly under prefix and returns the
+// results keyed by folder path. It walks each folder, so it is separate from
+// ListObjects and the page asks for it after it has loaded.
+func (e *AdminFileExplorer) FolderTotals(bucket, prefix string) (map[string]FolderTotals, error) {
+	prefix, err := e.normalizeRelativePath(prefix)
+	if err != nil {
+		return nil, err
+	}
+	scanDir, err := e.resolveInsideBucket(bucket, prefix, true)
+	if err != nil {
+		return nil, err
+	}
+	entries, err := os.ReadDir(scanDir)
+	if err != nil {
+		return nil, err
+	}
+
+	totals := map[string]FolderTotals{}
+	for _, entry := range entries {
+		name := entry.Name()
+		if !entry.IsDir() || strings.HasPrefix(name, ".") {
+			continue
+		}
+		path := name
+		if prefix != "" {
+			path = prefix + "/" + name
+		}
+		count, size := measureDirectory(filepath.Join(scanDir, name))
+		totals[path] = FolderTotals{ObjectCount: count, TotalBytes: size}
+	}
+	return totals, nil
 }
 
 // ListObjects lists folders and files in a bucket under the given prefix.
@@ -88,13 +125,10 @@ func (e *AdminFileExplorer) ListObjects(bucket, prefix string) (*ListObjectsResu
 		}
 
 		if entry.IsDir() {
-			objectCount, totalBytes := e.measureObjects(fullPath)
 			folders = append(folders, FolderInfo{
-				Name:        name,
-				Path:        relativePath,
-				ObjectCount: objectCount,
-				TotalBytes:  totalBytes,
-				Modified:    info.ModTime().Unix(),
+				Name:     name,
+				Path:     relativePath,
+				Modified: info.ModTime().Unix(),
 			})
 		} else {
 			mime := detectMimeType(fullPath)
@@ -462,28 +496,6 @@ func (e *AdminFileExplorer) resolveInsideBucket(bucket, relativePath string, all
 	}
 
 	return fullPath, nil
-}
-
-// measureObjects returns how many objects live under directory and their total size.
-func (e *AdminFileExplorer) measureObjects(directory string) (int, int64) {
-	count := 0
-	var bytes int64
-	filepath.WalkDir(directory, func(path string, d os.DirEntry, err error) error {
-		if err != nil {
-			return nil
-		}
-		if d.IsDir() {
-			return nil
-		}
-		if !strings.HasPrefix(d.Name(), ".") {
-			count++
-			if info, err := d.Info(); err == nil {
-				bytes += info.Size()
-			}
-		}
-		return nil
-	})
-	return count, bytes
 }
 
 func (e *AdminFileExplorer) cleanupEmptyParents(startDir, stopAt string) {

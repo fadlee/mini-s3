@@ -20,6 +20,7 @@ type AdminRouter struct {
 	baseDir        string
 	version        string
 	upgradeService *AdminUpgradeService
+	storage        storageCache
 }
 
 // NewAdminRouter creates an admin router. configPath is the path to config.yaml.
@@ -94,6 +95,10 @@ func (r *AdminRouter) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 		r.handleSecurity(w, req, renderer, writer, auth, cfg)
 	case "/_/files":
 		r.handleFiles(w, req, renderer, auth, cfg)
+	case "/_/stats":
+		r.json(w, renderer.StatsFields(r.storage.get(cfg.DataDir)), http.StatusOK)
+	case "/_/folder-stats":
+		r.handleFolderStats(w, req, renderer, cfg)
 	case "/_/check-update":
 		r.handleCheckUpdate(w, req, auth, cfg)
 	default:
@@ -280,6 +285,19 @@ func (r *AdminRouter) handleCheckUpdate(w http.ResponseWriter, req *http.Request
 	r.redirect(w, req, "/_")
 }
 
+// handleFolderStats returns item counts and sizes for the folders in one
+// listing. admin.js asks for them after the page has loaded.
+func (r *AdminRouter) handleFolderStats(w http.ResponseWriter, req *http.Request, renderer *AdminRenderer, cfg *config.Config) {
+	query := req.URL.Query()
+	explorer := NewAdminFileExplorer(cfg.DataDir)
+	totals, err := explorer.FolderTotals(strings.TrimSpace(query.Get("bucket")), strings.Trim(strings.TrimSpace(query.Get("prefix")), "/"))
+	if err != nil {
+		r.json(w, map[string]interface{}{"ok": false, "message": err.Error()}, http.StatusBadRequest)
+		return
+	}
+	r.json(w, renderer.FolderStatsFields(totals), http.StatusOK)
+}
+
 func (r *AdminRouter) handleFiles(w http.ResponseWriter, req *http.Request, renderer *AdminRenderer, auth *AdminAuth, cfg *config.Config) {
 	csrfToken := auth.EnsureCSRFToken(w, req)
 	explorer := NewAdminFileExplorer(cfg.DataDir)
@@ -326,6 +344,7 @@ func (r *AdminRouter) handleFiles(w http.ResponseWriter, req *http.Request, rend
 			r.json(w, map[string]interface{}{"ok": false, "message": err.Error()}, http.StatusBadRequest)
 			return
 		}
+		r.storage.invalidate()
 		response := map[string]interface{}{"ok": true}
 		for k, v := range result {
 			response[k] = v
@@ -627,7 +646,7 @@ func (r *AdminRouter) serverError(w http.ResponseWriter, detail string) {
 	r.html(w, "<!doctype html><title>Admin Error</title><h1>Admin Error</h1><p>Something went wrong. Check the server log for details.</p>", http.StatusInternalServerError)
 }
 
-func (r *AdminRouter) json(w http.ResponseWriter, payload map[string]interface{}, status int) {
+func (r *AdminRouter) json(w http.ResponseWriter, payload interface{}, status int) {
 	setSecurityHeaders(w.Header())
 	w.Header().Set("Content-Type", "application/json; charset=UTF-8")
 	w.WriteHeader(status)

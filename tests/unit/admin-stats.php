@@ -30,16 +30,25 @@ $stats = (new AdminStats())->scan($base);
 assertSameValue($base, $stats['data_dir'], 'data dir is returned');
 assertSameValue('ok', $stats['status'], 'status is ok');
 assertSameValue(2, $stats['bucket_count'], 'bucket count ignores internal directories');
-assertSameValue(3, $stats['object_count'], 'object count includes nested files');
-assertSameValue(10, $stats['total_bytes'], 'total size sums object bytes');
+assertSameValue([['name' => 'bucket-one'], ['name' => 'bucket-two']], $stats['buckets'], 'scan lists bucket names without walking files');
+
+$totals = (new AdminStats())->measure($base);
+assertSameValue(3, $totals['object_count'], 'object count includes nested files');
+assertSameValue(10, $totals['total_bytes'], 'total size sums object bytes');
 assertSameValue([
     ['name' => 'bucket-one', 'object_count' => 2, 'total_bytes' => 8],
     ['name' => 'bucket-two', 'object_count' => 1, 'total_bytes' => 2],
-], $stats['buckets'], 'per-bucket totals are returned');
+], $totals['buckets'], 'per-bucket totals are returned');
+
+file_put_contents($base . '/bucket-two/d.txt', '1234');
+assertSameValue(10, (new AdminStats())->measure($base)['total_bytes'], 'sizes are served from the cache within the TTL');
+(new AdminStats())->invalidate($base);
+assertSameValue(14, (new AdminStats())->measure($base)['total_bytes'], 'invalidate forces a fresh measurement');
 
 $missing = (new AdminStats())->scan($base . '/missing');
 assertSameValue('missing', $missing['status'], 'missing directory status is reported');
 assertSameValue(0, $missing['bucket_count'], 'missing directory has no buckets');
+assertSameValue(0, (new AdminStats())->measure($base . '/missing')['object_count'], 'missing directory measures as empty');
 
 if ($failures > 0) {
     exit(1);

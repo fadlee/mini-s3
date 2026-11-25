@@ -1,6 +1,7 @@
 package admin
 
 import (
+	"encoding/json"
 	"fmt"
 	"log"
 	"net/http"
@@ -312,11 +313,13 @@ func TestScanStatsWithBuckets(t *testing.T) {
 	if stats.BucketCount != 2 {
 		t.Errorf("expected 2 buckets, got %d", stats.BucketCount)
 	}
-	if stats.ObjectCount != 3 {
-		t.Errorf("expected 3 objects, got %d", stats.ObjectCount)
+
+	totals := MeasureStorage(dir)
+	if totals.ObjectCount != 3 {
+		t.Errorf("expected 3 objects, got %d", totals.ObjectCount)
 	}
-	if stats.TotalBytes != 14 {
-		t.Errorf("expected 14 bytes, got %d", stats.TotalBytes)
+	if totals.TotalBytes != 14 {
+		t.Errorf("expected 14 bytes, got %d", totals.TotalBytes)
 	}
 }
 
@@ -340,12 +343,6 @@ func TestListBuckets(t *testing.T) {
 	}
 	if buckets[1].Name != "zebra" {
 		t.Errorf("expected second bucket 'zebra', got %q", buckets[1].Name)
-	}
-	if buckets[0].ObjectCount != 1 {
-		t.Errorf("expected 1 object in alpha, got %d", buckets[0].ObjectCount)
-	}
-	if buckets[1].TotalBytes != 2 {
-		t.Errorf("expected 2 bytes in zebra, got %d", buckets[1].TotalBytes)
 	}
 }
 
@@ -437,8 +434,16 @@ func TestFileExplorerCreateFolderAndList(t *testing.T) {
 	if result.Folders[0].Name != "folder1" {
 		t.Errorf("expected folder 'folder1', got %q", result.Folders[0].Name)
 	}
-	if got := result.Folders[0]; got.ObjectCount != 1 || got.TotalBytes != 5 {
-		t.Errorf("expected 1 object / 5 bytes, got %d / %d", got.ObjectCount, got.TotalBytes)
+
+	totals, err := explorer.FolderTotals("mybucket", "")
+	if err != nil {
+		t.Fatalf("FolderTotals failed: %v", err)
+	}
+	if got := totals["folder1"]; got.ObjectCount != 1 || got.TotalBytes != 5 {
+		t.Errorf("expected 1 object / 5 bytes, got %+v", got)
+	}
+	if _, err := explorer.FolderTotals("mybucket", "../.."); err == nil {
+		t.Error("FolderTotals must reject a prefix that escapes the bucket")
 	}
 }
 
@@ -1311,7 +1316,7 @@ func TestConfigWriterWriteConfigDropsRemovedCredentials(t *testing.T) {
 	}
 }
 
-func TestScanStatsReturnsPerBucketTotals(t *testing.T) {
+func TestMeasureStorageReturnsPerBucketTotals(t *testing.T) {
 	dir := t.TempDir()
 	os.MkdirAll(filepath.Join(dir, "alpha", "nested"), 0o755)
 	os.MkdirAll(filepath.Join(dir, "beta"), 0o755)
@@ -1320,7 +1325,7 @@ func TestScanStatsReturnsPerBucketTotals(t *testing.T) {
 	os.WriteFile(filepath.Join(dir, "alpha", "nested", "b.txt"), []byte("123"), 0o644)
 	os.WriteFile(filepath.Join(dir, "beta", "c.txt"), []byte("12"), 0o644)
 
-	stats := ScanStats(dir)
+	stats := MeasureStorage(dir)
 	want := []BucketStats{{Name: "alpha", ObjectCount: 2, TotalBytes: 8}, {Name: "beta", ObjectCount: 1, TotalBytes: 2}}
 	if len(stats.Buckets) != len(want) {
 		t.Fatalf("buckets = %+v, want %+v", stats.Buckets, want)
@@ -1332,6 +1337,123 @@ func TestScanStatsReturnsPerBucketTotals(t *testing.T) {
 	}
 	if stats.ObjectCount != 3 || stats.TotalBytes != 10 {
 		t.Errorf("totals = %d objects, %d bytes", stats.ObjectCount, stats.TotalBytes)
+	}
+}
+
+// Sizes are not part of the page: the dashboard and the Files page carry
+// placeholders and admin.js fills them from /_/stats and /_/folder-stats.
+func TestRendererSizesArePlaceholders(t *testing.T) {
+	r := NewAdminRenderer()
+	dash := r.Dashboard(Stats{Status: "ok", BucketCount: 1, Buckets: []BucketInfo{{Name: "photos"}}}, &config.Config{}, "", nil, "")
+	listing := &ListObjectsResult{Folders: []FolderInfo{{Name: "docs", Path: "docs"}}}
+	files := r.Files([]BucketInfo{{Name: "photos"}}, listing, "photos", "", "token", "")
+
+	for page, wants := range map[string][]string{
+		"dashboard": {`data-stat-src="/_/stats" data-stat-key="all" data-stat-field="summary"`, `data-stat-key="bucket:photos" data-stat-field="share" data-stat-style="width"`},
+		"files":     {`data-stat-src="/_/stats" data-stat-key="bucket:photos" data-stat-field="size"`, `data-stat-src="/_/folder-stats?bucket=photos&amp;prefix=" data-stat-key="docs" data-stat-field="summary"`},
+	} {
+		html := map[string]string{"dashboard": dash, "files": files}[page]
+		for _, want := range wants {
+			if !strings.Contains(html, want) {
+				t.Errorf("%s page is missing %q", page, want)
+			}
+		}
+	}
+}
+
+func TestRendererStatsFields(t *testing.T) {
+	r := NewAdminRenderer()
+	fields := r.StatsFields(StorageTotals{ObjectCount: 3, TotalBytes: 2048, Buckets: []BucketStats{{Name: "a", ObjectCount: 1, TotalBytes: 512}, {Name: "b", ObjectCount: 2, TotalBytes: 1536}}})
+	if got, want := fields["all"]["summary"], "2 buckets · 3 objects · 2.00 KB stored"; got != want {
+		t.Errorf("summary = %q, want %q", got, want)
+	}
+	if got := fields["bucket:a"]; got["objects"] != "1" || got["size"] != "512 B" || got["share"] != "25%" {
+		t.Errorf("bucket a = %v", got)
+	}
+
+	folders := r.FolderStatsFields(map[string]FolderTotals{"docs": {ObjectCount: 1, TotalBytes: 2048}})
+	if got, want := folders["docs"]["summary"], "1 item · 2.00 KB"; got != want {
+		t.Errorf("folder summary = %q, want %q", got, want)
+	}
+}
+
+func TestStorageCacheReusesAndInvalidates(t *testing.T) {
+	dir := t.TempDir()
+	os.MkdirAll(filepath.Join(dir, "alpha"), 0o755)
+	os.WriteFile(filepath.Join(dir, "alpha", "a.txt"), []byte("12345"), 0o644)
+
+	var cache storageCache
+	if got := cache.get(dir).TotalBytes; got != 5 {
+		t.Fatalf("first measure = %d bytes, want 5", got)
+	}
+	os.WriteFile(filepath.Join(dir, "alpha", "b.txt"), []byte("123"), 0o644)
+	if got := cache.get(dir).TotalBytes; got != 5 {
+		t.Errorf("a second call within the TTL measured again: %d bytes", got)
+	}
+	cache.invalidate()
+	if got := cache.get(dir).TotalBytes; got != 8 {
+		t.Errorf("after invalidate = %d bytes, want 8", got)
+	}
+}
+
+func TestRouterServesStatsAndFolderStats(t *testing.T) {
+	dir := t.TempDir()
+	hash, err := hashPassword("secret123")
+	if err != nil {
+		t.Fatalf("hashPassword: %v", err)
+	}
+	dataDir := filepath.Join(dir, "data")
+	os.MkdirAll(filepath.Join(dataDir, "photos", "2026"), 0o755)
+	os.WriteFile(filepath.Join(dataDir, "photos", "2026", "a.jpg"), []byte("12345"), 0o644)
+	cfgYAML, _ := yaml.Marshal(map[string]interface{}{
+		"data_dir":    dataDir,
+		"credentials": map[string]string{"minioadmin": "minioadmin"},
+		"admin":       map[string]string{"username": "admin", "password_hash": hash, "session_secret": "signing-secret-key"},
+	})
+	cfgPath := filepath.Join(dir, "config.yaml")
+	if err := os.WriteFile(cfgPath, cfgYAML, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	router := NewAdminRouter(cfgPath, dir, "test")
+
+	get := func(target string, signedIn bool) *httptest.ResponseRecorder {
+		req := httptest.NewRequest("GET", target, nil)
+		if signedIn {
+			loginRR := httptest.NewRecorder()
+			NewAdminAuth("admin", hash, "signing-secret-key").Login(loginRR, httptest.NewRequest("POST", "/_", nil), "admin", "secret123")
+			for _, c := range loginRR.Result().Cookies() {
+				req.AddCookie(c)
+			}
+		}
+		rr := httptest.NewRecorder()
+		router.ServeHTTP(rr, req)
+		return rr
+	}
+
+	if rr := get("/_/stats", false); strings.Contains(rr.Body.String(), "photos") || strings.Contains(rr.Header().Get("Content-Type"), "json") {
+		t.Error("/_/stats must not answer before sign-in")
+	}
+
+	rr := get("/_/stats", true)
+	var stats map[string]map[string]string
+	if err := json.Unmarshal(rr.Body.Bytes(), &stats); err != nil {
+		t.Fatalf("/_/stats is not JSON: %v: %s", err, rr.Body.String())
+	}
+	if stats["bucket:photos"]["size"] != "5 B" || stats["all"]["summary"] != "1 bucket · 1 object · 5 B stored" {
+		t.Errorf("unexpected stats: %v", stats)
+	}
+
+	rr = get("/_/folder-stats?bucket=photos&prefix=", true)
+	var folders map[string]map[string]string
+	if err := json.Unmarshal(rr.Body.Bytes(), &folders); err != nil {
+		t.Fatalf("/_/folder-stats is not JSON: %v: %s", err, rr.Body.String())
+	}
+	if folders["2026"]["summary"] != "1 item · 5 B" {
+		t.Errorf("unexpected folder stats: %v", folders)
+	}
+
+	if rr := get("/_/folder-stats?bucket=photos&prefix=../..", true); rr.Code != http.StatusBadRequest {
+		t.Errorf("a prefix outside the bucket must be rejected, got %d", rr.Code)
 	}
 }
 
@@ -1379,9 +1501,9 @@ func TestRendererPagesHaveNoInlineScript(t *testing.T) {
 }
 
 func TestRendererDashboardEscapesBucketNames(t *testing.T) {
-	stats := Stats{DataDir: "/d", Status: "ok", BucketCount: 1, TotalBytes: 10, Buckets: []BucketStats{{Name: "pics <x>", ObjectCount: 2, TotalBytes: 10}}}
+	stats := Stats{DataDir: "/d", Status: "ok", BucketCount: 1, Buckets: []BucketInfo{{Name: "pics <x>"}}}
 	html := NewAdminRenderer().Dashboard(stats, &config.Config{}, "https://s3.example.test", nil, "")
-	for _, want := range []string{"pics &lt;x&gt;", "100%", `data-copy="https://s3.example.test"`, `<a class="nav-link" href="/_" aria-current="page">`} {
+	for _, want := range []string{"pics &lt;x&gt;", `data-stat-key="bucket:pics &lt;x&gt;"`, `data-copy="https://s3.example.test"`, `<a class="nav-link" href="/_" aria-current="page">`} {
 		if !strings.Contains(html, want) {
 			t.Errorf("dashboard is missing %q", want)
 		}

@@ -59,6 +59,8 @@ final class AdminRouter
                 '/_/keys' => $this->handleKeys($renderer, $writer, $auth, $config, $envLocked),
                 '/_/security' => $this->handleSecurity($renderer, $writer, $auth, $config),
                 '/_/files' => $this->handleFiles($renderer, $auth, $config),
+                '/_/stats' => $this->handleStats($renderer, $config),
+                '/_/folder-stats' => $this->handleFolderStats($renderer, $config),
                 '/_/upgrade' => $this->handleUpgrade($auth, $config),
                 '/_/check-update' => $this->handleCheckUpdate($auth, $config),
                 default => null,
@@ -366,6 +368,7 @@ final class AdminRouter
                     'upload' => $this->uploadAction($explorer),
                     default => throw new RuntimeException('Unknown action'),
                 };
+                (new AdminStats())->invalidate((string) $config['DATA_DIR']);
                 $this->json(['ok' => true] + $result);
             } catch (RuntimeException $e) {
                 $this->json(['ok' => false, 'message' => $e->getMessage()], 400);
@@ -387,6 +390,28 @@ final class AdminRouter
         }
 
         $this->html($body);
+    }
+
+    /** Sizes of every bucket; admin.js fills them into pages that were sent without them. */
+    private function handleStats(AdminRenderer $renderer, array $config): never
+    {
+        $this->json($renderer->statsFields((new AdminStats())->measure((string) $config['DATA_DIR'])));
+    }
+
+    /** Item counts and sizes of the folders in one listing. */
+    private function handleFolderStats(AdminRenderer $renderer, array $config): never
+    {
+        $explorer = new AdminFileExplorer((string) $config['DATA_DIR']);
+        try {
+            $totals = $explorer->folderTotals(
+                trim((string) ($_GET['bucket'] ?? '')),
+                trim((string) ($_GET['prefix'] ?? ''), '/')
+            );
+        } catch (RuntimeException $e) {
+            $this->json(['ok' => false, 'message' => $e->getMessage()], 400);
+        }
+
+        $this->json($renderer->folderStatsFields($totals));
     }
 
     private function createBucketAction(AdminFileExplorer $explorer): array
