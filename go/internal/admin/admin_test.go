@@ -2,6 +2,7 @@ package admin
 
 import (
 	"fmt"
+	"log"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -1423,6 +1424,32 @@ func TestAdminPagesSendSecurityHeaders(t *testing.T) {
 	router.ServeHTTP(rr, httptest.NewRequest(http.MethodGet, adminScriptPath, nil))
 	if got := rr.Header().Get("Cache-Control"); !strings.Contains(got, "immutable") {
 		t.Errorf("admin script Cache-Control = %q, want immutable", got)
+	}
+}
+
+func TestAdminErrorPageHidesDetails(t *testing.T) {
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, "config.yaml")
+	os.WriteFile(configPath, []byte("data_dir: [secret-path\n"), 0600)
+	router := NewAdminRouter(configPath, dir, "test")
+
+	var logged strings.Builder
+	log.SetOutput(&logged)
+	defer log.SetOutput(os.Stderr)
+
+	rr := httptest.NewRecorder()
+	router.ServeHTTP(rr, httptest.NewRequest(http.MethodGet, "/_", nil))
+	if rr.Code != http.StatusInternalServerError {
+		t.Fatalf("expected 500, got %d", rr.Code)
+	}
+	if body := rr.Body.String(); strings.Contains(body, "secret-path") || strings.Contains(body, "yaml") || !strings.Contains(body, "Check the server log") {
+		t.Errorf("error page must show only a generic message, got %q", body)
+	}
+	if rr.Header().Get("Content-Security-Policy") != adminCSP {
+		t.Error("error page must carry the admin security headers")
+	}
+	if !strings.Contains(logged.String(), "[mini-s3 admin] load config:") {
+		t.Errorf("expected the details in the server log, got %q", logged.String())
 	}
 }
 

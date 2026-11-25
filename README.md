@@ -560,6 +560,7 @@ location ~ ^/(data|config)(/|$) {
 #### Go edition: admin panel
 
 - Admin pages are sent with the same headers as the PHP edition: `Cache-Control: no-store`, `X-Frame-Options: DENY`, `Referrer-Policy: same-origin` and a Content Security Policy that allows script only from the server itself. The admin UI script is embedded in the binary and served from `/_/assets/`.
+- Error pages show a generic message; details go to the server log.
 
 ### Best practices
 

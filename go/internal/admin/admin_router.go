@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"html"
+	"log"
 	"net/http"
 	"net/url"
 	"os"
@@ -36,8 +37,7 @@ func NewAdminRouter(configPath, baseDir, version string) *AdminRouter {
 func (r *AdminRouter) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	defer func() {
 		if rv := recover(); rv != nil {
-			r.html(w, fmt.Sprintf("<!doctype html><title>Admin Error</title><h1>Admin Error</h1><p>%s</p>",
-				html.EscapeString(fmt.Sprintf("%v", rv))), http.StatusInternalServerError)
+			r.serverError(w, fmt.Sprintf("panic: %v", rv))
 		}
 	}()
 
@@ -58,8 +58,7 @@ func (r *AdminRouter) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 
 	cfg, err := config.Load(r.configPath)
 	if err != nil {
-		r.html(w, fmt.Sprintf("<!doctype html><title>Admin Error</title><h1>Admin Error</h1><p>%s</p>",
-			html.EscapeString(err.Error())), http.StatusInternalServerError)
+		r.serverError(w, "load config: "+err.Error())
 		return
 	}
 
@@ -618,6 +617,14 @@ func (r *AdminRouter) html(w http.ResponseWriter, body string, status int) {
 	w.Header().Set("Content-Type", "text/html; charset=UTF-8")
 	w.WriteHeader(status)
 	w.Write([]byte(body))
+}
+
+// serverError logs the details and shows a generic page: it can be reached
+// before login, so it must not reveal paths or config contents. Matches the
+// PHP edition's AdminRouter::handle() error page.
+func (r *AdminRouter) serverError(w http.ResponseWriter, detail string) {
+	log.Printf("[mini-s3 admin] %s", detail)
+	r.html(w, "<!doctype html><title>Admin Error</title><h1>Admin Error</h1><p>Something went wrong. Check the server log for details.</p>", http.StatusInternalServerError)
 }
 
 func (r *AdminRouter) json(w http.ResponseWriter, payload map[string]interface{}, status int) {
