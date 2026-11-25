@@ -200,6 +200,12 @@ func (s *FileStorage) ObjectPath(bucket, key string) string {
 	return filepath.Join(s.dataDir, bucket, key)
 }
 
+// CreateBucket creates the bucket directory. Creating a bucket that already
+// exists succeeds, like CreateBucket in us-east-1.
+func (s *FileStorage) CreateBucket(bucket string) error {
+	return s.ensureDir(filepath.Join(s.dataDir, bucket))
+}
+
 // ObjectExists reports whether the object exists as a regular file.
 func (s *FileStorage) ObjectExists(bucket, key string) bool {
 	info, err := os.Stat(s.ObjectPath(bucket, key))

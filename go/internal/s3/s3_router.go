@@ -124,6 +124,17 @@ func (r *S3Router) sendCorsHeaders(w http.ResponseWriter, ctx *minihttp.RequestC
 }
 
 func (r *S3Router) handlePut(ctx *minihttp.RequestContext, resp *S3Response, bucket, key string) {
+	if key == "" {
+		// CreateBucket (for example "aws s3 mb"). Read-only access never reaches here.
+		if err := r.storage.CreateBucket(bucket); err != nil {
+			resp.XMLError(500, "InternalError", "Internal server error", "/"+bucket)
+			return
+		}
+		resp.Writer().Header().Set("Location", "/"+bucket)
+		resp.Writer().WriteHeader(http.StatusOK)
+		return
+	}
+
 	uploadID := ctx.GetQueryParam("uploadId")
 	partNumber := ctx.GetQueryParam("partNumber")
 
@@ -148,8 +159,7 @@ func (r *S3Router) handlePut(ctx *minihttp.RequestContext, resp *S3Response, buc
 			return
 		}
 
-		etag := md5File(partPath)
-		resp.Writer().Header().Set("ETag", etag)
+		resp.Writer().Header().Set("ETag", quotedETag(partPath))
 		resp.Writer().WriteHeader(http.StatusOK)
 		return
 	}
@@ -162,6 +172,8 @@ func (r *S3Router) handlePut(ctx *minihttp.RequestContext, resp *S3Response, buc
 		resp.XMLError(500, "InternalError", "Internal server error", r.resource(bucket, key))
 		return
 	}
+	// S3 clients (AWS SDKs, Litestream) treat a PUT without an ETag as failed.
+	resp.Writer().Header().Set("ETag", quotedETag(r.storage.ObjectPath(bucket, key)))
 	resp.Writer().WriteHeader(http.StatusOK)
 }
 
@@ -297,8 +309,10 @@ func (r *S3Router) handleCompleteMultipart(ctx *minihttp.RequestContext, resp *S
 
 	r.storage.CleanupMultipartUpload(bucket, key, uploadID)
 
+	etag := quotedETag(r.storage.ObjectPath(bucket, key))
+	resp.Writer().Header().Set("ETag", etag)
 	scheme := ctx.GetScheme()
-	resp.CompleteMultipartUpload(bucket, key, uploadID, ctx.GetHost(), scheme)
+	resp.CompleteMultipartUpload(bucket, key, uploadID, ctx.GetHost(), scheme, etag)
 }
 
 func (r *S3Router) handleListObjects(ctx *minihttp.RequestContext, resp *S3Response, bucket string) {
@@ -611,6 +625,12 @@ func (r *S3Router) resource(bucket, key string) string {
 }
 
 // --- helpers ---
+
+// quotedETag is the quoted MD5 of the stored bytes, the ETag format S3 uses
+// for single-part objects.
+func quotedETag(path string) string {
+	return `"` + md5File(path) + `"`
+}
 
 func md5File(path string) string {
 	f, err := os.Open(path)

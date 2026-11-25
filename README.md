@@ -621,7 +621,7 @@ The PHP integration suite (`php tests/integration/run.php`) checks:
 
 `php tests/integration/http-headers.php` starts PHP's built-in server and checks response headers that the CLI harness cannot see: the `ETag` on PutObject, UploadPart and CompleteMultipartUpload, and CreateBucket (`PUT /bucket`).
 
-[Litestream](https://litestream.io) (0.5.x) has been tested against the PHP edition: continuous replication of a SQLite database, then a restore with a **read-only** key. Use `force-path-style: true` and the Mini S3 URL as `endpoint` in the replica config.
+[Litestream](https://litestream.io) (0.5.x) has been tested against both editions: continuous replication of a SQLite database followed by a restore (on the PHP edition, with a **read-only** key). Use `force-path-style: true` and the Mini S3 URL as `endpoint` in the replica config.
 
 ### Creating a release
 
