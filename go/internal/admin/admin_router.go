@@ -36,7 +36,7 @@ func NewAdminRouter(configPath, baseDir, version string) *AdminRouter {
 func (r *AdminRouter) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	defer func() {
 		if rv := recover(); rv != nil {
-			http.Error(w, fmt.Sprintf("<!doctype html><title>Admin Error</title><h1>Admin Error</h1><p>%s</p>",
+			r.html(w, fmt.Sprintf("<!doctype html><title>Admin Error</title><h1>Admin Error</h1><p>%s</p>",
 				html.EscapeString(fmt.Sprintf("%v", rv))), http.StatusInternalServerError)
 		}
 	}()
@@ -58,7 +58,7 @@ func (r *AdminRouter) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 
 	cfg, err := config.Load(r.configPath)
 	if err != nil {
-		http.Error(w, fmt.Sprintf("<!doctype html><title>Admin Error</title><h1>Admin Error</h1><p>%s</p>",
+		r.html(w, fmt.Sprintf("<!doctype html><title>Admin Error</title><h1>Admin Error</h1><p>%s</p>",
 			html.EscapeString(err.Error())), http.StatusInternalServerError)
 		return
 	}
@@ -495,23 +495,23 @@ var inlineMimeTypes = map[string]bool{
 func (r *AdminRouter) streamFile(w http.ResponseWriter, req *http.Request, explorer *AdminFileExplorer, bucket, objectPath string, download bool) {
 	info, err := explorer.ObjectInfo(bucket, objectPath)
 	if err != nil {
-		http.Error(w, fmt.Sprintf("<!doctype html><title>Not found</title><p>%s</p>", html.EscapeString(err.Error())), http.StatusNotFound)
+		r.html(w, fmt.Sprintf("<!doctype html><title>Not found</title><p>%s</p>", html.EscapeString(err.Error())), http.StatusNotFound)
 		return
 	}
 	fullPath, err := explorer.ObjectFullPath(bucket, objectPath)
 	if err != nil {
-		http.Error(w, fmt.Sprintf("<!doctype html><title>Not found</title><p>%s</p>", html.EscapeString(err.Error())), http.StatusNotFound)
+		r.html(w, fmt.Sprintf("<!doctype html><title>Not found</title><p>%s</p>", html.EscapeString(err.Error())), http.StatusNotFound)
 		return
 	}
 	file, err := os.Open(fullPath)
 	if err != nil {
-		http.Error(w, "<!doctype html><title>Not found</title><p>file not found</p>", http.StatusNotFound)
+		r.html(w, "<!doctype html><title>Not found</title><p>file not found</p>", http.StatusNotFound)
 		return
 	}
 	defer file.Close()
 	stat, err := file.Stat()
 	if err != nil || stat.IsDir() {
-		http.Error(w, "<!doctype html><title>Not found</title><p>file not found</p>", http.StatusNotFound)
+		r.html(w, "<!doctype html><title>Not found</title><p>file not found</p>", http.StatusNotFound)
 		return
 	}
 
@@ -524,6 +524,7 @@ func (r *AdminRouter) streamFile(w http.ResponseWriter, req *http.Request, explo
 	}
 
 	h := w.Header()
+	h.Set("Cache-Control", "no-store")
 	h.Set("Content-Type", contentType)
 	h.Set("Content-Disposition", disposition+`; filename="`+asciiDispositionName(info.Name)+`"; filename*=UTF-8''`+encodeRFC5987(info.Name))
 	h.Set("X-Content-Type-Options", "nosniff")
@@ -597,19 +598,37 @@ func (r *AdminRouter) endpoint(req *http.Request) string {
 	return scheme + "://" + host
 }
 
+// adminCSP lets admin pages run script only from this origin: no inline
+// script, no inline event handlers, no eval. All behaviour is in admin.js.
+const adminCSP = "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; form-action 'self'; base-uri 'none'; object-src 'none'"
+
+// setSecurityHeaders marks an admin response: admin pages show secrets, so
+// never cache them, never frame them, and only run script from this origin.
+// It matches the PHP edition's AdminRouter::sendSecurityHeaders().
+func setSecurityHeaders(h http.Header) {
+	h.Set("Cache-Control", "no-store")
+	h.Set("X-Frame-Options", "DENY")
+	h.Set("X-Content-Type-Options", "nosniff")
+	h.Set("Referrer-Policy", "same-origin")
+	h.Set("Content-Security-Policy", adminCSP)
+}
+
 func (r *AdminRouter) html(w http.ResponseWriter, body string, status int) {
+	setSecurityHeaders(w.Header())
 	w.Header().Set("Content-Type", "text/html; charset=UTF-8")
 	w.WriteHeader(status)
 	w.Write([]byte(body))
 }
 
 func (r *AdminRouter) json(w http.ResponseWriter, payload map[string]interface{}, status int) {
+	setSecurityHeaders(w.Header())
 	w.Header().Set("Content-Type", "application/json; charset=UTF-8")
 	w.WriteHeader(status)
 	json.NewEncoder(w).Encode(payload)
 }
 
 func (r *AdminRouter) redirect(w http.ResponseWriter, req *http.Request, path string) {
+	w.Header().Set("Cache-Control", "no-store")
 	http.Redirect(w, req, path, http.StatusFound)
 }
 

@@ -557,6 +557,10 @@ location ~ ^/(data|config)(/|$) {
 - `AUTH_DEBUG_LOG` can only be set in `config/config.php` or the environment, so an admin session cannot be used to write files to arbitrary paths.
 - Error pages show a generic message; details go to the PHP error log.
 
+#### Go edition: admin panel
+
+- Admin pages are sent with the same headers as the PHP edition: `Cache-Control: no-store`, `X-Frame-Options: DENY`, `Referrer-Policy: same-origin` and a Content Security Policy that allows script only from the server itself. The admin UI script is embedded in the binary and served from `/_/assets/`.
+
 ### Best practices
 
 1. **Use HTTPS**: Always deploy with TLS to encrypt data in transit. In Docker, terminate TLS at a reverse proxy.

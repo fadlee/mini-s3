@@ -1391,6 +1391,41 @@ func TestRendererLoginUsesAuthLayout(t *testing.T) {
 	}
 }
 
+func TestAdminPagesSendSecurityHeaders(t *testing.T) {
+	// No config file: the installer is the page anyone can reach first.
+	dir := t.TempDir()
+	router := NewAdminRouter(filepath.Join(dir, "config.yaml"), dir, "test")
+
+	rr := httptest.NewRecorder()
+	router.ServeHTTP(rr, httptest.NewRequest(http.MethodGet, "/_", nil))
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rr.Code)
+	}
+	h := rr.Header()
+	for name, want := range map[string]string{
+		"Cache-Control":           "no-store",
+		"X-Frame-Options":         "DENY",
+		"X-Content-Type-Options":  "nosniff",
+		"Referrer-Policy":         "same-origin",
+		"Content-Security-Policy": adminCSP,
+	} {
+		if got := h.Get(name); got != want {
+			t.Errorf("%s = %q, want %q", name, got, want)
+		}
+	}
+	csp := h.Get("Content-Security-Policy")
+	if !strings.Contains(csp, "script-src 'self';") || strings.Contains(csp, "unsafe-eval") || strings.Contains(csp, "script-src 'self' 'unsafe-inline'") {
+		t.Errorf("CSP must only allow same-origin script, got %q", csp)
+	}
+
+	// The admin script itself stays cacheable.
+	rr = httptest.NewRecorder()
+	router.ServeHTTP(rr, httptest.NewRequest(http.MethodGet, adminScriptPath, nil))
+	if got := rr.Header().Get("Cache-Control"); !strings.Contains(got, "immutable") {
+		t.Errorf("admin script Cache-Control = %q, want immutable", got)
+	}
+}
+
 func TestAdminServesSelfHostedScript(t *testing.T) {
 	// No config file: the installer page and the script must both work.
 	dir := t.TempDir()
