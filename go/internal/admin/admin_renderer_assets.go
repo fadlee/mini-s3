@@ -246,6 +246,14 @@ label > span.field-label { flex: 0 0 220px; }
 .icon-btn { display: inline-flex; align-items: center; justify-content: center; }
 .health-body code { display: block; color: var(--text); margin-bottom: 2px; }
 
+/* Keep navigation in view while long lists scroll. Only where the columns sit side by side. */
+@media (min-width: 800px) {
+  .sidebar { position: sticky; top: 0; align-self: flex-start; height: 100vh; overflow-y: auto; }
+}
+@media (min-width: 1024px) {
+  .bucket-rail { position: sticky; top: 16px; max-height: calc(100vh - 32px); overflow-y: auto; }
+}
+
 @media (max-width: 760px) {
   .sidebar { max-width: none; flex-basis: 100%; border-right: 0; border-bottom: 1px solid var(--border); padding: 14px; gap: 12px; }
   .sidebar nav { flex-direction: row; flex-wrap: wrap; gap: 4px; }
