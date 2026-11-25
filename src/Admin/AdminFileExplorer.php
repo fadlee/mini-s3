@@ -76,10 +76,12 @@ final class AdminFileExplorer
 
             $relativePath = $prefix === '' ? $name : $prefix . '/' . $name;
             if ($item->isDir()) {
+                [$objectCount, $totalBytes] = $this->measureObjects($item->getPathname());
                 $folders[] = [
                     'name' => $name,
                     'path' => $relativePath,
-                    'object_count' => $this->countObjects($item->getPathname()),
+                    'object_count' => $objectCount,
+                    'total_bytes' => $totalBytes,
                     'modified' => $item->getMTime(),
                 ];
                 continue;
@@ -344,9 +346,11 @@ final class AdminFileExplorer
         return $fullPath;
     }
 
-    private function countObjects(string $directory): int
+    /** @return array{0: int, 1: int} object count and total bytes under a directory */
+    private function measureObjects(string $directory): array
     {
         $count = 0;
+        $bytes = 0;
         $iterator = new RecursiveIteratorIterator(
             new RecursiveDirectoryIterator($directory, FilesystemIterator::SKIP_DOTS)
         );
@@ -354,10 +358,11 @@ final class AdminFileExplorer
         foreach ($iterator as $file) {
             if ($file->isFile() && !str_starts_with($file->getFilename(), '.')) {
                 $count++;
+                $bytes += $file->getSize();
             }
         }
 
-        return $count;
+        return [$count, $bytes];
     }
 
     private function detectMimeType(string $filePath): string

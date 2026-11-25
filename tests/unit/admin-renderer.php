@@ -165,7 +165,7 @@ $filesHtml = (new AdminRenderer())->files([
     ['name' => 'photos', 'object_count' => 2, 'total_bytes' => 1024],
 ], [
     'folders' => [
-        ['name' => 'nested', 'path' => 'nested', 'object_count' => 1, 'modified' => 1700000000],
+        ['name' => 'nested', 'path' => 'nested', 'object_count' => 1, 'total_bytes' => 2048, 'modified' => 1700000000],
     ],
     'files' => [
         ['name' => 'cover.png', 'path' => 'cover.png', 'size' => 12, 'modified' => 1700000000, 'mime' => 'image/png', 'is_image' => true],
@@ -179,6 +179,7 @@ assertContainsText('cover.png', $filesHtml, 'files page renders file name');
 assertContainsText('download=1', $filesHtml, 'files page renders download link');
 assertContainsText('path=cover.png&download=0', $filesHtml, 'raster image preview thumbnail is rendered');
 assertNotContainsText('path=logo.svg&download=0', $filesHtml, 'svg files get no inline preview');
+assertContainsText('1 items · 2 KB', $filesHtml, 'folder row shows item count and size');
 assertContainsText('data-filter', $filesHtml, 'files page renders the filter box');
 assertContainsText('<dialog class="dialog-panel"', $filesHtml, 'files page renders a native dialog');
 assertContainsText('data-action="rename-object" data-path="cover.png" data-name="cover.png"', $filesHtml, 'files page renders rename action');

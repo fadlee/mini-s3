@@ -976,7 +976,7 @@ CSS;
             $html .= '<tr class="row-clickable" data-searchable="' . $this->e(strtolower($name)) . '" data-href="' . $this->e($folderUrl) . '">'
                 . '<td data-stop><input type="checkbox" data-select value="' . $this->e($path) . '" aria-label="Select ' . $this->e($name) . '"></td>'
                 . '<td><a href="' . $folderUrl . '" class="file-name"><span class="file-icon" aria-hidden="true">DIR</span>' . $this->e($name) . '/</a></td>'
-                . '<td class="num">' . $this->e((string) ($folder['object_count'] ?? 0)) . ' items</td>'
+                . '<td class="num">' . $this->e((string) ($folder['object_count'] ?? 0) . ' items · ' . $this->formatBytes((int) ($folder['total_bytes'] ?? 0))) . '</td>'
                 . '<td class="num">' . $this->e($this->formatDate((int) ($folder['modified'] ?? 0))) . '</td>'
                 . '<td data-stop><div class="row-actions">'
                 . $this->iconButton(self::ICON_RENAME, 'Rename', $this->objectAttrs('rename-object', $path, $name))

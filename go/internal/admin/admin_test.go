@@ -423,6 +423,9 @@ func TestFileExplorerCreateFolderAndList(t *testing.T) {
 	if err := explorer.CreateFolder("mybucket", "folder1"); err != nil {
 		t.Fatalf("CreateFolder failed: %v", err)
 	}
+	if err := os.WriteFile(filepath.Join(dir, "mybucket", "folder1", "a.txt"), []byte("hello"), 0o644); err != nil {
+		t.Fatal(err)
+	}
 
 	result, err := explorer.ListObjects("mybucket", "")
 	if err != nil {
@@ -433,6 +436,9 @@ func TestFileExplorerCreateFolderAndList(t *testing.T) {
 	}
 	if result.Folders[0].Name != "folder1" {
 		t.Errorf("expected folder 'folder1', got %q", result.Folders[0].Name)
+	}
+	if got := result.Folders[0]; got.ObjectCount != 1 || got.TotalBytes != 5 {
+		t.Errorf("expected 1 object / 5 bytes, got %d / %d", got.ObjectCount, got.TotalBytes)
 	}
 }
 
