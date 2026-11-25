@@ -114,6 +114,15 @@ HTACCESS;
         return $this->dataDir . '/' . $bucket . '/' . $key;
     }
 
+    /**
+     * A bucket is a directory under the data directory. Creating one that
+     * already exists succeeds, like CreateBucket in us-east-1.
+     */
+    public function createBucket(string $bucket): void
+    {
+        $this->ensureDirectory($this->dataDir . '/' . $bucket);
+    }
+
     public function objectExists(string $bucket, string $key): bool
     {
         return is_file($this->objectPath($bucket, $key));

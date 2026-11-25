@@ -22,7 +22,8 @@ final class S3Router
         private readonly SigV4Authenticator $authenticator,
         private readonly int $maxRequestSize,
         private readonly bool $publicReadAllBuckets = false,
-        private readonly string $publicCacheControl = 'public, max-age=3600'
+        private readonly string $publicCacheControl = 'public, max-age=3600',
+        private readonly array $readOnlyAccessKeys = []
     ) {
     }
 
@@ -45,7 +46,8 @@ final class S3Router
             $this->validateRequestSize();
 
             if (!$this->isPublicRead($method)) {
-                $this->authenticator->authenticate($this->request);
+                $accessKey = $this->authenticator->authenticate($this->request);
+                $this->authorize($accessKey, $method);
             }
 
             switch ($method) {
@@ -79,9 +81,28 @@ final class S3Router
         }
     }
 
+    /**
+     * Read-only keys may only GET and HEAD. Every other method (PUT, POST for
+     * multipart and bulk delete, DELETE) changes data and needs a read/write key.
+     */
+    private function authorize(string $accessKey, string $method): void
+    {
+        if (self::isReadMethod($method)) {
+            return;
+        }
+        if (in_array($accessKey, $this->readOnlyAccessKeys, true)) {
+            throw new AuthException('AccessDenied', 'This access key is read-only.', 403);
+        }
+    }
+
+    private static function isReadMethod(string $method): bool
+    {
+        return $method === 'GET' || $method === 'HEAD';
+    }
+
     private function isPublicRead(string $method): bool
     {
-        return $this->publicReadAllBuckets && ($method === 'GET' || $method === 'HEAD');
+        return $this->publicReadAllBuckets && self::isReadMethod($method);
     }
 
     private function sendCorsHeaders(): void
@@ -106,6 +127,14 @@ final class S3Router
 
     private function handlePut(string $bucket, string $key): never
     {
+        if ($key === '') {
+            // CreateBucket (for example "aws s3 mb"). Read-only keys never get here.
+            $this->storage->createBucket($bucket);
+            header('Location: /' . $bucket);
+            http_response_code(200);
+            exit;
+        }
+
         $uploadId = $this->request->getQueryParam('uploadId');
         $partNumber = $this->request->getQueryParam('partNumber');
 
@@ -126,7 +155,7 @@ final class S3Router
                 }
                 throw $e;
             }
-            header('ETag: ' . md5_file($partPath));
+            header('ETag: ' . $this->etag($partPath));
             http_response_code(200);
             exit;
         }
@@ -139,8 +168,18 @@ final class S3Router
             }
             throw $e;
         }
+        // S3 clients (AWS SDKs, Litestream) treat a PUT without an ETag as failed.
+        header('ETag: ' . $this->etag($this->storage->objectPath($bucket, $key)));
         http_response_code(200);
         exit;
+    }
+
+    /**
+     * Quoted MD5 of the stored bytes, the ETag format S3 uses for single-part objects.
+     */
+    private function etag(string $path): string
+    {
+        return '"' . md5_file($path) . '"';
     }
 
     private function handlePost(string $bucket, string $key): never
@@ -213,7 +252,9 @@ final class S3Router
             }
 
             $scheme = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ? 'https' : 'http';
-            $this->response->completeMultipartUpload($bucket, $key, $uploadId, $this->request->getHost(), $scheme);
+            $etag = $this->etag($this->storage->objectPath($bucket, $key));
+            header('ETag: ' . $etag);
+            $this->response->completeMultipartUpload($bucket, $key, $uploadId, $this->request->getHost(), $scheme, $etag);
         }
 
         $this->response->error(

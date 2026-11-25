@@ -6,7 +6,7 @@
   "scripts": {
     "qa:lint": "php tests/lint.php",
     "qa:unit": "for f in tests/unit/*.php; do php \"$f\" || exit 1; done",
-    "qa:test": "php tests/integration/run.php",
+    "qa:test": "php tests/integration/run.php && php tests/integration/http-headers.php",
     "qa:release-test": "php tests/release-archive.php",
     "check": [
       "@qa:lint",

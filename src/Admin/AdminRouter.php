@@ -25,22 +25,23 @@ final class AdminRouter
     public function handle(): never
     {
         try {
+            $path = parse_url($this->uri, PHP_URL_PATH) ?: '/_';
+            if ($path === AdminAssets::alpinePath()) {
+                $this->serveAlpine();
+            }
+
             $renderer = new AdminRenderer();
             $writer = new AdminConfigWriter($this->baseDir);
-            $configPath = $this->baseDir . '/config/config.php';
 
-            if (!is_file($configPath)) {
-                $auth = new AdminAuth('admin', '');
-                $this->handleInstaller($renderer, $writer, $auth);
+            if (!is_file($this->configPath())) {
+                $this->handleInstaller($renderer, $writer, new AdminAuth('admin', ''));
             }
 
             $config = ConfigLoader::load($this->baseDir);
             $auth = new AdminAuth((string) ($config['ADMIN_USERNAME'] ?? 'admin'), (string) ($config['ADMIN_PASSWORD_HASH'] ?? ''));
-            $path = parse_url($this->uri, PHP_URL_PATH) ?: '/_';
 
             if ($path === '/_/logout') {
-                $auth->logout();
-                $this->redirect('/_');
+                $this->handleLogout($auth);
             }
 
             if (in_array($path, ['/_/upgrade', '/_/check-update'], true) && !$auth->isAuthenticated()) {
@@ -51,25 +52,17 @@ final class AdminRouter
                 $this->handleLogin($renderer, $auth);
             }
 
-            if ($path === '/_/config') {
-                $this->handleConfig($renderer, $writer, $auth, $config);
-            }
-
-            if ($path === '/_/security') {
-                $this->handleSecurity($renderer, $writer, $auth, $config);
-            }
-
-            if ($path === '/_/files') {
-                $this->handleFiles($renderer, $auth, $config);
-            }
-
-            if ($path === '/_/upgrade') {
-                $this->handleUpgrade($auth, $config);
-            }
-
-            if ($path === '/_/check-update') {
-                $this->handleCheckUpdate($auth, $config);
-            }
+            $envLocked = ConfigLoader::envOverriddenKeys();
+            match ($path) {
+                '/_/config' => $this->redirect('/_/settings'),
+                '/_/settings' => $this->handleSettings($renderer, $writer, $auth, $config, $envLocked),
+                '/_/keys' => $this->handleKeys($renderer, $writer, $auth, $config, $envLocked),
+                '/_/security' => $this->handleSecurity($renderer, $writer, $auth, $config),
+                '/_/files' => $this->handleFiles($renderer, $auth, $config),
+                '/_/upgrade' => $this->handleUpgrade($auth, $config),
+                '/_/check-update' => $this->handleCheckUpdate($auth, $config),
+                default => null,
+            };
 
             $upgradeService = $this->upgradeService($config);
             $currentVersion = defined('MINI_S3_VERSION') ? (string) constant('MINI_S3_VERSION') : null;
@@ -78,83 +71,211 @@ final class AdminRouter
                 : $upgradeService->cachedStatus($currentVersion);
             $updateStatus['csrfToken'] = $auth->csrfToken();
             $stats = (new AdminStats())->scan((string) $config['DATA_DIR']);
-            $this->html($renderer->dashboard($stats, $config, $this->endpoint(), $updateStatus, $auth->consumeFlash()));
+            $this->html($renderer->dashboard(
+                $stats,
+                $config,
+                $this->endpoint(),
+                $updateStatus,
+                $auth->consumeFlash(),
+                $auth->csrfToken(),
+                $this->warnings($config)
+            ));
         } catch (Throwable $e) {
+            // Details go to the server log only; this page can be reached before login.
+            error_log('[mini-s3 admin] ' . get_class($e) . ': ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
             http_response_code(500);
+            $this->sendSecurityHeaders();
             header('Content-Type: text/html; charset=UTF-8');
-            echo '<!doctype html><title>Admin Error</title><h1>Admin Error</h1><p>' . htmlspecialchars($e->getMessage(), ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . '</p>';
+            echo '<!doctype html><title>Admin Error</title><h1>Admin Error</h1><p>Something went wrong. Check the PHP error log on the server for details.</p>';
             exit;
         }
+    }
+
+    private function configPath(): string
+    {
+        return $this->baseDir . '/config/config.php';
+    }
+
+    private function serveAlpine(): never
+    {
+        http_response_code(200);
+        header('Content-Type: text/javascript; charset=UTF-8');
+        header('Cache-Control: public, max-age=31536000, immutable');
+        header('X-Content-Type-Options: nosniff');
+        echo AdminAssets::alpine();
+        exit;
     }
 
     private function handleInstaller(AdminRenderer $renderer, AdminConfigWriter $writer, AdminAuth $auth): never
     {
         $values = $this->defaultValues();
+        $credentialsFromEnv = isset(ConfigLoader::envOverriddenKeys()['CREDENTIALS']);
         if ($this->method === 'POST') {
+            $submitted = array_intersect_key($this->post, array_flip(['admin_username', 'data_dir'])) + $values;
             if (!$auth->verifyCsrfToken((string) ($this->post['csrf_token'] ?? ''))) {
-                $this->html($renderer->installer($this->post + $values, ['CSRF token is invalid'], $auth->csrfToken()), 400);
+                $this->html($renderer->installer($submitted, ['Your session expired. Please submit the form again.'], $auth->csrfToken(), $credentialsFromEnv), 400);
             }
             try {
-                $config = $writer->buildConfig($this->post);
+                [$config, $accessKey] = $writer->buildInstallerConfig($this->post, !$credentialsFromEnv);
                 $writer->writeInstallerConfig($config);
                 $loginAuth = new AdminAuth((string) $config['ADMIN_USERNAME'], (string) $config['ADMIN_PASSWORD_HASH']);
                 $loginAuth->login((string) $this->post['admin_username'], (string) $this->post['admin_password']);
+                if ($accessKey !== null) {
+                    $loginAuth->setFlash('Mini S3 is ready. Your first access key is below: copy it into your app.');
+                    $this->redirect('/_/keys?new=' . rawurlencode($accessKey));
+                }
+                $loginAuth->setFlash('Mini S3 is ready.');
                 $this->redirect('/_');
             } catch (RuntimeException $e) {
-                $this->html($renderer->installer($this->post + $values, [$e->getMessage()], $auth->csrfToken()), 400);
+                $this->html($renderer->installer($submitted, [$e->getMessage()], $auth->csrfToken(), $credentialsFromEnv), 400);
             }
         }
 
-        $this->html($renderer->installer($values, [], $auth->csrfToken()));
+        $this->html($renderer->installer($values, [], $auth->csrfToken(), $credentialsFromEnv));
     }
 
     private function handleLogin(AdminRenderer $renderer, AdminAuth $auth): never
     {
         if ($this->method === 'POST') {
             if (!$auth->verifyCsrfToken((string) ($this->post['csrf_token'] ?? ''))) {
-                $this->html($renderer->login('CSRF token is invalid', $auth->csrfToken()), 400);
+                $this->html($renderer->login('Your session expired. Please log in again.', $auth->csrfToken()), 400);
             }
+
+            $throttle = new LoginThrottle($this->baseDir . '/config/.login-throttle.json');
+            $ip = (string) ($_SERVER['REMOTE_ADDR'] ?? 'unknown');
+            $retryAfter = $throttle->retryAfter($ip);
+            if ($retryAfter > 0) {
+                header('Retry-After: ' . $retryAfter);
+                $this->html($renderer->login('Too many failed attempts. Try again in ' . (int) ceil($retryAfter / 60) . ' minute(s).', $auth->csrfToken()), 429);
+            }
+
             if ($auth->login((string) ($this->post['username'] ?? ''), (string) ($this->post['password'] ?? ''))) {
+                $throttle->reset($ip);
                 $this->redirect('/_');
             }
+            $throttle->recordFailure($ip);
             $this->html($renderer->login('Invalid username or password', $auth->csrfToken()), 401);
         }
 
         $this->html($renderer->login('', $auth->csrfToken()));
     }
 
-    private function handleConfig(AdminRenderer $renderer, AdminConfigWriter $writer, AdminAuth $auth, array $config): never
+    private function handleLogout(AdminAuth $auth): never
     {
-        $values = $this->valuesFromConfig($config);
+        // POST + CSRF only, so other sites cannot log the admin out.
+        if ($this->method === 'POST' && $auth->verifyCsrfToken((string) ($this->post['csrf_token'] ?? ''))) {
+            $auth->logout();
+        }
+        $this->redirect('/_');
+    }
+
+    private function handleSettings(AdminRenderer $renderer, AdminConfigWriter $writer, AdminAuth $auth, array $config, array $envLocked): never
+    {
+        $values = $this->settingsValues($config);
         if ($this->method === 'POST') {
+            $submitted = $this->post + $values;
             if (!$auth->verifyCsrfToken((string) ($this->post['csrf_token'] ?? ''))) {
-                $this->html($renderer->config($this->post + $values, ['CSRF token is invalid'], $auth->csrfToken()), 400);
+                $this->html($renderer->settings($submitted, ['Your session expired. Please submit the form again.'], $auth->csrfToken(), '', $envLocked), 400);
             }
             try {
-                $newConfig = $writer->buildConfig($this->post, ConfigLoader::loadFile($this->baseDir));
-                $writer->ensureWritableDataDir((string) $newConfig['DATA_DIR']);
+                $newConfig = $writer->buildSettingsConfig($this->post, ConfigLoader::loadFile($this->baseDir));
+                if (!isset($envLocked['DATA_DIR'])) {
+                    $writer->ensureWritableDataDir((string) $newConfig['DATA_DIR']);
+                }
                 $writer->writeConfig($newConfig);
-                $this->redirect('/_/config');
+                $auth->setFlash('Settings saved.');
+                $this->redirect('/_/settings');
             } catch (RuntimeException $e) {
-                $this->html($renderer->config($this->post + $values, [$e->getMessage()], $auth->csrfToken()), 400);
+                $this->html($renderer->settings($submitted, [$e->getMessage()], $auth->csrfToken(), '', $envLocked), 400);
             }
         }
 
-        $this->html($renderer->config($values, [], $auth->csrfToken()));
+        $this->html($renderer->settings($values, [], $auth->csrfToken(), $auth->consumeFlash(), $envLocked));
+    }
+
+    private function handleKeys(AdminRenderer $renderer, AdminConfigWriter $writer, AdminAuth $auth, array $config, array $envLocked): never
+    {
+        $credentials = (array) $config['CREDENTIALS'];
+        $managedByEnv = isset($envLocked['CREDENTIALS']);
+
+        if ($this->method === 'POST') {
+            $action = (string) ($this->post['action'] ?? '');
+            $accessKey = trim((string) ($this->post['access_key'] ?? ''));
+            if (!$auth->verifyCsrfToken((string) ($this->post['csrf_token'] ?? ''))) {
+                if ($action === 'reveal') {
+                    $this->json(['ok' => false, 'message' => 'Your session expired. Reload the page.'], 400);
+                }
+                $auth->setFlash('Your session expired. Please try again.');
+                $this->redirect('/_/keys');
+            }
+
+            if ($action === 'reveal') {
+                if (!isset($credentials[$accessKey])) {
+                    $this->json(['ok' => false, 'message' => 'Access key not found'], 404);
+                }
+                $this->json(['ok' => true, 'secret' => (string) $credentials[$accessKey]['secret']]);
+            }
+
+            if ($managedByEnv) {
+                $auth->setFlash('Access keys are set by MINI_S3_CREDENTIALS_JSON and cannot be changed here.');
+                $this->redirect('/_/keys');
+            }
+
+            try {
+                $fileConfig = ConfigLoader::loadFile($this->baseDir);
+                $label = (string) ($this->post['label'] ?? '');
+                $access = (string) ($this->post['access'] ?? '');
+                switch ($action) {
+                    case 'create':
+                        [$newConfig, $newKey] = $writer->addKey($fileConfig, $label, $access);
+                        $writer->writeConfig($newConfig);
+                        $auth->setFlash('Access key created. Copy the secret into your app.');
+                        $this->redirect('/_/keys?new=' . rawurlencode($newKey));
+                        // no break: redirect() exits
+                    case 'update':
+                        $writer->writeConfig($writer->updateKey($fileConfig, $accessKey, $label, $access));
+                        $auth->setFlash('Access key ' . $accessKey . ' updated.');
+                        break;
+                    case 'delete':
+                        if (trim((string) ($this->post['confirm'] ?? '')) !== $accessKey) {
+                            throw new RuntimeException('Type the access key exactly to confirm deletion.');
+                        }
+                        $writer->writeConfig($writer->deleteKey($fileConfig, $accessKey));
+                        $auth->setFlash('Access key ' . $accessKey . ' deleted. Apps using it can no longer connect.');
+                        break;
+                    default:
+                        throw new RuntimeException('Unknown action');
+                }
+            } catch (RuntimeException $e) {
+                $auth->setFlash('Error: ' . $e->getMessage());
+            }
+            $this->redirect('/_/keys');
+        }
+
+        $newKey = trim((string) ($_GET['new'] ?? ''));
+        $this->html($renderer->keys(
+            $credentials,
+            $this->endpoint(),
+            $auth->csrfToken(),
+            $auth->consumeFlash(),
+            isset($credentials[$newKey]) ? $newKey : '',
+            $managedByEnv
+        ));
     }
 
     private function handleSecurity(AdminRenderer $renderer, AdminConfigWriter $writer, AdminAuth $auth, array $config): never
     {
         $values = $this->accountValuesFromConfig($config);
         if ($this->method === 'POST') {
+            $submitted = ['admin_username' => (string) ($this->post['admin_username'] ?? '')] + $values;
             if (!$auth->verifyCsrfToken((string) ($this->post['csrf_token'] ?? ''))) {
-                $this->html($renderer->security($this->post + $values, ['CSRF token is invalid'], $auth->csrfToken(), ''), 400);
+                $this->html($renderer->security($submitted, ['Your session expired. Please submit the form again.'], $auth->csrfToken(), ''), 400);
             }
 
             $currentPassword = (string) ($this->post['current_password'] ?? '');
             $currentHash = (string) ($config['ADMIN_PASSWORD_HASH'] ?? '');
             if ($currentHash === '' || !password_verify($currentPassword, $currentHash)) {
-                $this->html($renderer->security($this->post + $values, ['Current password is invalid'], $auth->csrfToken(), ''), 401);
+                $this->html($renderer->security($submitted, ['Current password is invalid'], $auth->csrfToken(), ''), 401);
             }
 
             try {
@@ -166,7 +287,7 @@ final class AdminRouter
                 $auth->setFlash('Admin account updated.');
                 $this->redirect('/_/security');
             } catch (RuntimeException $e) {
-                $this->html($renderer->security($this->post + $values, [$e->getMessage()], $auth->csrfToken(), ''), 400);
+                $this->html($renderer->security($submitted, [$e->getMessage()], $auth->csrfToken(), ''), 400);
             }
         }
 
@@ -397,30 +518,56 @@ final class AdminRouter
         return [
             'admin_username' => 'admin',
             'data_dir' => $this->baseDir . '/data',
-            'max_request_size' => '104857600',
-            'public_read_all_buckets' => true,
-            'clock_skew_seconds' => '900',
-            'max_presign_expires' => '604800',
         ];
     }
 
-    private function valuesFromConfig(array $config): array
+    private function settingsValues(array $config): array
     {
-        $credentials = (array) ($config['CREDENTIALS'] ?? []);
-        $accessKey = $credentials === [] ? '' : (string) array_key_first($credentials);
-
         return [
-            'admin_username' => (string) ($config['ADMIN_USERNAME'] ?? 'admin'),
             'data_dir' => (string) $config['DATA_DIR'],
-            'access_key' => $accessKey,
-            'secret_key' => $accessKey === '' ? '' : (string) $credentials[$accessKey],
             'max_request_size' => (string) $config['MAX_REQUEST_SIZE'],
             'public_read_all_buckets' => (bool) $config['PUBLIC_READ_ALL_BUCKETS'],
-            'auth_debug_log' => (string) $config['AUTH_DEBUG_LOG'],
             'allow_host_candidate_fallbacks' => (bool) $config['ALLOW_HOST_CANDIDATE_FALLBACKS'],
             'clock_skew_seconds' => (string) $config['CLOCK_SKEW_SECONDS'],
             'max_presign_expires' => (string) $config['MAX_PRESIGN_EXPIRES'],
+            'auth_debug_log' => (string) $config['AUTH_DEBUG_LOG'],
         ];
+    }
+
+    /**
+     * Risky settings the admin should know about, shown on the dashboard.
+     *
+     * @return array<string, string> id => message
+     */
+    private function warnings(array $config): array
+    {
+        $warnings = [];
+        if ((bool) $config['PUBLIC_READ_ALL_BUCKETS']) {
+            $warnings['public-read'] = 'Public read is on: anyone who knows a URL can download every object in every bucket without a key. Turn it off in Settings unless this server only holds public files.';
+        }
+        if (!AdminAuth::isHttpsRequest()) {
+            $warnings['plain-http'] = 'This admin panel is served over plain HTTP, so your password and secret keys travel unencrypted. Put the server behind HTTPS.';
+        }
+        if ((string) $config['AUTH_DEBUG_LOG'] !== '') {
+            $warnings['debug-log'] = 'Auth debug logging is on (AUTH_DEBUG_LOG). It records request details for every failed signature. Turn it off when you are done debugging.';
+        }
+        $serverSoftware = strtolower((string) ($_SERVER['SERVER_SOFTWARE'] ?? ''));
+        if (!str_contains($serverSoftware, 'apache') && $this->isInsideDocumentRoot((string) $config['DATA_DIR'])) {
+            $warnings['data-in-docroot'] = 'The data directory is inside the web root. Apache blocks it with .htaccess, but other servers (such as Nginx) may serve stored files directly and skip authentication. Move DATA_DIR outside the web root, or deny it in the server config (see README).';
+        }
+
+        return $warnings;
+    }
+
+    private function isInsideDocumentRoot(string $path): bool
+    {
+        $docRoot = realpath((string) ($_SERVER['DOCUMENT_ROOT'] ?? ''));
+        $real = realpath($path);
+        if ($docRoot === false || $real === false || $docRoot === '/') {
+            return false;
+        }
+
+        return $real === $docRoot || str_starts_with($real, rtrim($docRoot, '/') . '/');
     }
 
     private function accountValuesFromConfig(array $config): array
@@ -432,15 +579,30 @@ final class AdminRouter
 
     private function endpoint(): string
     {
-        $scheme = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ? 'https' : 'http';
+        $scheme = AdminAuth::isHttpsRequest() ? 'https' : 'http';
         $host = (string) ($_SERVER['HTTP_HOST'] ?? $_SERVER['SERVER_NAME'] ?? 'localhost');
 
         return $scheme . '://' . $host;
     }
 
+    /**
+     * Admin pages show secrets: never cache them, never frame them, and only
+     * run script from this origin.
+     */
+    private function sendSecurityHeaders(): void
+    {
+        header('Cache-Control: no-store');
+        header('X-Frame-Options: DENY');
+        header('X-Content-Type-Options: nosniff');
+        header('Referrer-Policy: same-origin');
+        // Alpine.js evaluates directive expressions, which needs 'unsafe-eval'.
+        header("Content-Security-Policy: default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; form-action 'self'; base-uri 'none'; object-src 'none'");
+    }
+
     private function html(string $html, int $status = 200): never
     {
         http_response_code($status);
+        $this->sendSecurityHeaders();
         header('Content-Type: text/html; charset=UTF-8');
         echo $html;
         exit;
@@ -449,6 +611,7 @@ final class AdminRouter
     private function json(array $payload, int $status = 200): never
     {
         http_response_code($status);
+        $this->sendSecurityHeaders();
         header('Content-Type: application/json; charset=UTF-8');
         echo json_encode($payload, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
         exit;
@@ -469,6 +632,7 @@ final class AdminRouter
         $asciiName = preg_replace('/[^A-Za-z0-9._-]/', '_', $name) ?? 'download';
 
         http_response_code(200);
+        header('Cache-Control: no-store');
         header('Content-Type: ' . (in_array($mime, self::INLINE_MIME_TYPES, true) ? $mime : 'application/octet-stream'));
         header('Content-Length: ' . (string) $info['size']);
         header('Content-Disposition: ' . ($inline ? 'inline' : 'attachment') . '; filename="' . $asciiName . '"; filename*=UTF-8\'\'' . rawurlencode($name));
@@ -481,6 +645,7 @@ final class AdminRouter
     private function redirect(string $path): never
     {
         http_response_code(302);
+        header('Cache-Control: no-store');
         header('Location: ' . $path);
         exit;
     }

@@ -143,18 +143,20 @@ func (r *S3Response) CreateMultipartUpload(bucket, key, uploadID string) {
 }
 
 // CompleteMultipartUpload sends a CompleteMultipartUploadResult XML response.
-func (r *S3Response) CompleteMultipartUpload(bucket, key, uploadID, host, scheme string) {
+func (r *S3Response) CompleteMultipartUpload(bucket, key, uploadID, host, scheme, etag string) {
 	type result struct {
 		XMLName  xml.Name `xml:"CompleteMultipartUploadResult"`
 		Location string   `xml:"Location"`
 		Bucket   string   `xml:"Bucket"`
 		Key      string   `xml:"Key"`
+		ETag     string   `xml:"ETag,omitempty"`
 		UploadID string   `xml:"UploadId"`
 	}
 	r.sendXML(result{
 		Location: fmt.Sprintf("%s://%s/%s/%s", scheme, host, bucket, key),
 		Bucket:   bucket,
 		Key:      key,
+		ETag:     etag,
 		UploadID: uploadID,
 	}, http.StatusOK)
 }

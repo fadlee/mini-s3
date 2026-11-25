@@ -25,6 +25,23 @@ rm -rf dist
 ```
 (This caused the v1.4.0 release to ship broken; fixed in v1.4.1.)
 
+## Self-hosted admin JS
+
+The admin UI loads Alpine.js from `/_/assets/alpine-<version>.js`, never from
+a CDN (admin pages show S3 secrets). The JS is embedded in
+`src/Admin/AdminAssets.php` so it survives the single-file bundle. That file
+is generated: to change the Alpine version run
+`php scripts/vendor-alpine.php <version>` and commit the result. Do not edit
+it by hand.
+
+## Access keys
+
+`CREDENTIALS` entries are either `'key' => 'secret'` (legacy, read & write) or
+`'key' => ['secret' => ..., 'access' => 'read'|'readwrite', 'label' => ..., 'created' => ...]`.
+`MiniS3\Config\AccessKeys::normalize()` is the only place that interprets
+them; `ConfigLoader::load()` always returns the normalized shape. Permission
+checks live in one place: `S3Router::authorize()`.
+
 ## Directory layout
 
 - `src/Admin/` — admin panel (auth, config writer, dashboard stats,

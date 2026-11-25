@@ -20,7 +20,7 @@ final class ConfigLoader
             'MAX_PRESIGN_EXPIRES' => 604800,
             'AUTH_DEBUG_LOG' => '',
             'ALLOW_HOST_CANDIDATE_FALLBACKS' => false,
-            'PUBLIC_READ_ALL_BUCKETS' => true,
+            'PUBLIC_READ_ALL_BUCKETS' => false,
             'PUBLIC_CACHE_CONTROL' => 'public, max-age=3600',
             'ADMIN_USERNAME' => 'admin',
             'ADMIN_PASSWORD_HASH' => '',
@@ -77,15 +77,8 @@ final class ConfigLoader
         $config['ADMIN_PASSWORD_HASH'] = trim((string) ($config['ADMIN_PASSWORD_HASH'] ?? ''));
         $config['GITHUB_TOKEN'] = trim((string) ($config['GITHUB_TOKEN'] ?? ''));
 
-        $credentials = [];
-        foreach ((array) ($config['CREDENTIALS'] ?? []) as $accessKey => $secretKey) {
-            $normalizedAccessKey = trim((string) $accessKey);
-            if ($normalizedAccessKey === '') {
-                continue;
-            }
-            $credentials[$normalizedAccessKey] = (string) $secretKey;
-        }
-        $config['CREDENTIALS'] = $credentials;
+        // Always the normalized shape: access key => [secret, access, label, created].
+        $config['CREDENTIALS'] = AccessKeys::normalize((array) ($config['CREDENTIALS'] ?? []));
 
         $allowedAccessKeys = [];
         foreach ((array) ($config['ALLOWED_ACCESS_KEYS'] ?? []) as $accessKey) {
@@ -128,44 +121,59 @@ final class ConfigLoader
         return $loaded;
     }
 
+    /**
+     * Environment variable => config key. Values set here override config.php
+     * and cannot be edited from the admin UI.
+     */
+    private const ENV_MAP = [
+        'MINI_S3_DATA_DIR' => 'DATA_DIR',
+        'MINI_S3_AUTH_DEBUG_LOG' => 'AUTH_DEBUG_LOG',
+        'MINI_S3_GITHUB_TOKEN' => 'GITHUB_TOKEN',
+        'MINI_S3_PUBLIC_CACHE_CONTROL' => 'PUBLIC_CACHE_CONTROL',
+        'MINI_S3_MAX_REQUEST_SIZE' => 'MAX_REQUEST_SIZE',
+        'MINI_S3_PUBLIC_READ_ALL_BUCKETS' => 'PUBLIC_READ_ALL_BUCKETS',
+        'MINI_S3_ALLOW_HOST_CANDIDATE_FALLBACKS' => 'ALLOW_HOST_CANDIDATE_FALLBACKS',
+        'MINI_S3_CREDENTIALS_JSON' => 'CREDENTIALS',
+    ];
+
+    private const BOOLEAN_KEYS = ['PUBLIC_READ_ALL_BUCKETS', 'ALLOW_HOST_CANDIDATE_FALLBACKS'];
+
+    /**
+     * @return array<string, string> config key => environment variable, for every variable that is set
+     */
+    public static function envOverriddenKeys(): array
+    {
+        $keys = [];
+        foreach (self::ENV_MAP as $envName => $configKey) {
+            if (self::env($envName) !== null) {
+                $keys[$configKey] = $envName;
+            }
+        }
+
+        return $keys;
+    }
+
     private static function applyEnvironmentOverrides(array $config): array
     {
-        $stringMap = [
-            'MINI_S3_DATA_DIR' => 'DATA_DIR',
-            'MINI_S3_AUTH_DEBUG_LOG' => 'AUTH_DEBUG_LOG',
-            'MINI_S3_GITHUB_TOKEN' => 'GITHUB_TOKEN',
-            'MINI_S3_PUBLIC_CACHE_CONTROL' => 'PUBLIC_CACHE_CONTROL',
-        ];
-
-        foreach ($stringMap as $envName => $configKey) {
+        foreach (self::ENV_MAP as $envName => $configKey) {
             $value = self::env($envName);
-            if ($value !== null) {
+            if ($value === null) {
+                continue;
+            }
+
+            if ($configKey === 'CREDENTIALS') {
+                $decoded = json_decode($value, true);
+                if (!is_array($decoded)) {
+                    throw new RuntimeException('Misconfiguration: MINI_S3_CREDENTIALS_JSON must be a JSON object');
+                }
+                $config['CREDENTIALS'] = $decoded;
+            } elseif ($configKey === 'MAX_REQUEST_SIZE') {
+                $config[$configKey] = (int) $value;
+            } elseif (in_array($configKey, self::BOOLEAN_KEYS, true)) {
+                $config[$configKey] = self::parseBoolean($value);
+            } else {
                 $config[$configKey] = $value;
             }
-        }
-
-        $maxRequestSize = self::env('MINI_S3_MAX_REQUEST_SIZE');
-        if ($maxRequestSize !== null) {
-            $config['MAX_REQUEST_SIZE'] = (int) $maxRequestSize;
-        }
-
-        $publicRead = self::env('MINI_S3_PUBLIC_READ_ALL_BUCKETS');
-        if ($publicRead !== null) {
-            $config['PUBLIC_READ_ALL_BUCKETS'] = self::parseBoolean($publicRead);
-        }
-
-        $hostFallbacks = self::env('MINI_S3_ALLOW_HOST_CANDIDATE_FALLBACKS');
-        if ($hostFallbacks !== null) {
-            $config['ALLOW_HOST_CANDIDATE_FALLBACKS'] = self::parseBoolean($hostFallbacks);
-        }
-
-        $credentialsJson = self::env('MINI_S3_CREDENTIALS_JSON');
-        if ($credentialsJson !== null) {
-            $decoded = json_decode($credentialsJson, true);
-            if (!is_array($decoded)) {
-                throw new RuntimeException('Misconfiguration: MINI_S3_CREDENTIALS_JSON must be a JSON object');
-            }
-            $config['CREDENTIALS'] = $decoded;
         }
 
         return $config;

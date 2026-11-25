@@ -25,7 +25,8 @@ Mini S3 Server is a lightweight S3-compatible object storage server that stores 
 - Multipart upload support
 - No database: objects are stored as files under a data directory
 - AWS Signature V4 verification (header auth and presigned URLs)
-- Web installer and admin UI at `/_` (dashboard, config, security, file explorer, update check)
+- Web installer and admin UI at `/_` (dashboard, file explorer, settings, security, update check)
+- PHP edition: access keys generated in the admin UI, with read-only or read & write permission per key
 - Two editions with the same S3 behavior (see [Which edition should I use?](#which-edition-should-i-use))
 
 Objects are stored at `<data_dir>/<bucket>/<key>`. For example, bucket `music` and key `hello.mp3` are stored at `./data/music/hello.mp3`.
@@ -286,6 +287,8 @@ Use a `config.yaml` like the one in [Pre-provisioned `config.yaml`](#pre-provisi
 
 Official release zips contain a generated `index.php` file plus a root `.htaccess` for Apache rewriting. Extract the archive, point the web server root at the extracted directory, then open `/_` to run the installer, or configure credentials with environment variables.
 
+With a release zip the `data/` and `config/` folders sit inside the web root. Apache blocks them with `.htaccess`. Nginx ignores `.htaccess`, so add the `deny` block shown in [Nginx configuration](#nginx-configuration), or set `DATA_DIR` to a folder outside the web root. The dashboard shows a warning when the data directory is inside the web root on a server other than Apache.
+
 Release zips exclude source files, Composer metadata, example config, uploaded data, local config, tests, documentation internals, and repository automation files.
 
 Source installs use `public/` as the document root, as shown below.
@@ -337,6 +340,12 @@ server {
         try_files $uri $uri/ /index.php?$query_string;
     }
 
+    # Release zips: never serve stored objects, config or login-throttle state directly.
+    # (Not needed when root is mini-s3/public and DATA_DIR is outside it.)
+    location ~ ^/(data|config)(/|$) {
+        deny all;
+    }
+
     location ~ \.php$ {
         fastcgi_pass unix:/var/run/php/php8.0-fpm.sock;  # Adjust PHP version as needed
         fastcgi_index index.php;
@@ -354,15 +363,40 @@ server {
 
 Mini S3 reserves the `/_` route prefix for its built-in installer and admin UI.
 
-If `config/config.php` does not exist, open `/_` in a browser to run the installer. The installer creates the local config, sets an admin username and password, configures the data directory, and creates the first access key and secret key.
+If `config/config.php` does not exist, open `/_` in a browser to run the installer. It asks only for an admin username and password (at least 8 characters); the data directory is prefilled under **Advanced**. Mini S3 then generates the first access key and secret, keeps all buckets private, and shows the key with ready-to-copy connection settings.
+
+> **Finish the installer right away.** Until `config/config.php` exists, anyone who can open `/_` can complete it and become the admin.
 
 ![Mini S3 installer](docs/screenshots/installer.png)
 
-After installation, open `/_` to log in. The admin dashboard shows bucket count, object count, total storage size, and data directory status. Use `/_/config` to edit runtime/S3 config values, and `/_/security` to update the admin username or password.
+After installation, log in at `/_`:
+
+| Page | Path | What it does |
+|---|---|---|
+| Dashboard | `/_` | Bucket, object, storage and key counts, the S3 endpoint, warnings about risky settings, and update checks |
+| Files | `/_/files` | Browse, upload, rename and delete buckets, folders and objects |
+| Access Keys | `/_/keys` | Create, label, change permission, view secrets and delete access keys; copy settings for env vars, Laravel, AWS CLI, rclone, s5cmd and JavaScript |
+| Settings | `/_/settings` | Data directory, max upload size, public read, and advanced signature settings (`/_/config` redirects here) |
+| Security | `/_/security` | Change the admin username and password |
+
+Every setting has help text next to it. Fields set by an environment variable are shown as locked, because the environment overrides `config/config.php`.
 
 ![Mini S3 admin dashboard](docs/screenshots/admin-dashboard.png)
 
-The admin UI writes `config/config.php`. Environment variables still override runtime config and are not editable in the UI.
+### Access keys and read-only access (PHP edition)
+
+Apps connect with an access key and its secret. Create one key per app on the **Access Keys** page, so you can remove one app without touching the others. Keys are generated for you (`AK` + 18 characters; 40-character secret), and changes take effect immediately, with no restart.
+
+| Permission | Allowed | Refused (`403 AccessDenied`) |
+|---|---|---|
+| Read & write (`readwrite`) | Every S3 operation | — |
+| Read only (`read`) | `GET` and `HEAD`: list buckets and objects, download, presigned download URLs | `PUT`, `POST` and `DELETE`: upload, copy, multipart upload, delete, bulk delete |
+
+Use read-only keys for websites, CDNs and anything that should never change data. This is safer than **Public read**, which lets anyone download every object without a key.
+
+Secrets can be viewed again on the Access Keys page at any time. They are stored in `config/config.php` (which is written with `0600` permissions), because AWS Signature V4 needs the plain secret to verify requests. The last key cannot be deleted.
+
+![Mini S3 access keys](docs/screenshots/access-keys.png)
 
 ### Configuring credentials
 
@@ -371,9 +405,11 @@ There are three ways to configure the PHP edition. `ConfigLoader` reads `config/
 **Option 1: Environment variables.** The PHP edition reads only the variables listed in the [Configuration reference](#configuration-reference) (marked PHP there).
 
 ```bash
-export MINI_S3_CREDENTIALS_JSON='{"prod-key":"prod-secret"}'
+export MINI_S3_CREDENTIALS_JSON='{"prod-key":"prod-secret","cdn-key":{"secret":"cdn-secret","access":"read"}}'
 export MINI_S3_DATA_DIR='/var/lib/mini-s3/data'
 ```
+
+When credentials come from `MINI_S3_CREDENTIALS_JSON`, the Access Keys page lists them read-only and the installer does not generate a key.
 
 **Option 2: Local `config/config.php`** (recommended for file-based config). Copy `config.example.php` to `config/config.php` and edit it. The file is ignored by git and should contain local deployment values only.
 
@@ -383,13 +419,16 @@ return [
     'DATA_DIR' => __DIR__ . '/../data',
     'MAX_REQUEST_SIZE' => 100 * 1024 * 1024,
     'CREDENTIALS' => [
+        // Short form: read & write
         'prod-key-1' => 'prod-secret-1',
+        // Full form: 'access' is 'read' or 'readwrite'; label and created are optional
+        'cdn-key' => ['secret' => 'cdn-secret', 'access' => 'read', 'label' => 'CDN', 'created' => 1732500000],
     ],
     'ALLOW_LEGACY_ACCESS_KEY_ONLY' => false,
     'ALLOWED_ACCESS_KEYS' => [],
     'CLOCK_SKEW_SECONDS' => 900,
     'MAX_PRESIGN_EXPIRES' => 604800,
-    'AUTH_DEBUG_LOG' => '', // Optional, e.g. /tmp/mini-s3-auth-debug.log
+    'AUTH_DEBUG_LOG' => '', // Optional, e.g. /var/log/mini-s3-auth-debug.log (not editable in the admin UI)
     'ALLOW_HOST_CANDIDATE_FALLBACKS' => false, // Keep false unless your proxy rewrites Host
     'PUBLIC_READ_ALL_BUCKETS' => false, // Set true to allow unsigned GET/HEAD for all buckets
     'PUBLIC_CACHE_CONTROL' => 'public, max-age=3600', // Cache-Control for objects while public read is on
@@ -433,6 +472,18 @@ return [
 ];
 ```
 
+### Upgrading the PHP edition
+
+Use **Upgrade** on the dashboard, or replace `index.php` with the one from a newer release zip. `config/config.php` and the data directory are kept.
+
+Changes to check when upgrading to the release with access keys and read-only access:
+
+- **Public read now defaults to off.** Installs whose `config/config.php` (or environment) does not set `PUBLIC_READ_ALL_BUCKETS` become private: unsigned GET and HEAD requests return `401`. Installs made with the web installer always store the value and are not affected. To keep the old behavior, set `PUBLIC_READ_ALL_BUCKETS` to `true` (Settings page) or `MINI_S3_PUBLIC_READ_ALL_BUCKETS=true`.
+- **Access keys moved to their own page.** `/_/config` now redirects to `/_/settings`, which no longer has access key fields. Existing keys keep working as read & write keys and are listed on `/_/keys`.
+- **`AUTH_DEBUG_LOG` is no longer editable in the admin UI.** Set it in `config/config.php` or with `MINI_S3_AUTH_DEBUG_LOG`.
+- **Admin sessions are reset once** (the session cookie is renamed and hardened), so you need to log in again. Log out is now a button (POST) instead of a link.
+- New admin passwords must be at least 8 characters. Existing passwords keep working.
+
 ## Configuration Reference
 
 The table maps each setting to its key in each edition. Use `config.yaml` keys for the Go edition and `config/config.php` keys for the PHP edition. `—` means the setting does not exist in that edition.
@@ -441,8 +492,8 @@ The table maps each setting to its key in each edition. Use `config.yaml` keys f
 |---|---|---|---|---|---|
 | Data directory | `data_dir` | `DATA_DIR` | `MINI_S3_DATA_DIR` (both) | Go: `./data`. PHP: `data/` in the project. | Where objects are stored. Use an absolute path outside the web root. |
 | Max request size | `max_request_size` | `MAX_REQUEST_SIZE` | `MINI_S3_MAX_REQUEST_SIZE` (both) | `104857600` (100 MiB) | Maximum request body size in bytes (returns 413 when exceeded). |
-| Credentials | `credentials` | `CREDENTIALS` | `MINI_S3_CREDENTIALS_JSON` (both) | empty | Access key to secret key map. Required unless legacy mode is enabled. |
-| Public read | `public_read_all_buckets` | `PUBLIC_READ_ALL_BUCKETS` | `MINI_S3_PUBLIC_READ_ALL_BUCKETS` (both) | `true` (both) | Allow unsigned GET/HEAD (and bucket listing) on all buckets. Set `false` to require signatures. |
+| Credentials | `credentials` | `CREDENTIALS` | `MINI_S3_CREDENTIALS_JSON` (both) | empty | Access key to secret key map. Required unless legacy mode is enabled. PHP also accepts `key => ['secret' => ..., 'access' => 'read'\|'readwrite', 'label' => ...]` for read-only keys. |
+| Public read | `public_read_all_buckets` | `PUBLIC_READ_ALL_BUCKETS` | `MINI_S3_PUBLIC_READ_ALL_BUCKETS` (both) | PHP: `false`; Go: `true` | Allow unsigned GET/HEAD (and bucket listing) on all buckets. Set `false` to require signatures. |
 | Public cache control | `public_cache_control` | `PUBLIC_CACHE_CONTROL` | `MINI_S3_PUBLIC_CACHE_CONTROL` (both) | `public, max-age=3600` | `Cache-Control` sent on object GET/HEAD while public read is on. Objects are served as `private` when public read is off. Use `public, max-age=31536000, immutable` when object keys never get overwritten (for example, hashed filenames). |
 | Clock skew | `clock_skew_seconds` | `CLOCK_SKEW_SECONDS` | Go: `MINI_S3_CLOCK_SKEW_SECONDS` | `900` | Allowed difference between request time and server time. |
 | Max presign expiry | `max_presign_expires` | `MAX_PRESIGN_EXPIRES` | Go: `MINI_S3_MAX_PRESIGN_EXPIRES` | `604800` (7 days) | Maximum lifetime of presigned URLs in seconds. |
@@ -488,20 +539,29 @@ This is defense in depth. Keeping `DATA_DIR` outside `public/` remains the recom
 
 #### PHP edition: Nginx
 
-Nginx ignores `.htaccess`. If `data/` is reachable from your server root, add this deny rule:
+Nginx ignores `.htaccess`. If `data/` or `config/` is reachable from your server root (for example with a release zip), add this deny rule:
 
 ```nginx
-location ~ ^/data/ {
+location ~ ^/(data|config)(/|$) {
     deny all;
     return 403;
 }
 ```
 
+#### PHP edition: admin panel
+
+- Admin pages are sent with `Cache-Control: no-store`, `X-Frame-Options: DENY` and a Content Security Policy. Alpine.js is bundled into the release and served from `/_/assets/`, with no third-party CDN.
+- The session cookie is `HttpOnly`, `SameSite=Lax`, limited to `/_`, and `Secure` on HTTPS (including behind a proxy that sends `X-Forwarded-Proto: https`).
+- After 5 failed logins from one IP in 15 minutes, that IP is locked out for 15 minutes. Behind a reverse proxy every client shares the proxy IP, so the lockout then applies to everyone.
+- Log out is a POST with a CSRF token. Admin passwords must be at least 8 characters.
+- `AUTH_DEBUG_LOG` can only be set in `config/config.php` or the environment, so an admin session cannot be used to write files to arbitrary paths.
+- Error pages show a generic message; details go to the PHP error log.
+
 ### Best practices
 
 1. **Use HTTPS**: Always deploy with TLS to encrypt data in transit. In Docker, terminate TLS at a reverse proxy.
 2. **Finish setup before exposing the port**: Complete the installer, or pre-provision `config.yaml`, before the admin UI at `/_` is reachable from the internet.
-3. **Require signed requests**: Set `PUBLIC_READ_ALL_BUCKETS` (`public_read_all_buckets`) to `false`. Its default is `true` in both editions.
+3. **Require signed requests**: Keep `PUBLIC_READ_ALL_BUCKETS` (`public_read_all_buckets`) set to `false`. It defaults to `false` in the PHP edition and `true` in the Go edition. For read-only apps, use a read-only access key (PHP edition) instead of public read.
 4. **Strong credentials**: Use long, random values for access keys and secret keys. Generate a long random `session_secret` for the Go edition.
 5. **Keep secrets out of source control**: Use `config/config.php` (PHP) or `config.yaml` (Go), and do not hardcode credentials. Pass secrets through an env file with restricted permissions instead of inline `-e` flags.
 6. **File permissions**: Restrict the data directory, for example `chmod 750 data`, and give access only to the web server user (PHP) or uid `65532` (Docker).
@@ -560,6 +620,11 @@ The PHP integration suite (`php tests/integration/run.php`) checks:
 - Invalid XML handling (`MalformedXML`)
 - Request size limit enforcement (`413`)
 - Range request behavior (`206` / `416`)
+- Read-only access keys: reads succeed, uploads, deletes, bulk deletes and multipart uploads return `403`
+
+`php tests/integration/http-headers.php` starts PHP's built-in server and checks response headers that the CLI harness cannot see: the `ETag` on PutObject, UploadPart and CompleteMultipartUpload, and CreateBucket (`PUT /bucket`).
+
+[Litestream](https://litestream.io) (0.5.x) has been tested against both editions: continuous replication of a SQLite database followed by a restore (on the PHP edition, with a **read-only** key). Use `force-path-style: true` and the Mini S3 URL as `endpoint` in the replica config.
 
 ### Creating a release
 

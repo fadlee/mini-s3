@@ -1,10 +1,17 @@
 <?php
 
+// Copy to config/config.php, or run the web installer at /_ instead.
+// The admin UI manages access keys at /_/keys and settings at /_/settings.
 return [
     'DATA_DIR' => __DIR__ . '/data',
     'MAX_REQUEST_SIZE' => 100 * 1024 * 1024,
     'CREDENTIALS' => [
-        'replace-with-access-key' => 'replace-with-secret-key',
+        // 'access' is 'readwrite' (upload, delete) or 'read' (list and download only).
+        'replace-with-access-key' => [
+            'secret' => 'replace-with-secret-key',
+            'access' => 'readwrite',
+            'label' => 'Default',
+        ],
     ],
     'ALLOW_LEGACY_ACCESS_KEY_ONLY' => false,
     'ALLOWED_ACCESS_KEYS' => [],
@@ -12,7 +19,7 @@ return [
     'MAX_PRESIGN_EXPIRES' => 604800,
     'AUTH_DEBUG_LOG' => '',
     'ALLOW_HOST_CANDIDATE_FALLBACKS' => false,
-    'PUBLIC_READ_ALL_BUCKETS' => true,
+    'PUBLIC_READ_ALL_BUCKETS' => false,
     'PUBLIC_CACHE_CONTROL' => 'public, max-age=3600',
     'ADMIN_USERNAME' => 'admin',
     'ADMIN_PASSWORD_HASH' => '',

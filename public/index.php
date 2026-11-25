@@ -4,8 +4,11 @@ declare(strict_types=1);
 
 define('BASE_PATH', realpath(__DIR__.'/..'));
 
+require_once BASE_PATH . '/src/Config/AccessKeys.php';
 require_once BASE_PATH . '/src/Config/ConfigLoader.php';
+require_once BASE_PATH . '/src/Admin/AdminAssets.php';
 require_once BASE_PATH . '/src/Admin/AdminAuth.php';
+require_once BASE_PATH . '/src/Admin/LoginThrottle.php';
 require_once BASE_PATH . '/src/Admin/AdminConfigWriter.php';
 require_once BASE_PATH . '/src/Admin/AdminStats.php';
 require_once BASE_PATH . '/src/Admin/AdminUpgradeService.php';
@@ -22,6 +25,7 @@ require_once BASE_PATH . '/src/S3/S3Router.php';
 
 use MiniS3\Admin\AdminRouter;
 use MiniS3\Auth\SigV4Authenticator;
+use MiniS3\Config\AccessKeys;
 use MiniS3\Config\ConfigLoader;
 use MiniS3\Http\RequestContext;
 use MiniS3\S3\RequestValidator;
@@ -50,7 +54,7 @@ try {
     $response = new S3Response();
     $validator = new RequestValidator();
     $authenticator = new SigV4Authenticator(
-        (array) $config['CREDENTIALS'],
+        AccessKeys::secrets((array) $config['CREDENTIALS']),
         (array) $config['ALLOWED_ACCESS_KEYS'],
         (bool) $config['ALLOW_LEGACY_ACCESS_KEY_ONLY'],
         (int) $config['CLOCK_SKEW_SECONDS'],
@@ -67,7 +71,8 @@ try {
         $authenticator,
         (int) $config['MAX_REQUEST_SIZE'],
         (bool) ($config['PUBLIC_READ_ALL_BUCKETS'] ?? false),
-        (string) $config['PUBLIC_CACHE_CONTROL']
+        (string) $config['PUBLIC_CACHE_CONTROL'],
+        AccessKeys::readOnlyKeys((array) $config['CREDENTIALS'])
     );
 
     $router->handle();
