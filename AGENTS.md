@@ -29,10 +29,11 @@ rm -rf dist
 
 The admin UI loads Alpine.js from `/_/assets/alpine-<version>.js`, never from
 a CDN (admin pages show S3 secrets). The JS is embedded in
-`src/Admin/AdminAssets.php` so it survives the single-file bundle. That file
-is generated: to change the Alpine version run
+`src/Admin/AdminAssets.php` so it survives the single-file bundle; the Go
+edition embeds the same bundle from `go/internal/admin/assets/alpine.js`.
+Both files are generated: to change the Alpine version run
 `php scripts/vendor-alpine.php <version>` and commit the result. Do not edit
-it by hand.
+them by hand.
 
 ## Access keys
 

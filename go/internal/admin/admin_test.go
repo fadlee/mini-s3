@@ -1335,3 +1335,29 @@ func TestRendererLoginUsesAuthLayout(t *testing.T) {
 		t.Error("login must not show admin navigation")
 	}
 }
+
+func TestAdminServesSelfHostedAlpine(t *testing.T) {
+	// No config file: the installer page and the script must both work.
+	dir := t.TempDir()
+	router := NewAdminRouter(filepath.Join(dir, "config.yaml"), dir, "test")
+
+	rr := httptest.NewRecorder()
+	router.ServeHTTP(rr, httptest.NewRequest(http.MethodGet, alpinePath, nil))
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rr.Code)
+	}
+	if got := rr.Header().Get("Content-Type"); !strings.HasPrefix(got, "text/javascript") {
+		t.Errorf("expected text/javascript, got %q", got)
+	}
+	if !strings.Contains(rr.Body.String(), "alpine:init") {
+		t.Error("expected the Alpine bundle in the response body")
+	}
+
+	html := NewAdminRenderer().Login("", "token")
+	if !strings.Contains(html, `<script defer src="`+alpinePath+`"></script>`) {
+		t.Error("expected the page to load the self-hosted Alpine bundle")
+	}
+	if strings.Contains(html, "unpkg.com") {
+		t.Error("admin pages must not load script from a CDN")
+	}
+}

@@ -41,6 +41,12 @@ func (r *AdminRouter) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 		}
 	}()
 
+	// The script bundle is public: the login and installer pages need it too.
+	if req.URL.Path == alpinePath {
+		serveAlpine(w)
+		return
+	}
+
 	renderer := NewAdminRenderer()
 	writer := NewAdminConfigWriter(r.configPath)
 

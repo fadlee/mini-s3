@@ -3,7 +3,8 @@
 declare(strict_types=1);
 
 /**
- * Regenerates src/Admin/AdminAssets.php with a pinned, self-hosted copy of
+ * Regenerates src/Admin/AdminAssets.php (PHP edition) and
+ * go/internal/admin/assets/alpine.js (Go edition) with a pinned, self-hosted copy of
  * Alpine.js and the two plugins the admin UI uses (@alpinejs/ui for x-dialog,
  * @alpinejs/focus for focus trapping).
  *
@@ -55,3 +56,16 @@ $php = "<?php\n\ndeclare(strict_types=1);\n\nnamespace MiniS3\\Admin;\n\n"
 $target = dirname(__DIR__) . '/src/Admin/AdminAssets.php';
 file_put_contents($target, $php);
 echo "Wrote {$target} (" . strlen($bundle) . " bytes of JS)\n";
+
+// The Go edition embeds the same bundle and names the version in a constant.
+$goDir = dirname(__DIR__) . '/go/internal/admin';
+file_put_contents($goDir . '/assets/alpine.js', $bundle);
+$goAssets = $goDir . '/admin_assets.go';
+$goSource = (string) file_get_contents($goAssets);
+$goSource = preg_replace('/const alpineVersion = "[^"]*"/', 'const alpineVersion = "' . $version . '"', $goSource, 1, $count);
+if ($count !== 1) {
+    fwrite(STDERR, "alpineVersion constant not found in {$goAssets}\n");
+    exit(1);
+}
+file_put_contents($goAssets, $goSource);
+echo "Wrote {$goDir}/assets/alpine.js and set alpineVersion in {$goAssets}\n";
