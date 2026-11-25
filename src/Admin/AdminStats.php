@@ -18,6 +18,7 @@ final class AdminStats
             'bucket_count' => 0,
             'object_count' => 0,
             'total_bytes' => 0,
+            'buckets' => [],
         ];
 
         if (!is_dir($dataDir)) {
@@ -38,6 +39,7 @@ final class AdminStats
                 continue;
             }
             $stats['bucket_count']++;
+            $bucket = ['name' => basename($bucketDir), 'object_count' => 0, 'total_bytes' => 0];
             $iterator = new RecursiveIteratorIterator(
                 new RecursiveDirectoryIterator($bucketDir, FilesystemIterator::SKIP_DOTS)
             );
@@ -45,9 +47,12 @@ final class AdminStats
                 if (!$file->isFile()) {
                     continue;
                 }
-                $stats['object_count']++;
-                $stats['total_bytes'] += $file->getSize();
+                $bucket['object_count']++;
+                $bucket['total_bytes'] += $file->getSize();
             }
+            $stats['object_count'] += $bucket['object_count'];
+            $stats['total_bytes'] += $bucket['total_bytes'];
+            $stats['buckets'][] = $bucket;
         }
 
         return $stats;

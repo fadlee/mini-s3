@@ -14,6 +14,15 @@ type Stats struct {
 	BucketCount int    `json:"bucket_count"`
 	ObjectCount int    `json:"object_count"`
 	TotalBytes  int64  `json:"total_bytes"`
+	// Buckets holds per-bucket totals, in directory order.
+	Buckets []BucketStats `json:"buckets"`
+}
+
+// BucketStats holds the totals for one bucket.
+type BucketStats struct {
+	Name        string `json:"name"`
+	ObjectCount int    `json:"object_count"`
+	TotalBytes  int64  `json:"total_bytes"`
 }
 
 // ScanStats scans the data directory and returns statistics.
@@ -63,6 +72,7 @@ func ScanStats(dataDir string) Stats {
 		}
 
 		stats.BucketCount++
+		bucket := BucketStats{Name: entry.Name()}
 		bucketDir := filepath.Join(dataDir, entry.Name())
 		filepath.WalkDir(bucketDir, func(path string, d os.DirEntry, err error) error {
 			if err != nil {
@@ -75,10 +85,13 @@ func ScanStats(dataDir string) Stats {
 			if err != nil {
 				return nil
 			}
-			stats.ObjectCount++
-			stats.TotalBytes += info.Size()
+			bucket.ObjectCount++
+			bucket.TotalBytes += info.Size()
 			return nil
 		})
+		stats.ObjectCount += bucket.ObjectCount
+		stats.TotalBytes += bucket.TotalBytes
+		stats.Buckets = append(stats.Buckets, bucket)
 	}
 
 	return stats

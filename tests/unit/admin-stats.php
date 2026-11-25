@@ -32,6 +32,10 @@ assertSameValue('ok', $stats['status'], 'status is ok');
 assertSameValue(2, $stats['bucket_count'], 'bucket count ignores internal directories');
 assertSameValue(3, $stats['object_count'], 'object count includes nested files');
 assertSameValue(10, $stats['total_bytes'], 'total size sums object bytes');
+assertSameValue([
+    ['name' => 'bucket-one', 'object_count' => 2, 'total_bytes' => 8],
+    ['name' => 'bucket-two', 'object_count' => 1, 'total_bytes' => 2],
+], $stats['buckets'], 'per-bucket totals are returned');
 
 $missing = (new AdminStats())->scan($base . '/missing');
 assertSameValue('missing', $missing['status'], 'missing directory status is reported');

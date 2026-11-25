@@ -12,20 +12,294 @@ final class AdminRenderer
 
     private const ICON_COPY = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg>';
 
-    private const NAV = [
-        '/_' => 'Dashboard',
-        '/_/files' => 'Files',
-        '/_/keys' => 'Access Keys',
-        '/_/settings' => 'Settings',
-        '/_/security' => 'Security',
+    private const ICON_ALERT = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 8v4"/><path d="M12 16h.01"/></svg>';
+
+    private const NAV_ICONS = [
+        '/_' => '<path d="M3 4.5A1.5 1.5 0 0 1 4.5 3h4A1.5 1.5 0 0 1 10 4.5v6A1.5 1.5 0 0 1 8.5 12h-4A1.5 1.5 0 0 1 3 10.5Z"/><path d="M14 4.5A1.5 1.5 0 0 1 15.5 3h4A1.5 1.5 0 0 1 21 4.5v2A1.5 1.5 0 0 1 19.5 8h-4A1.5 1.5 0 0 1 14 6.5Z"/><path d="M14 13.5a1.5 1.5 0 0 1 1.5-1.5h4a1.5 1.5 0 0 1 1.5 1.5v6a1.5 1.5 0 0 1-1.5 1.5h-4a1.5 1.5 0 0 1-1.5-1.5Z"/><path d="M3 17.5A1.5 1.5 0 0 1 4.5 16h4a1.5 1.5 0 0 1 1.5 1.5v2A1.5 1.5 0 0 1 8.5 21h-4A1.5 1.5 0 0 1 3 19.5Z"/>',
+        '/_/files' => '<path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z"/>',
+        '/_/keys' => '<circle cx="8" cy="15" r="4"/><path d="m11 12 9-9"/><path d="m17 6 3 3"/>',
+        '/_/security' => '<path d="M8 7a4 4 0 1 0 8 0 4 4 0 0 0-8 0"/><path d="M4 21v-1a6 6 0 0 1 6-6h4a6 6 0 0 1 6 6v1"/>',
+        '/_/settings' => '<path d="M4 6h16"/><path d="M4 12h16"/><path d="M4 18h16"/><circle cx="9" cy="6" r="2" fill="#fff"/><circle cx="15" cy="12" r="2" fill="#fff"/><circle cx="8" cy="18" r="2" fill="#fff"/>',
     ];
+
+    /** Sidebar groups: heading => [href => page title]. */
+    private const NAV = [
+        '' => ['/_' => 'Overview'],
+        'Storage' => ['/_/files' => 'Buckets & files'],
+        'Access' => ['/_/keys' => 'Access keys', '/_/security' => 'Admin account'],
+        'System' => ['/_/settings' => 'Settings'],
+    ];
+
+    private const CSS = <<<'CSS'
+:root { --bg: #F5F6F8; --surface: #FFFFFF; --border: #E3E5EA; --line: #EEF0F3; --text: #12141A; --text-2: #3A3F4B; --muted: #5C6270; --accent: #2052B8; --accent-hover: #173F8F; --accent-bg: #EBF0FA; --ok: #1E7A46; --ok-bg: #EAF5EE; --warn: #7A4E00; --warn-bg: #FFF7E6; --warn-border: #F0DDB0; --danger: #A12B27; --danger-bg: #FDF0EF; --danger-border: #F0C9C7; --mono: "Geist Mono", ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace; }
+* { box-sizing: border-box; }
+body { font-family: "Geist", "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; margin: 0; background: var(--bg); color: var(--text); font-size: 14px; line-height: 1.45; -webkit-font-smoothing: antialiased; }
+[x-cloak] { display: none !important; }
+.hidden { display: none !important; }
+.visually-hidden { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+a { color: var(--accent); }
+a:hover { color: var(--accent-hover); }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+.shell { display: flex; flex-wrap: wrap; min-height: 100vh; align-items: stretch; }
+.sidebar { flex: 1 1 232px; max-width: 260px; background: var(--surface); border-right: 1px solid var(--border); padding: 20px 14px; display: flex; flex-direction: column; gap: 22px; }
+.brand { display: flex; align-items: center; gap: 10px; padding: 0 8px; font-weight: 700; font-size: 15px; color: var(--text); text-decoration: none; }
+.brand-mark { width: 28px; height: 28px; border-radius: 8px; background: var(--accent); color: #FFFFFF; display: inline-flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 700; flex: none; }
+.sidebar nav { display: flex; flex-direction: column; gap: 18px; }
+.nav-group { display: flex; flex-direction: column; gap: 2px; }
+.nav-heading { padding: 0 10px 6px; font-size: 11px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); }
+.nav-link { display: flex; align-items: center; gap: 10px; padding: 9px 10px; border-radius: 8px; color: var(--text-2); font-weight: 500; text-decoration: none; }
+.nav-link svg { flex: none; }
+.nav-link:hover { background: var(--bg); color: var(--text); }
+.nav-link[aria-current="page"] { background: var(--accent-bg); color: var(--accent-hover); font-weight: 600; }
+.sidebar-foot { margin-top: auto; border-top: 1px solid var(--border); padding: 14px 8px 0; display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.sidebar-foot .link-button { font-size: 13px; }
+.content { flex: 999 1 560px; min-width: 0; padding: 32px 36px 56px; }
+.page { max-width: 1040px; }
+.page-head { display: flex; justify-content: space-between; align-items: flex-end; gap: 16px; flex-wrap: wrap; margin-bottom: 20px; }
+h1 { font-size: 24px; font-weight: 700; letter-spacing: -0.02em; margin: 0; color: var(--text); }
+h2 { font-size: 16px; font-weight: 600; margin: 0 0 12px; color: var(--text); }
+h3 { font-size: 14px; font-weight: 600; margin: 18px 0 8px; }
+.lead { color: var(--muted); font-size: 14px; line-height: 1.6; margin: 6px 0 0; }
+.page > .lead { margin: -8px 0 20px; }
+.muted, .bucket-meta { color: var(--muted); font-size: 13px; }
+
+.panel, form { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 20px 24px; margin: 0 0 20px; }
+form.plain { background: none; border: 0; padding: 0; margin: 0; border-radius: 0; }
+.panel-flush { padding: 0; overflow: hidden; }
+.panel-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 12px; }
+.panel-flush .panel-head { padding: 16px 20px 0; }
+.panel-head h2 { margin: 0; }
+.panel-highlight { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-bg); }
+
+label { display: flex; align-items: center; gap: 16px; margin: 14px 0; font-size: 14px; font-weight: 500; color: var(--text); }
+label.checkbox-label { gap: 8px; }
+label.stacked { display: flex; flex-direction: column; align-items: stretch; gap: 6px; margin: 8px 0; font-size: 13px; }
+input, select { flex: 1; width: 100%; height: 40px; padding: 0 12px; border: 1px solid #D5D8DF; border-radius: 8px; font: inherit; color: var(--text); background: var(--surface); transition: border-color 0.15s ease, box-shadow 0.15s ease; }
+input[type=file] { height: auto; padding: 8px; }
+input:focus, select:focus { border-color: var(--accent); outline: none; box-shadow: 0 0 0 3px var(--accent-bg); }
+input[type=checkbox] { flex: none; width: 16px; height: 16px; padding: 0; accent-color: var(--accent); }
+input:disabled { background: var(--bg); color: var(--muted); }
+
+button, .button { display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-height: 38px; background: var(--accent); color: #FFFFFF; border: 1px solid transparent; border-radius: 8px; padding: 0 16px; font: inherit; font-weight: 600; cursor: pointer; text-decoration: none; transition: background 0.15s ease, transform 0.1s ease; }
+button:hover, .button:hover { background: var(--accent-hover); color: #FFFFFF; }
+button:active { transform: scale(0.98); }
+button:disabled { opacity: 0.55; cursor: not-allowed; }
+.secondary, .dialog-secondary, .snippet-actions button, .row-actions button, .row-actions a, .tab, .icon-btn { background: var(--surface); color: var(--text); border: 1px solid var(--border); font-weight: 500; }
+.secondary:hover, .dialog-secondary:hover, .snippet-actions button:hover, .row-actions button:hover, .row-actions a:hover, .tab:hover, .icon-btn:hover { background: var(--bg); color: var(--text); }
+button.danger, .button.danger { background: var(--danger); color: #FFFFFF; }
+button.danger:hover { background: #7E211E; color: #FFFFFF; }
+.danger-outline { background: var(--surface); color: var(--danger); border: 1px solid var(--danger-border); }
+.danger-outline:hover { background: var(--danger-bg); color: var(--danger); }
+.row-actions button.danger, .icon-btn.danger { background: var(--surface); color: var(--danger); border: 1px solid var(--border); }
+.row-actions button.danger:hover, .icon-btn.danger:hover { background: var(--danger-bg); color: var(--danger); }
+.link-button { background: none; border: 0; padding: 0; min-height: 0; color: var(--text-2); font-size: 14px; font-weight: 500; cursor: pointer; text-decoration: none; }
+.link-button:hover { background: none; color: var(--text); text-decoration: underline; text-underline-offset: 3px; }
+.danger-text { color: var(--danger) !important; }
+
+.error, .notice, .warning, .dialog-error { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; padding: 10px 14px; border-radius: 9px; font-size: 14px; line-height: 1.5; margin-bottom: 16px; border: 1px solid; }
+.error, .dialog-error { background: var(--danger-bg); border-color: var(--danger-border); color: #8E2420; }
+.notice { background: var(--ok-bg); border-color: #CFE6D8; color: #1A5E37; }
+.warning { background: var(--warn-bg); border-color: var(--warn-border); color: var(--warn); }
+.warning .link-button { color: var(--warn); flex: none; }
+
+code { font-family: var(--mono); font-size: 13px; color: var(--text-2); word-break: break-all; }
+.strong-code, .key-details code, .keys-table code { color: var(--text); }
+.code-box { display: inline-block; font-family: var(--mono); font-size: 15px; font-weight: 500; color: var(--text); background: var(--bg); border: 1px solid var(--border); border-radius: 8px; padding: 8px 12px; }
+pre { background: var(--bg); border: 1px solid var(--border); color: var(--text); border-radius: 8px; overflow: auto; padding: 14px 16px; font-family: var(--mono); font-size: 13px; line-height: 1.65; white-space: pre-wrap; margin: 12px 0; }
+.snippet-actions, .update-actions { display: flex; gap: 8px; flex-wrap: wrap; margin: 10px 0; }
+
+details { margin-top: 16px; border-top: 1px solid var(--line); padding-top: 2px; }
+details summary { list-style: none; display: flex; align-items: center; gap: 8px; font-weight: 600; cursor: pointer; color: var(--text); padding: 12px 0; user-select: none; }
+details summary::-webkit-details-marker { display: none; }
+details summary::before { content: ""; flex: none; width: 0; height: 0; border-left: 5px solid var(--muted); border-top: 4px solid transparent; border-bottom: 4px solid transparent; transition: transform 0.15s ease; }
+details[open] summary::before { transform: rotate(90deg); }
+
+fieldset { border: 0; padding: 0; margin: 0 0 12px; }
+legend { font-size: 15px; font-weight: 600; padding: 0; margin-bottom: 4px; }
+.field { display: grid; grid-template-columns: 220px 1fr; gap: 6px 16px; margin: 18px 0; align-items: start; }
+.field > .field-label { display: block; margin: 0; padding-top: 10px; font-size: 14px; font-weight: 500; }
+.field > div > label.checkbox-label { margin: 10px 0 0; }
+.help { font-size: 13px; color: var(--muted); line-height: 1.55; margin: 6px 0 0; }
+.help code, .lead code, .muted code { font-size: 12px; }
+.help-list { padding-left: 20px; line-height: 1.7; }
+.help-list li { margin: 4px 0; }
+.badge { display: inline-block; font-size: 11px; font-weight: 600; padding: 2px 8px; border-radius: 999px; white-space: nowrap; vertical-align: middle; }
+.badge-rw { background: var(--ok-bg); color: #1A5E37; }
+.badge-read { background: var(--accent-bg); color: var(--accent-hover); }
+.badge-env { background: #F1F2F5; color: var(--text-2); font-weight: 500; }
+.key-details { display: grid; grid-template-columns: 120px 1fr; gap: 10px 16px; align-items: center; }
+.key-details dt { color: var(--muted); font-size: 13px; }
+.key-details dd { margin: 0; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.inline-form { display: flex; gap: 12px; align-items: flex-end; flex-wrap: wrap; }
+.inline-form label.stacked { flex: 1 1 200px; margin: 0; }
+.secret-row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-top: 6px; font-size: 13px; }
+.secret-row .link-button { font-size: 13px; }
+.row-details { margin: 0 0 6px; border: 0; padding: 0; }
+.row-details summary { padding: 2px 0; font-weight: 500; font-size: 13px; }
+.row-details summary::before { display: none; }
+.row-details form { margin: 8px 0 12px; display: flex; flex-direction: column; gap: 8px; min-width: 220px; padding: 12px; }
+.tabs { display: flex; gap: 6px; flex-wrap: wrap; margin: 16px 0 4px; }
+.tab { min-height: 32px; font-size: 13px; padding: 0 12px; }
+.tab.active { background: var(--text); color: #FFFFFF; border-color: var(--text); }
+
+.checklist { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 10px; }
+.step { display: flex; gap: 10px; align-items: flex-start; padding: 12px; border-radius: 10px; border: 1px solid #BFD0F0; background: var(--surface); }
+.step.done { border-color: #D5EBDD; background: #F6FBF8; }
+.step-mark { flex: none; width: 22px; height: 22px; border-radius: 99px; background: var(--accent); color: #FFFFFF; display: inline-flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 700; }
+.step.done .step-mark { background: var(--ok); }
+.step-body { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.step-body span { font-size: 13px; color: var(--muted); }
+.progress { height: 6px; background: var(--line); border-radius: 99px; margin: 0 0 16px; overflow: hidden; }
+.progress > span { display: block; height: 100%; background: var(--accent); border-radius: 99px; }
+.endpoint-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.split { display: flex; gap: 20px; flex-wrap: wrap; align-items: flex-start; }
+.split > .main-col { flex: 3 1 440px; min-width: 0; }
+.split > .side-col { flex: 2 1 300px; min-width: 0; }
+.health { list-style: none; margin: 0; padding: 0; }
+.health li { display: flex; gap: 12px; align-items: flex-start; padding: 12px 0; border-top: 1px solid var(--line); }
+.health li:first-child { border-top: 0; }
+.dot { flex: none; margin-top: 5px; width: 9px; height: 9px; border-radius: 99px; background: #8A909C; }
+.dot-ok { background: var(--ok); }
+.dot-warn { background: #C77A00; }
+.dot-bad { background: var(--danger); }
+.health-body { display: flex; flex-direction: column; gap: 2px; flex: 1; min-width: 0; }
+.health-title { display: flex; justify-content: space-between; gap: 8px; }
+.health-title span { font-size: 13px; color: var(--text-2); }
+.health-body > span { font-size: 12px; color: var(--muted); word-break: break-all; }
+.share { display: flex; align-items: center; gap: 8px; justify-content: flex-end; }
+.share-bar { width: 80px; height: 6px; background: var(--line); border-radius: 99px; overflow: hidden; }
+.share-bar > span { display: block; height: 100%; background: var(--accent); }
+
+.toolbar { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 14px; }
+.toolbar-group { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.toolbar-grow { flex: 1 1 280px; }
+.selection-bar { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; background: var(--text); color: #FFFFFF; border-radius: 10px; padding: 6px 6px 6px 16px; margin-bottom: 12px; }
+.selection-bar > span { flex: 1; font-weight: 600; }
+.selection-bar .link-button { color: #FFFFFF; padding: 0 10px; }
+.breadcrumbs { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; margin-bottom: 14px; font-size: 15px; }
+.breadcrumbs a { color: var(--muted); text-decoration: none; }
+.breadcrumbs a:last-child { color: var(--text); font-weight: 700; }
+.breadcrumbs span { color: #9AA0AB; }
+.files-layout { display: flex; gap: 20px; flex-wrap: wrap; align-items: flex-start; }
+.bucket-rail { flex: 1 1 200px; max-width: 240px; background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 12px; }
+.bucket-rail ul { list-style: none; margin: 8px 0 0; padding: 0; display: flex; flex-direction: column; gap: 2px; }
+.bucket-rail a { display: flex; justify-content: space-between; gap: 8px; padding: 7px 8px; border-radius: 7px; color: var(--text-2); text-decoration: none; }
+.bucket-rail a span:first-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.bucket-rail a span:last-child { color: var(--muted); font-size: 12px; flex: none; }
+.bucket-rail a:hover { background: var(--bg); }
+.bucket-rail a[aria-current="page"] { background: var(--accent-bg); color: var(--accent-hover); font-weight: 600; }
+.files-main { flex: 999 1 480px; min-width: 0; }
+.bucket-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 14px; }
+.bucket-card { border: 1px solid var(--border); border-radius: 10px; padding: 16px; background: var(--surface); display: flex; flex-direction: column; gap: 4px; }
+.bucket-card h3 { margin: 0 0 4px; font-size: 15px; }
+.bucket-card h3 a { color: var(--text); text-decoration: none; }
+.bucket-card p { margin: 0; }
+.bucket-card .row-actions { margin-top: 10px; }
+.empty-state { padding: 24px; text-align: center; }
+.files-table-wrap { overflow-x: auto; }
+.files-table { width: 100%; border-collapse: collapse; }
+.files-table th, .files-table td { padding: 9px 12px; border-top: 1px solid var(--line); text-align: left; vertical-align: middle; }
+.files-table th { font-size: 12px; font-weight: 600; color: var(--muted); background: #FAFBFC; border-top: 0; }
+.files-table td a { color: var(--text); text-decoration: none; }
+.files-table tbody tr:hover { background: #FAFBFC; }
+.files-table tbody tr.row-clickable { cursor: pointer; }
+.files-table tbody tr.is-active { background: var(--accent-bg); box-shadow: inset 3px 0 0 var(--accent); }
+.files-table .num { color: var(--muted); white-space: nowrap; }
+.file-name { display: flex; align-items: center; gap: 10px; font-weight: 500; }
+.file-icon { width: 30px; height: 30px; border-radius: 6px; flex: none; display: inline-flex; align-items: center; justify-content: center; background: var(--line); color: var(--text-2); font-size: 9px; font-weight: 700; overflow: hidden; }
+.file-icon.is-image { background: #DCE6F6; }
+.preview-thumb { width: 30px; height: 30px; object-fit: cover; display: block; }
+.status-line { margin-bottom: 10px; font-size: 13px; }
+.status-line.error-text { color: var(--danger); }
+.row-actions { display: flex; gap: 4px; flex-wrap: wrap; justify-content: flex-end; }
+.icon-btn { width: 32px; height: 32px; min-height: 32px; padding: 0; border-radius: 7px; vertical-align: middle; }
+[data-tooltip] { position: relative; }
+[data-tooltip]::after { content: attr(data-tooltip); position: absolute; bottom: calc(100% + 7px); left: 50%; transform: translateX(-50%) translateY(4px); background: var(--text); color: #FFFFFF; font-size: 11px; font-weight: 500; padding: 4px 8px; border-radius: 4px; white-space: nowrap; opacity: 0; pointer-events: none; transition: opacity 0.15s ease, transform 0.15s ease; z-index: 50; }
+[data-tooltip]:hover::after { opacity: 1; transform: translateX(-50%) translateY(0); }
+.drawer { position: fixed; top: 0; right: 0; bottom: 0; z-index: 35; width: min(380px, 100%); overflow-y: auto; background: var(--surface); border-left: 1px solid var(--border); padding: 20px 22px; box-shadow: -16px 0 40px rgba(18, 20, 26, 0.12); }
+.drawer-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 8px; }
+.drawer-head h2 { margin: 0; font-size: 15px; word-break: break-all; }
+.drawer-close { width: 32px; height: 32px; min-height: 32px; padding: 0; background: transparent; color: var(--muted); border: 0; font-size: 18px; }
+.drawer-close:hover { background: var(--bg); color: var(--text); }
+.drawer-preview { width: 100%; max-height: 220px; object-fit: contain; border-radius: 10px; border: 1px solid var(--border); background: var(--bg); }
+.drawer-actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.drawer dl { margin: 0; display: grid; grid-template-columns: 80px 1fr; gap: 8px 12px; font-size: 13px; }
+.drawer dt { color: var(--muted); }
+.drawer dd { margin: 0; word-break: break-all; }
+
+.dialog-shell { position: fixed; inset: 0; z-index: 40; overflow-y: auto; }
+.dialog-overlay { position: fixed; inset: 0; background: rgba(18, 20, 26, 0.35); }
+.dialog-wrap { position: relative; display: flex; min-height: 100vh; align-items: center; justify-content: center; padding: 16px; }
+.dialog-panel { position: relative; width: min(480px, 100%); border-radius: 14px; background: var(--surface); border: 1px solid var(--border); padding: 24px; box-shadow: 0 24px 60px rgba(18, 20, 26, 0.2); }
+.dialog-close { position: absolute; right: 12px; top: 12px; width: 32px; height: 32px; min-height: 32px; padding: 0; background: transparent; color: var(--muted); border-radius: 50%; font-size: 18px; line-height: 1; }
+.dialog-close:hover { background: var(--bg); color: var(--text); }
+.dialog-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 18px; }
+
+.auth { min-height: 100vh; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 20px; padding: 48px 16px; }
+.auth .brand { font-size: 17px; }
+.auth .brand-mark { width: 32px; height: 32px; font-size: 13px; }
+.auth-card { width: 100%; max-width: 400px; background: var(--surface); border: 1px solid var(--border); border-radius: 14px; padding: 28px; box-shadow: 0 1px 2px rgba(18, 20, 26, 0.04), 0 12px 32px rgba(18, 20, 26, 0.06); }
+.auth-card.wide { max-width: 520px; }
+.auth-card h1 { font-size: 20px; }
+.auth-card .lead { margin: 6px 0 20px; }
+.auth-card form { background: none; border: 0; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 14px; }
+.auth-card form > label:not(.checkbox-label) { flex-direction: column; align-items: stretch; gap: 6px; margin: 0; }
+.auth-card form > button[type=submit] { min-height: 44px; margin-top: 4px; }
+.auth-card details { margin-top: 18px; padding-top: 4px; }
+.auth-card .field { grid-template-columns: 1fr; margin: 0; gap: 6px; }
+.auth-card .field > .field-label { padding-top: 0; }
+.auth-foot { margin: 0; max-width: 400px; text-align: center; color: var(--muted); font-size: 13px; }
+.password-row { display: flex; align-items: center; border: 1px solid #D5D8DF; border-radius: 8px; padding: 0 4px 0 0; background: var(--surface); }
+.password-row:focus-within { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-bg); }
+.password-row input { border: 0; box-shadow: none !important; }
+.password-row button { min-height: 32px; padding: 0 10px; background: transparent; color: var(--text-2); border: 0; font-weight: 500; font-size: 13px; }
+.password-row button:hover { background: var(--bg); color: var(--text); }
+.copy-row { display: flex; gap: 6px; align-items: stretch; }
+.copy-row code { flex: 1; min-width: 0; font-size: 12px; background: var(--bg); border: 1px solid var(--border); border-radius: 7px; padding: 8px; }
+
+.error, .notice { justify-content: flex-start; }
+.error svg { flex: none; margin-top: 2px; }
+.stack { display: flex; flex-direction: column; gap: 6px; }
+.stack > label { margin: 0; }
+.updates { border-top: 1px solid var(--line); margin-top: 4px; }
+.updates h3 { margin-top: 14px; }
+.updates p { margin: 6px 0; }
+.drawer-inner { display: flex; flex-direction: column; gap: 14px; }
+.file-name { display: flex; align-items: center; gap: 10px; color: var(--text); font-weight: 500; text-align: left; }
+.file-name:hover { color: var(--text); }
+
+label.stacked input, label.stacked select, .auth-card form > label:not(.checkbox-label) input { flex: none; }
+label > span.field-label { flex: 0 0 220px; }
+.auth-card label > span.field-label { flex: none; }
+.icon-btn { display: inline-flex; align-items: center; justify-content: center; }
+.health-body code { display: block; color: var(--text); margin-bottom: 2px; }
+
+@media (max-width: 760px) {
+  .sidebar { max-width: none; flex-basis: 100%; border-right: 0; border-bottom: 1px solid var(--border); padding: 14px; gap: 12px; }
+  .sidebar nav { flex-direction: row; flex-wrap: wrap; gap: 4px; }
+  .nav-group { flex-direction: row; flex-wrap: wrap; }
+  .nav-heading { display: none; }
+  .sidebar-foot { margin-top: 0; padding-top: 10px; }
+  .content { padding: 20px 16px 40px; }
+  .field { grid-template-columns: 1fr; }
+  .field > .field-label { padding-top: 0; }
+  .key-details { grid-template-columns: 1fr; }
+  .bucket-rail { max-width: none; }
+  .files-table thead { display: none; }
+  .files-table, .files-table tbody, .files-table tr, .files-table td { display: block; width: 100%; }
+  .files-table tr { padding: 10px 0; border-top: 1px solid var(--line); }
+  .files-table td { border-top: 0; padding: 4px 12px; }
+}
+CSS;
 
     public function installer(array $values, array $errors, string $csrfToken, bool $credentialsFromEnv = false): string
     {
         $keyNote = $credentialsFromEnv
             ? '<div class="notice">Access keys come from <code>MINI_S3_CREDENTIALS_JSON</code>, so no key will be generated.</div>'
             : '';
-        $body = '<p class="lead">Create the admin account for this server. Mini S3 then creates your first access key and shows you how to connect an app.</p>'
+        $body = '<h1>Set up Mini S3</h1>'
+            . '<p class="lead">Create the admin account for this server. Mini S3 then creates your first access key and shows you how to connect an app.</p>'
             . '<div class="warning">Until you finish this step, anyone who can open this page can take over the server. Finish setup now.</div>'
             . $keyNote
             . $this->errorHtml($errors)
@@ -40,21 +314,30 @@ final class AdminRenderer
             . '<button type="submit">Finish setup</button>'
             . '</form>';
 
-        return $this->layout('Set up Mini S3', $body, null);
+        return $this->authLayout('Set up Mini S3', $body, true);
     }
 
     public function login(string $error, string $csrfToken): string
     {
-        $errorHtml = $error === '' ? '' : '<div class="error">' . $this->e($error) . '</div>';
-        $body = $errorHtml . '<form method="post" action="/_">'
+        $resetCommand = 'php -r \'echo password_hash("new-password", PASSWORD_DEFAULT);\'';
+        $errorHtml = $error === '' ? '' : '<div class="error" role="alert">' . self::ICON_ALERT . '<span>' . $this->e($error) . '</span></div>';
+        $body = '<h1>Sign in to admin</h1>'
+            . '<p class="lead">Manage buckets, files and access keys.</p>'
+            . $errorHtml
+            . '<form method="post" action="/_" x-data="{ show: false }">'
             . $this->csrfField($csrfToken)
             . '<label>Username<input name="username" autocomplete="username" required autofocus></label>'
-            . '<label>Password<input type="password" name="password" autocomplete="current-password" required></label>'
-            . '<button type="submit">Log in</button>'
+            . '<div class="stack"><label for="login-password">Password</label>'
+            . '<div class="password-row"><input id="login-password" type="password" name="password" autocomplete="current-password" required x-bind:type="show ? \'text\' : \'password\'">'
+            . '<button type="button" aria-label="Show password" x-bind:aria-pressed="show.toString()" x-on:click="show = !show" x-text="show ? \'Hide\' : \'Show\'">Show</button></div></div>'
+            . '<button type="submit">Sign in</button>'
             . '</form>'
-            . '<p class="muted">Forgot the password? On the server, run <code>php -r \'echo password_hash("new-password", PASSWORD_DEFAULT);\'</code> and put the result in <code>ADMIN_PASSWORD_HASH</code> in <code>config/config.php</code>.</p>';
+            . '<details><summary>Forgot the password?</summary>'
+            . '<p class="help">On the server, make a new hash and put it in <code>ADMIN_PASSWORD_HASH</code> in <code>config/config.php</code>:</p>'
+            . '<div class="copy-row"><code>' . $this->e($resetCommand) . '</code><button type="button" class="secondary" data-copy="' . $this->e($resetCommand) . '">Copy</button></div>'
+            . '</details>';
 
-        return $this->layout('Mini S3 Admin Login', $body, null);
+        return $this->authLayout('Sign in · Mini S3 Admin', $body, false, 'This account is only for this panel. Apps connect to S3 with access keys, not with this password.');
     }
 
     public function dashboard(
@@ -67,22 +350,21 @@ final class AdminRenderer
         array $warnings = []
     ): string {
         $keyCount = count((array) ($config['CREDENTIALS'] ?? []));
-        $body = $this->flashMessage($flashMessage)
+        $bucketCount = (int) $stats['bucket_count'];
+        $summary = $bucketCount . ($bucketCount === 1 ? ' bucket' : ' buckets')
+            . ' · ' . number_format((int) $stats['object_count']) . ((int) $stats['object_count'] === 1 ? ' object' : ' objects')
+            . ' · ' . $this->formatBytes((int) $stats['total_bytes']) . ' stored';
+        $body = '<p class="lead">' . $this->e($summary) . '</p>'
+            . $this->flashMessage($flashMessage)
             . $this->warningBanners($warnings)
-            . '<div class="cards">'
-            . $this->statCard('Buckets', (string) $stats['bucket_count'])
-            . $this->statCard('Objects', (string) $stats['object_count'])
-            . $this->statCard('Storage', $this->formatBytes((int) $stats['total_bytes']))
-            . $this->statCard('Access keys', (string) $keyCount)
-            . '</div>'
-            . $this->connectPanel($endpoint, (int) $stats['bucket_count'])
-            . '<section class="panel"><h2>Data directory</h2>'
-            . '<p><code>' . $this->e((string) $stats['data_dir']) . '</code></p>'
-            . '<p class="muted">Status: ' . $this->e((string) $stats['status']) . '. Every object is a plain file under this folder; back it up like any other directory.</p>'
-            . '</section>'
-            . $this->updatesPanel($updateStatus);
+            . $this->setupChecklist($keyCount, $bucketCount, $endpoint)
+            . $this->connectPanel($endpoint)
+            . '<div class="split">'
+            . '<div class="main-col">' . $this->bucketsPanel((array) ($stats['buckets'] ?? []), (int) $stats['total_bytes']) . '</div>'
+            . '<div class="side-col">' . $this->healthPanel($stats, $config, $keyCount, $updateStatus) . '</div>'
+            . '</div>';
 
-        return $this->layout('Dashboard', $body, $csrfToken);
+        return $this->layout('Overview', $body, $csrfToken);
     }
 
     /**
@@ -99,7 +381,7 @@ final class AdminRenderer
 
         $body = $this->flashMessage($flashMessage)
             . $this->errorHtml($errors)
-            . '<p class="lead">Server settings. Access keys are managed on the <a href="/_/keys">Access Keys</a> page and the admin password on the <a href="/_/security">Security</a> page.</p>'
+            . '<p class="lead">Server settings. Access keys are managed on the <a href="/_/keys">Access keys</a> page and the admin password on the <a href="/_/security">Admin account</a> page.</p>'
             . ($envLocked === [] ? '' : '<div class="notice">Fields marked <span class="badge badge-env">env</span> are set by environment variables. They override <code>config/config.php</code> and cannot be changed here.</div>')
             . '<form method="post" action="/_/settings">'
             . $this->csrfField($csrfToken)
@@ -136,7 +418,7 @@ final class AdminRenderer
             . '<button type="submit">Save admin account</button>'
             . '</form>';
 
-        return $this->layout('Security', $body, $csrfToken);
+        return $this->layout('Admin account', $body, $csrfToken);
     }
 
     /**
@@ -178,29 +460,33 @@ final class AdminRenderer
             . '</div>'
             . $this->keysScript();
 
-        return $this->layout('Access Keys', $body, $csrfToken);
+        return $this->layout('Access keys', $body, $csrfToken);
     }
 
     public function files(array $buckets, array $listing, string $currentBucket, string $currentPrefix, string $csrfToken, string $flashMessage): string
     {
         $summary = count((array) ($listing['folders'] ?? [])) . ' folders, ' . count((array) ($listing['files'] ?? [])) . ' files';
+        $actions = '<button type="button" class="secondary" x-on:click="openCreateBucket()">New bucket</button>'
+            . ($currentBucket === '' ? '' : '<button type="button" class="secondary" x-on:click="openCreateFolder()">New folder</button><button type="button" x-on:click="openUpload()">Upload file</button>');
         $body = '<div x-data="miniS3Explorer(' . $this->jsString($csrfToken) . ', ' . $this->jsString($currentBucket) . ', ' . $this->jsString($currentPrefix) . ', ' . $this->jsString($summary) . ')" x-init="init()">'
             . $this->flashMessage($flashMessage)
-            . '<section class="panel">'
-            . '<div class="toolbar">'
-            . '<div class="toolbar-group toolbar-grow"><input type="search" placeholder="Search current list" x-model="search" x-on:input="filterList()"></div>'
-            . '<div class="toolbar-group">'
-            . '<button type="button" x-on:click="openCreateBucket()">New bucket</button>'
-            . ($currentBucket === '' ? '' : '<button type="button" x-on:click="openCreateFolder()">New folder</button><button type="button" x-on:click="openUpload()">Upload file</button>')
-            . '</div></div>'
+            . '<div class="files-layout">'
+            . $this->bucketRail($buckets, $currentBucket)
+            . '<div class="files-main">'
             . $this->filesBreadcrumbs($currentBucket, $currentPrefix)
+            . '<div class="toolbar">'
+            . '<div class="toolbar-group toolbar-grow"><input type="search" aria-label="Filter this list" placeholder="Filter this list" x-model="search" x-on:input="filterList()"></div>'
+            . '<div class="toolbar-group">' . $actions . '</div>'
+            . '</div>'
             . ($currentBucket === '' ? $this->bucketGrid($buckets) : $this->objectTable($currentBucket, $currentPrefix, $listing))
-            . '</section>'
+            . '</div>'
+            . ($currentBucket === '' ? '' : $this->fileDrawer())
+            . '</div>'
             . $this->filesModal()
             . $this->filesScript()
             . '</div>';
 
-        return $this->layout('Files', $body, $csrfToken);
+        return $this->layout('Buckets & files', $body, $csrfToken);
     }
 
     // --- form helpers -------------------------------------------------------
@@ -286,23 +572,106 @@ final class AdminRenderer
         return $html;
     }
 
-    private function connectPanel(string $endpoint, int $bucketCount): string
+    /**
+     * Shown until the server has a key and a bucket; it replaces a long help text.
+     */
+    private function setupChecklist(int $keyCount, int $bucketCount, string $endpoint): string
+    {
+        if ($keyCount > 0 && $bucketCount > 0) {
+            return '';
+        }
+        $bucketHint = '<a href="/_/files">Create one on the Files page</a>'
+            . ($endpoint === '' ? '' : ', or run <code>aws --endpoint-url ' . $this->e($endpoint) . ' s3 mb s3://my-bucket</code>');
+        $steps = [
+            [true, 'Admin account', 'Created during setup'],
+            [$keyCount > 0, 'Create an access key', $keyCount > 0 ? $this->e($keyCount . ($keyCount === 1 ? ' key' : ' keys')) : '<a href="/_/keys">Create one per app on Access keys</a>'],
+            [$bucketCount > 0, 'Create a bucket', $bucketCount > 0 ? $this->e($bucketCount . ($bucketCount === 1 ? ' bucket' : ' buckets')) : $bucketHint],
+            [false, 'Connect an app', '<a href="/_/keys#connect">Copy settings for AWS CLI, rclone or Laravel</a>'],
+        ];
+        $done = count(array_filter($steps, static fn (array $step): bool => $step[0]));
+        $items = '';
+        foreach ($steps as $index => [$isDone, $title, $hint]) {
+            $items .= '<li class="step' . ($isDone ? ' done' : '') . '">'
+                . '<span class="step-mark" aria-hidden="true">' . ($isDone ? '&#10003;' : (string) ($index + 1)) . '</span>'
+                . '<span class="step-body"><strong>' . $this->e($title) . ($isDone ? '<span class="visually-hidden"> (done)</span>' : '') . '</strong><span>' . $hint . '</span></span>'
+                . '</li>';
+        }
+
+        return '<section class="panel"><div class="panel-head"><h2>Getting started</h2><span class="muted">' . $done . ' of ' . count($steps) . ' done</span></div>'
+            . '<div class="progress" aria-hidden="true"><span style="width: ' . (int) round($done / count($steps) * 100) . '%"></span></div>'
+            . '<ol class="checklist">' . $items . '</ol></section>';
+    }
+
+    private function connectPanel(string $endpoint): string
     {
         if ($endpoint === '') {
             return '';
         }
-        $html = '<section class="panel"><h2>Connect an app</h2>'
-            . '<p>S3 endpoint: <code class="strong-code">' . $this->e($endpoint) . '</code></p>'
-            . '<p class="muted">Use path-style addressing (the bucket goes in the URL path) and any region name, for example <code>us-east-1</code>. Ready-made settings for the AWS CLI, rclone, s5cmd, Laravel and JavaScript are on the <a href="/_/keys">Access Keys</a> page.</p>';
-        if ($bucketCount === 0) {
-            $html .= '<h3>Getting started</h3><ol class="help-list">'
-                . '<li>Create a bucket on the <a href="/_/files">Files</a> page, or from a terminal: <code>aws --endpoint-url ' . $this->e($endpoint) . ' s3 mb s3://my-bucket</code></li>'
-                . '<li>Copy the connection settings for your app from <a href="/_/keys">Access Keys</a>.</li>'
-                . '<li>Upload files with your app, any S3 tool, or the Files page.</li>'
-                . '</ol>';
+
+        return '<section class="panel"><div class="panel-head"><h2>Connect an app</h2><a href="/_/keys">Connection settings for your tools &rarr;</a></div>'
+            . '<div class="endpoint-row"><span class="visually-hidden">S3 endpoint:</span><code class="code-box">' . $this->e($endpoint) . '</code>'
+            . '<button type="button" class="secondary" data-copy="' . $this->e($endpoint) . '" aria-label="Copy S3 endpoint">Copy</button></div>'
+            . '<p class="help">Use path-style addressing (the bucket goes in the URL path) and any region name, for example <code>us-east-1</code>. Ready-made settings for the AWS CLI, rclone, s5cmd, Laravel and JavaScript are on the <a href="/_/keys">Access keys</a> page.</p>'
+            . '</section>';
+    }
+
+    /**
+     * @param list<array{name: string, object_count: int, total_bytes: int}> $buckets
+     */
+    private function bucketsPanel(array $buckets, int $totalBytes): string
+    {
+        $head = '<div class="panel-head"><h2>Buckets</h2><a href="/_/files">Open Files &rarr;</a></div>';
+        if ($buckets === []) {
+            return '<section class="panel">' . $head . '<p class="muted">No buckets yet. A bucket is a top-level folder for your objects.</p></section>';
         }
 
-        return $html . '</section>';
+        $rows = '';
+        foreach ($buckets as $bucket) {
+            $name = (string) $bucket['name'];
+            $bytes = (int) $bucket['total_bytes'];
+            $share = $totalBytes > 0 ? (int) round($bytes / $totalBytes * 100) : 0;
+            $rows .= '<tr>'
+                . '<td><a href="/_/files?bucket=' . rawurlencode($name) . '"><strong>' . $this->e($name) . '</strong></a></td>'
+                . '<td class="num">' . number_format((int) $bucket['object_count']) . '</td>'
+                . '<td class="num">' . $this->e($this->formatBytes($bytes)) . '</td>'
+                . '<td><span class="share"><span class="share-bar" aria-hidden="true"><span style="width: ' . $share . '%"></span></span><span class="muted">' . $share . '%</span></span></td>'
+                . '</tr>';
+        }
+
+        return '<section class="panel panel-flush">' . $head
+            . '<div class="files-table-wrap"><table class="files-table"><thead><tr><th>Name</th><th>Objects</th><th>Size</th><th>Share of storage</th></tr></thead>'
+            . '<tbody>' . $rows . '</tbody></table></div></section>';
+    }
+
+    private function healthPanel(array $stats, array $config, int $keyCount, array $updateStatus): string
+    {
+        $dataStatus = match ((string) $stats['status']) {
+            'ok' => ['ok', 'Writable'],
+            'not_writable' => ['bad', 'Not writable'],
+            'missing' => ['bad', 'Missing'],
+            'unreadable' => ['bad', 'Unreadable'],
+            default => ['warn', (string) $stats['status']],
+        };
+        $publicRead = !empty($config['PUBLIC_READ_ALL_BUCKETS']);
+        $hostFallbacks = !empty($config['ALLOW_HOST_CANDIDATE_FALLBACKS']);
+        $debugLog = (string) ($config['AUTH_DEBUG_LOG'] ?? '') !== '';
+        $items = [
+            [$dataStatus[0], 'Data directory', $dataStatus[1], '<code>' . $this->e((string) $stats['data_dir']) . '</code> Every object is a plain file here; back it up like any folder.'],
+            [$keyCount > 0 ? 'ok' : 'warn', 'Access keys', (string) $keyCount, $keyCount > 0 ? 'Apps connect with these.' : 'No app can connect yet.'],
+            [$publicRead ? 'warn' : 'ok', 'Public read', $publicRead ? 'On' : 'Off', $publicRead ? 'Anyone with a URL can download objects.' : 'Every request needs a key.'],
+            [$hostFallbacks ? 'warn' : 'ok', 'Host fallbacks', $hostFallbacks ? 'On' : 'Off', $hostFallbacks ? 'Signature checks are relaxed for proxies.' : 'Strict signature checks.'],
+            [$debugLog ? 'warn' : 'muted', 'Auth debug log', $debugLog ? 'On' : 'Off', $debugLog ? 'Turn it off when you are done debugging.' : 'Turn on only to debug SignatureDoesNotMatch.'],
+        ];
+        $list = '';
+        foreach ($items as [$tone, $title, $state, $detail]) {
+            $list .= '<li><span class="dot dot-' . $tone . '" aria-hidden="true"></span><span class="health-body">'
+                . '<span class="health-title"><strong>' . $this->e($title) . '</strong><span>' . $this->e($state) . '</span></span>'
+                . '<span>' . $detail . '</span></span></li>';
+        }
+
+        return '<section class="panel"><h2>Server health</h2><ul class="health">' . $list . '</ul>'
+            . $this->updatesPanel($updateStatus)
+            . '</section>';
     }
 
     // --- access keys --------------------------------------------------------
@@ -482,155 +851,48 @@ final class AdminRenderer
 
     private function layout(string $title, string $body, ?string $navCsrfToken): string
     {
-        $navigation = '';
-        if ($navCsrfToken !== null) {
-            $links = '';
-            foreach (self::NAV as $href => $label) {
+        $groups = '';
+        foreach (self::NAV as $heading => $links) {
+            $items = $heading === '' ? '' : '<span class="nav-heading">' . $this->e($heading) . '</span>';
+            foreach ($links as $href => $label) {
                 $current = $label === $title ? ' aria-current="page"' : '';
-                $links .= '<a href="' . $href . '"' . $current . '>' . $this->e($label) . '</a>';
+                $items .= '<a class="nav-link" href="' . $href . '"' . $current . '>'
+                    . '<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' . self::NAV_ICONS[$href] . '</svg>'
+                    . $this->e($label) . '</a>';
             }
-            $navigation = '<nav>' . $links
-                . '<form method="post" action="/_/logout" class="plain nav-logout">' . $this->csrfField($navCsrfToken) . '<button type="submit" class="link-button">Log out</button></form>'
-                . '</nav>';
+            $groups .= '<div class="nav-group">' . $items . '</div>';
         }
+        $sidebar = '<aside class="sidebar"><a class="brand" href="/_"><span class="brand-mark" aria-hidden="true">S3</span>Mini S3</a>'
+            . '<nav aria-label="Main">' . $groups . '</nav>'
+            . '<div class="sidebar-foot"><span class="muted">Signed in</span>'
+            . '<form method="post" action="/_/logout" class="plain nav-logout">' . $this->csrfField((string) $navCsrfToken) . '<button type="submit" class="link-button">Log out</button></form>'
+            . '</div></aside>';
 
+        return $this->document($title . ' · Mini S3', '<div class="shell">' . $sidebar
+            . '<main class="content"><div class="page"><div class="page-head"><h1>' . $this->e($title) . '</h1></div>' . $body . '</div></main></div>');
+    }
+
+    /**
+     * Centered single-card layout for pages shown before login (sign-in, setup).
+     */
+    private function authLayout(string $title, string $body, bool $wide, string $footnote = ''): string
+    {
+        return $this->document($title, '<div class="auth">'
+            . '<div class="brand"><span class="brand-mark" aria-hidden="true">S3</span>Mini S3</div>'
+            . '<main class="auth-card' . ($wide ? ' wide' : '') . '">' . $body . '</main>'
+            . ($footnote === '' ? '' : '<p class="auth-foot">' . $this->e($footnote) . '</p>')
+            . '</div>');
+    }
+
+    private function document(string $title, string $body): string
+    {
         return '<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">'
-            . '<title>' . $this->e(str_contains($title, 'Mini S3') ? $title : $title . ' · Mini S3') . '</title>'
-            . '<style>'
-            . 'body { font-family: "SF Pro Display", "Geist Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; margin: 0; background: #FBFBFA; color: #111111; -webkit-font-smoothing: antialiased; }'
-            . '[x-cloak] { display: none !important; }'
-            . 'header { position: sticky; top: 0; z-index: 30; background: #FFFFFF; border-bottom: 1px solid #EAEAEA; padding: 18px 24px; display: flex; gap: 20px; align-items: center; justify-content: space-between; flex-wrap: wrap; }'
-            . 'header strong { font-size: 16px; font-weight: 600; color: #111111; letter-spacing: -0.01em; }'
-            . 'header nav { display: flex; gap: 18px; }'
-            . 'header a { color: #787774; text-decoration: none; font-size: 14px; font-weight: 500; transition: color 0.2s ease, text-decoration 0.2s ease; }'
-            . 'header a:hover { color: #111111; text-decoration: underline; text-underline-offset: 4px; }'
-            . 'main { max-width: 980px; margin: 32px auto; padding: 0 24px; }'
-            . 'h1 { font-size: 28px; font-weight: 600; letter-spacing: -0.02em; margin-bottom: 24px; color: #111111; }'
-            . 'h2 { font-size: 18px; font-weight: 600; margin-top: 0; margin-bottom: 14px; color: #111111; }'
-            . '.cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 16px; margin-bottom: 24px; }'
-            . '.card, .panel, form { background: #FFFFFF; border: 1px solid #EAEAEA; border-radius: 8px; padding: 24px; margin-bottom: 24px; box-shadow: none; }'
-            . '.card { margin-bottom: 0; display: flex; flex-direction: column-reverse; justify-content: flex-end; gap: 4px; }'
-            . '.card h2 { font-size: 32px; font-weight: 600; margin: 0; line-height: 1; letter-spacing: -0.02em; color: #111111; }'
-            . '.card p { font-size: 12px; font-weight: 500; text-transform: uppercase; letter-spacing: 0.05em; color: #787774; margin: 0; }'
-            . 'label { display: flex; align-items: center; gap: 16px; margin: 14px 0; font-size: 14px; font-weight: 500; color: #111111; }'
-            . 'label.checkbox-label { gap: 8px; }'
-            . 'label span.field-label { flex: 0 0 220px; }'
-            . 'input, select { box-sizing: border-box; flex: 1; width: 100%; padding: 10px 12px; margin-top: 0; border: 1px solid #EAEAEA; border-radius: 6px; font-family: inherit; font-size: 14px; color: #111111; background: #FFFFFF; transition: border-color 0.2s ease, box-shadow 0.2s ease; }'
-            . 'input:focus, select:focus { border-color: #111111; outline: none; box-shadow: 0 0 0 1px #111111; }'
-            . 'input[type=checkbox] { flex: none; width: auto; margin-top: 0; }'
-            . 'button { background: #111111; color: #FFFFFF; border: 0; border-radius: 6px; padding: 10px 16px; font-size: 14px; font-weight: 600; cursor: pointer; transition: background 0.2s ease, transform 0.1s ease; }'
-            . 'button:hover { background: #333333; }'
-            . 'button:active { transform: scale(0.98); }'
-            . 'button:disabled { opacity: 0.65; cursor: wait; }'
-            . 'button.danger { background: #9F2F2D; color: #FFFFFF; }'
-            . 'button.danger:hover { background: #7A2422; color: #FFFFFF; }'
-            . '.row-actions button.danger { background: #F7F6F3; color: #9F2F2D; }'
-            . '.row-actions button.danger:hover { background: #FDEBEC; color: #9F2F2D; }'
-            . '.error { background: #FDEBEC; border: 1px solid #FDEBEC; color: #9F2F2D; padding: 12px 16px; border-radius: 6px; font-size: 14px; font-weight: 500; margin-bottom: 16px; }'
-            . '.notice { background: #EDF3EC; border: 1px solid #EDF3EC; color: #346538; padding: 12px 16px; border-radius: 6px; font-size: 14px; font-weight: 500; margin-bottom: 16px; }'
-            . 'code { font-family: "Geist Mono", "SF Mono", "JetBrains Mono", monospace; font-size: 13px; color: #787774; word-break: break-all; }'
-            . 'pre { background: #F7F6F3; border: 1px solid #EAEAEA; color: #111111; border-radius: 6px; overflow: auto; padding: 16px; font-family: "Geist Mono", "SF Mono", "JetBrains Mono", monospace; font-size: 13px; line-height: 1.6; white-space: pre-wrap; margin: 12px 0; }'
-            . '.snippet-actions { display: flex; gap: 10px; flex-wrap: wrap; margin: 10px 0; }'
-            . '.snippet-actions button { background: #F7F6F3; border: 1px solid #EAEAEA; color: #111111; font-weight: 500; font-size: 12px; padding: 6px 12px; }'
-            . '.snippet-actions button:hover { background: #EAEAEA; }'
-            . 'details { margin-top: 20px; border-top: 1px solid #EAEAEA; padding-top: 4px; }'
-            . 'details summary { list-style: none; display: flex; align-items: center; gap: 8px; font-weight: 600; cursor: pointer; color: #111111; font-size: 14px; outline: none; padding: 12px 0; user-select: none; }'
-            . 'details summary::-webkit-details-marker { display: none; }'
-            . 'details summary::before { content: ""; flex: none; width: 0; height: 0; border-left: 5px solid #787774; border-top: 4px solid transparent; border-bottom: 4px solid transparent; transition: transform 0.15s ease; }'
-            . 'details[open] summary::before { transform: rotate(90deg); }'
-            . 'details summary:hover { color: #333333; }'
-            . 'details summary:hover::before { border-left-color: #333333; }'
-            . 'details[open] { padding-bottom: 8px; }'
-            . 'details label:first-of-type { margin-top: 4px; }'
-            . '.hidden { display: none !important; }'
-            . '.toolbar { display: flex; justify-content: space-between; align-items: center; gap: 16px; flex-wrap: wrap; margin-bottom: 18px; }'
-            . '.toolbar-group { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }'
-            . '.toolbar-grow { flex: 1 1 320px; }'
-            . '.bucket-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 16px; }'
-            . '.bucket-card { border: 1px solid #EAEAEA; border-radius: 8px; padding: 18px; background: #FCFCFB; }'
-            . '.bucket-card h3, .files-table a { margin: 0; color: #111111; text-decoration: none; }'
-            . '.bucket-meta, .muted { color: #787774; font-size: 13px; }'
-            . '.breadcrumbs { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 16px; font-size: 14px; }'
-            . '.breadcrumbs a { color: #111111; }'
-            . '.files-table-wrap { overflow-x: auto; }'
-            . '.files-table { width: 100%; border-collapse: collapse; font-size: 13px; }'
-            . '.files-table th, .files-table td { padding: 8px 10px; border-bottom: 1px solid #EAEAEA; text-align: left; vertical-align: middle; }'
-            . '.files-table th { font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; color: #787774; }'
-            . '.files-table tbody tr:hover { background: #FCFCFB; }'
-            . '.files-table tbody tr.row-clickable { cursor: pointer; }'
-            . '.row-actions { display: flex; gap: 6px; flex-wrap: wrap; }'
-            . '.row-actions button, .row-actions a { background: #F7F6F3; border: 1px solid #EAEAEA; color: #111111; font-weight: 500; font-size: 12px; padding: 6px 10px; border-radius: 6px; text-decoration: none; }'
-            . '.icon-btn { width: 30px; height: 30px; padding: 0; display: inline-flex; align-items: center; justify-content: center; box-sizing: border-box; }'
-            . '.row-actions .icon-btn { width: 30px; height: 30px; padding: 0; }'
-            . '.icon-btn:hover { background: #EAEAEA; }'
-            . '.icon-btn.danger:hover { background: #FDEBEC; }'
-            . '[data-tooltip] { position: relative; }'
-            . '[data-tooltip]::after { content: attr(data-tooltip); position: absolute; bottom: calc(100% + 7px); left: 50%; transform: translateX(-50%) translateY(4px); background: #111111; color: #FFFFFF; font-size: 11px; font-weight: 500; padding: 4px 8px; border-radius: 4px; white-space: nowrap; opacity: 0; pointer-events: none; transition: opacity 0.15s ease, transform 0.15s ease; z-index: 50; }'
-            . '[data-tooltip]:hover::after { opacity: 1; transform: translateX(-50%) translateY(0); }'
-            . '.preview-thumb { width: 48px; height: 48px; object-fit: cover; border-radius: 6px; border: 1px solid #EAEAEA; background: #F7F6F3; }'
-            . '.dialog-shell { position: fixed; inset: 0; z-index: 40; overflow-y: auto; }'
-            . '.dialog-overlay { position: fixed; inset: 0; background: rgba(17, 17, 17, 0.25); }'
-            . '.dialog-wrap { position: relative; display: flex; min-height: 100vh; align-items: center; justify-content: center; padding: 16px; }'
-            . '.dialog-panel { position: relative; width: min(480px, 100%); border-radius: 12px; background: #FFFFFF; border: 1px solid #EAEAEA; padding: 24px; box-shadow: 0 24px 60px rgba(0,0,0,0.18); }'
-            . '.dialog-close { position: absolute; right: 12px; top: 12px; width: 32px; height: 32px; padding: 0; display: flex; align-items: center; justify-content: center; background: transparent; color: #787774; border-radius: 50%; font-size: 18px; line-height: 1; transition: background 0.15s ease, color 0.15s ease; }'
-            . '.dialog-close:hover { background: #F2F1EE; color: #111111; }'
-            . '.dialog-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 18px; }'
-            . '.dialog-secondary { background: transparent; color: #111111; border: 1px solid #EAEAEA; }'
-            . '.dialog-secondary:hover { background: #F7F6F3; color: #111111; }'
-            . '.dialog-error { background: #FDEBEC; border: 1px solid #F7C9C7; color: #9F2F2D; padding: 10px 12px; border-radius: 6px; font-size: 13px; font-weight: 500; margin-bottom: 16px; }'
-            . '.status-line { margin-bottom: 16px; font-size: 14px; }'
-            . '.status-line.error-text { color: #9F2F2D; }'
-            . '@media (max-width: 720px) { main { padding: 0 16px; } .files-table thead { display: none; } .files-table, .files-table tbody, .files-table tr, .files-table td { display: block; width: 100%; } .files-table tr { padding: 12px 0; } .files-table td { border-bottom: 0; padding: 6px 0; } }'
-            . 'header nav a[aria-current="page"] { color: #111111; text-decoration: underline; text-underline-offset: 4px; }'
-            . 'header nav { align-items: center; flex-wrap: wrap; }'
-            . 'form.plain { background: none; border: 0; padding: 0; margin: 0; }'
-            . 'main a { color: #1F6C9F; }'
-            . 'main .breadcrumbs a, main .files-table a, main .bucket-card a, main .row-actions a { color: #111111; }'
-            . '.icon-btn { background: #F7F6F3; border: 1px solid #EAEAEA; color: #111111; border-radius: 6px; vertical-align: middle; }'
-            . '.update-actions { display: flex; gap: 10px; flex-wrap: wrap; }'
-            . '.nav-logout { display: inline; }'
-            . '.link-button { background: none; border: 0; padding: 0; color: #787774; font-size: 14px; font-weight: 500; cursor: pointer; text-decoration: none; }'
-            . '.link-button:hover { background: none; color: #111111; text-decoration: underline; text-underline-offset: 4px; }'
-            . '.lead { color: #444444; font-size: 15px; line-height: 1.6; margin: -8px 0 20px; }'
-            . 'fieldset { border: 0; padding: 0; margin: 0 0 12px; }'
-            . 'legend { font-size: 16px; font-weight: 600; padding: 0; margin-bottom: 4px; }'
-            . '.field { display: grid; grid-template-columns: 220px 1fr; gap: 6px 16px; margin: 18px 0; align-items: start; }'
-            . '.field > .field-label { display: block; margin: 0; padding-top: 10px; font-size: 14px; font-weight: 500; }'
-            . '.field > div > label.checkbox-label { margin: 10px 0 0; }'
-            . '.field input:disabled { background: #F7F6F3; color: #787774; }'
-            . '.help { font-size: 13px; color: #787774; line-height: 1.55; margin: 6px 0 0; }'
-            . '.help code, .lead code, .muted code { font-size: 12px; }'
-            . '.help-list { padding-left: 20px; line-height: 1.7; font-size: 14px; }'
-            . '.help-list li { margin: 4px 0; }'
-            . '.badge { display: inline-block; font-size: 11px; font-weight: 600; padding: 2px 8px; border-radius: 999px; white-space: nowrap; vertical-align: middle; }'
-            . '.badge-rw { background: #EDF3EC; color: #346538; }'
-            . '.badge-read { background: #E1F3FE; color: #1F6C9F; }'
-            . '.badge-env { background: #F2F1EE; color: #5F5E5B; font-weight: 500; }'
-            . '.warning { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; background: #FBF3DB; border: 1px solid #F1E3B5; color: #7A5B12; padding: 12px 16px; border-radius: 6px; font-size: 14px; line-height: 1.5; margin-bottom: 16px; }'
-            . '.warning .link-button { color: #7A5B12; flex: none; }'
-            . '.panel-highlight { border-color: #346538; }'
-            . '.key-details { display: grid; grid-template-columns: 120px 1fr; gap: 10px 16px; align-items: center; }'
-            . '.key-details dt { color: #787774; font-size: 13px; }'
-            . '.key-details dd { margin: 0; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }'
-            . '.key-details code, .strong-code, .keys-table code { color: #111111; }'
-            . '.inline-form { display: flex; gap: 12px; align-items: flex-end; flex-wrap: wrap; }'
-            . 'label.stacked { display: flex; flex-direction: column; align-items: stretch; gap: 6px; margin: 8px 0; font-size: 13px; }'
-            . '.inline-form label.stacked { flex: 1 1 200px; margin: 0; }'
-            . '.secret-row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-top: 6px; font-size: 13px; }'
-            . '.secret-row .link-button { font-size: 13px; }'
-            . '.row-details { margin: 0 0 6px; border: 0; padding: 0; }'
-            . '.row-details summary { padding: 2px 0; font-weight: 500; font-size: 13px; }'
-            . '.row-details summary::before { display: none; }'
-            . '.row-details form { margin: 8px 0 12px; display: flex; flex-direction: column; gap: 8px; min-width: 220px; }'
-            . '.danger-text { color: #9F2F2D !important; }'
-            . '.tabs { display: flex; gap: 6px; flex-wrap: wrap; margin: 16px 0 4px; }'
-            . '.tab { background: #F7F6F3; color: #111111; border: 1px solid #EAEAEA; font-weight: 500; font-size: 13px; padding: 6px 12px; }'
-            . '.tab:hover { background: #EAEAEA; }'
-            . '.tab.active { background: #111111; color: #FFFFFF; border-color: #111111; }'
-            . '@media (max-width: 720px) { .field { grid-template-columns: 1fr; } .field > .field-label { padding-top: 0; } .key-details { grid-template-columns: 1fr; } }'
-            . '</style>'
+            . '<title>' . $this->e($title) . '</title>'
+            . '<style>' . self::CSS . '</style>'
             . '<script defer src="' . $this->e(AdminAssets::alpinePath()) . '"></script>'
-            . '</head><body><header><strong>Mini S3</strong>' . $navigation . '</header><main><h1>' . $this->e($title) . '</h1>' . $body . '</main></body></html>';
+            . '</head><body>' . $body
+            . '<script>document.addEventListener("click",function(e){var b=e.target.closest("[data-copy]");if(!b||!navigator.clipboard){return;}navigator.clipboard.writeText(b.getAttribute("data-copy")).then(function(){var t=b.textContent;b.textContent="Copied";setTimeout(function(){b.textContent=t;},1200);});});</script>'
+            . '</body></html>';
     }
 
     private function filesBreadcrumbs(string $currentBucket, string $currentPrefix): string
@@ -676,18 +938,35 @@ final class AdminRenderer
         return $html . '</div>';
     }
 
+    private function bucketRail(array $buckets, string $currentBucket): string
+    {
+        if ($currentBucket === '' || $buckets === []) {
+            return '';
+        }
+        $items = '';
+        foreach ($buckets as $bucket) {
+            $name = (string) ($bucket['name'] ?? '');
+            $current = $name === $currentBucket ? ' aria-current="page"' : '';
+            $items .= '<li><a href="/_/files?bucket=' . rawurlencode($name) . '"' . $current . '><span>' . $this->e($name) . '</span><span>' . $this->e($this->formatBytes((int) ($bucket['total_bytes'] ?? 0))) . '</span></a></li>';
+        }
+
+        return '<nav class="bucket-rail" aria-label="Buckets"><span class="nav-heading">Buckets</span><ul>' . $items . '</ul></nav>';
+    }
+
     private function objectTable(string $bucket, string $prefix, array $listing): string
     {
         $folders = (array) ($listing['folders'] ?? []);
         $files = (array) ($listing['files'] ?? []);
         $html = '<div class="status-line muted" x-bind:class="statusError ? \'error-text\' : \'\'" x-text="statusMessage"></div>';
-        $html .= '<div class="row-actions" style="margin-bottom:12px;"><button type="button" class="danger" x-bind:disabled="selectedItems.length===0" x-on:click="bulkDelete()">Delete selected<template x-if="selectedItems.length"><span x-text="\' (\' + selectedItems.length + \')\'"></span></template></button></div>';
-        $html .= '<div class="files-table-wrap"><table class="files-table"><thead><tr><th><input type="checkbox" x-bind:checked="allSelected" x-on:change="toggleSelectAll($event.target.checked)" aria-label="Select all"></th><th>Name</th><th>Preview</th><th>Type</th><th>Size</th><th>Modified</th><th>Actions</th></tr></thead><tbody>';
+        $html .= '<div class="selection-bar" x-show="selectedItems.length" x-cloak><span x-text="selectedItems.length + \' selected\'"></span>'
+            . '<button type="button" class="danger" x-on:click="bulkDelete()">Delete selected</button>'
+            . '<button type="button" class="link-button" x-on:click="selectedItems = []">Clear</button></div>';
+        $html .= '<section class="panel panel-flush"><div class="files-table-wrap"><table class="files-table"><thead><tr><th><input type="checkbox" x-bind:checked="allSelected" x-on:change="toggleSelectAll($event.target.checked)" aria-label="Select all"></th><th>Name</th><th>Size</th><th>Modified</th><th><span class="visually-hidden">Actions</span></th></tr></thead><tbody>';
 
         if ($prefix !== '') {
             $parent = dirname($prefix);
             $parent = $parent === '.' ? '' : $parent;
-            $html .= '<tr><td></td><td colspan="6"><a href="/_/files?bucket=' . rawurlencode($bucket) . '&prefix=' . rawurlencode($parent) . '">..</a></td></tr>';
+            $html .= '<tr><td></td><td colspan="4"><a href="/_/files?bucket=' . rawurlencode($bucket) . '&prefix=' . rawurlencode($parent) . '" class="file-name"><span class="file-icon" aria-hidden="true">..</span>Up one level</a></td></tr>';
         }
 
         foreach ($folders as $folder) {
@@ -695,11 +974,10 @@ final class AdminRenderer
             $name = (string) ($folder['name'] ?? '');
             $folderUrl = '/_/files?bucket=' . rawurlencode($bucket) . '&prefix=' . rawurlencode($path);
             $html .= '<tr class="row-clickable" data-searchable="' . $this->e(strtolower($name)) . '" x-on:click="window.location.href=' . $this->jsString($folderUrl) . '">'
-                . '<td x-on:click.stop><input type="checkbox" value="' . $this->e($path) . '" x-model="selectedItems"></td>'
-                . '<td><a href="' . $folderUrl . '">' . $this->e($name) . '</a></td>'
-                . '<td>-</td><td>Folder</td>'
-                . '<td>' . $this->e((string) ($folder['object_count'] ?? 0)) . ' items</td>'
-                . '<td>' . $this->e($this->formatDate((int) ($folder['modified'] ?? 0))) . '</td>'
+                . '<td x-on:click.stop><input type="checkbox" value="' . $this->e($path) . '" x-model="selectedItems" aria-label="Select ' . $this->e($name) . '"></td>'
+                . '<td><a href="' . $folderUrl . '" class="file-name"><span class="file-icon" aria-hidden="true">DIR</span>' . $this->e($name) . '/</a></td>'
+                . '<td class="num">' . $this->e((string) ($folder['object_count'] ?? 0)) . ' items</td>'
+                . '<td class="num">' . $this->e($this->formatDate((int) ($folder['modified'] ?? 0))) . '</td>'
                 . '<td x-on:click.stop><div class="row-actions">'
                 . $this->iconButton(self::ICON_RENAME, 'Rename', 'x-on:click="renameObject(' . $this->jsString($path) . ', ' . $this->jsString($name) . ')"')
                 . $this->iconButton(self::ICON_DELETE, 'Delete', 'x-on:click="deleteObject(' . $this->jsString($path) . ')"', 'danger')
@@ -709,19 +987,28 @@ final class AdminRenderer
         foreach ($files as $file) {
             $path = (string) ($file['path'] ?? '');
             $name = (string) ($file['name'] ?? '');
-            $preview = '-';
-            if (!empty($file['is_image']) && ($file['mime'] ?? '') !== 'image/svg+xml') {
+            $mime = (string) ($file['mime'] ?? 'file');
+            $previewUrl = '';
+            $icon = '<span class="file-icon" aria-hidden="true">' . $this->e($this->fileBadge($name)) . '</span>';
+            if (!empty($file['is_image']) && $mime !== 'image/svg+xml') {
                 $previewUrl = '/_/files?bucket=' . rawurlencode($bucket) . '&path=' . rawurlencode($path) . '&download=0';
-                $preview = '<a href="' . $previewUrl . '" target="_blank" x-on:click.stop><img class="preview-thumb" src="' . $previewUrl . '" alt="' . $this->e($name) . '"></a>';
+                $icon = '<span class="file-icon is-image" aria-hidden="true"><img class="preview-thumb" src="' . $previewUrl . '" alt="" loading="lazy"></span>';
             }
             $downloadUrl = '/_/files?bucket=' . rawurlencode($bucket) . '&path=' . rawurlencode($path) . '&download=1';
-            $html .= '<tr class="row-clickable" data-searchable="' . $this->e(strtolower($name)) . '" x-on:click="window.location.href=' . $this->jsString($downloadUrl) . '">'
-                . '<td x-on:click.stop><input type="checkbox" value="' . $this->e($path) . '" x-model="selectedItems"></td>'
-                . '<td>' . $this->e($name) . '</td>'
-                . '<td>' . $preview . '</td>'
-                . '<td>' . $this->e((string) ($file['mime'] ?? 'file')) . '</td>'
-                . '<td>' . $this->e($this->formatBytes((int) ($file['size'] ?? 0))) . '</td>'
-                . '<td>' . $this->e($this->formatDate((int) ($file['modified'] ?? 0))) . '</td>'
+            $details = $this->jsonForScript([
+                'name' => $name,
+                'path' => $path,
+                'type' => $mime,
+                'size' => $this->formatBytes((int) ($file['size'] ?? 0)) . ' (' . number_format((int) ($file['size'] ?? 0)) . ' bytes)',
+                'modified' => $this->formatDate((int) ($file['modified'] ?? 0)),
+                'preview' => $previewUrl,
+                'download' => $downloadUrl,
+            ]);
+            $html .= '<tr class="row-clickable" data-searchable="' . $this->e(strtolower($name)) . '" x-on:click="openDetails(' . $this->e($details) . ')" x-bind:class="details &amp;&amp; details.path === ' . $this->e($this->jsString($path)) . ' ? \'is-active\' : \'\'">'
+                . '<td x-on:click.stop><input type="checkbox" value="' . $this->e($path) . '" x-model="selectedItems" aria-label="Select ' . $this->e($name) . '"></td>'
+                . '<td><button type="button" class="link-button file-name" x-on:click.stop="openDetails(' . $this->e($details) . ')">' . $icon . $this->e($name) . '</button></td>'
+                . '<td class="num">' . $this->e($this->formatBytes((int) ($file['size'] ?? 0))) . '</td>'
+                . '<td class="num">' . $this->e($this->formatDate((int) ($file['modified'] ?? 0))) . '</td>'
                 . '<td x-on:click.stop><div class="row-actions">'
                 . $this->iconButton(self::ICON_DOWNLOAD, 'Download', 'href="' . $downloadUrl . '"', '', true)
                 . $this->iconButton(self::ICON_RENAME, 'Rename', 'x-on:click="renameObject(' . $this->jsString($path) . ', ' . $this->jsString($name) . ')"')
@@ -730,10 +1017,29 @@ final class AdminRenderer
         }
 
         if ($folders === [] && $files === []) {
-            $html .= '<tr><td colspan="7" class="muted">This location is empty. Use <em>Upload file</em> or <em>New folder</em> above.</td></tr>';
+            $html .= '<tr><td colspan="5" class="muted">This location is empty. Use <em>Upload file</em> or <em>New folder</em> above.</td></tr>';
         }
 
-        return $html . '</tbody></table></div>';
+        return $html . '</tbody></table></div></section>';
+    }
+
+    private function fileBadge(string $name): string
+    {
+        $extension = strtoupper(pathinfo($name, PATHINFO_EXTENSION));
+
+        return $extension === '' || strlen($extension) > 4 ? 'FILE' : $extension;
+    }
+
+    private function fileDrawer(): string
+    {
+        return '<aside class="drawer" aria-label="File details" x-show="details" x-cloak x-on:keydown.escape.window="if (!dialogOpen) { details = null }">'
+            . '<template x-if="details"><div class="drawer-inner">'
+            . '<div class="drawer-head"><h2 x-text="details.name"></h2><button type="button" class="drawer-close" aria-label="Close details" x-on:click="details = null">&times;</button></div>'
+            . '<template x-if="details.preview"><img class="drawer-preview" x-bind:src="details.preview" x-bind:alt="\'Preview of \' + details.name"></template>'
+            . '<div class="drawer-actions"><a class="button" x-bind:href="details.download">Download</a><button type="button" class="secondary" x-on:click="renameObject(details.path, details.name)">Rename</button></div>'
+            . '<dl><dt>Type</dt><dd x-text="details.type"></dd><dt>Size</dt><dd x-text="details.size"></dd><dt>Modified</dt><dd x-text="details.modified"></dd><dt>Key</dt><dd><code x-text="details.path"></code></dd></dl>'
+            . '<button type="button" class="danger-outline" x-on:click="deleteObject(details.path)">Delete file&hellip;</button>'
+            . '</div></template></aside>';
     }
 
     private function filesModal(): string
@@ -761,8 +1067,9 @@ final class AdminRenderer
     {
         return '<script>'
             . 'function miniS3Explorer(csrf,bucket,prefix,summary){return {'
-            . 'csrf:csrf,bucket:bucket,prefix:prefix,search:"",selectedItems:[],statusMessage:summary,statusError:false,busy:false,dialogOpen:false,dialogAction:"",dialogTitle:"",dialogMessage:"",dialogPath:"",dialogName:"",dialogShowFile:false,dialogIsConfirm:false,dialogConfirmPayload:null,dialogError:"",'
+            . 'csrf:csrf,bucket:bucket,prefix:prefix,search:"",selectedItems:[],details:null,statusMessage:summary,statusError:false,busy:false,dialogOpen:false,dialogAction:"",dialogTitle:"",dialogMessage:"",dialogPath:"",dialogName:"",dialogShowFile:false,dialogIsConfirm:false,dialogConfirmPayload:null,dialogError:"",'
             . 'init(){const key="miniS3:"+this.bucket+":"+this.prefix;const saved=sessionStorage.getItem(key);if(saved){try{const s=JSON.parse(saved);if(typeof s.search==="string"){this.search=s.search;this.$nextTick(()=>this.filterList());}if(typeof s.scrollY==="number"){this.$nextTick(()=>window.scrollTo(0,s.scrollY));}}catch(e){}sessionStorage.removeItem(key);}},'
+            . 'openDetails(info){this.details=info;},'
             . 'saveState(){sessionStorage.setItem("miniS3:"+this.bucket+":"+this.prefix,JSON.stringify({search:this.search,scrollY:window.scrollY}));},'
             . 'filterList(){const q=this.search.trim().toLowerCase();document.querySelectorAll("[data-searchable]").forEach((el)=>{el.classList.toggle("hidden",q!==""&&!String(el.dataset.searchable||"").includes(q));});},'
             . 'visibleCheckboxes(){return Array.from(document.querySelectorAll(".files-table tbody tr:not(.hidden) input[type=checkbox]"));},'
@@ -777,7 +1084,7 @@ final class AdminRenderer
             . 'renameBucket(name){this.openDialog("Rename bucket","Choose a new bucket name.","rename_bucket",name,name,false);},'
             . 'renameObject(path,name){this.openDialog("Rename item","Choose a new name.","rename_object",path,name,false);},'
             . 'deleteBucket(name){this.openConfirm("Delete bucket","Delete bucket "+name+" and all its contents?",{action:"delete_bucket",csrf_token:this.csrf,bucket:name});},'
-            . 'deleteObject(path){this.openConfirm("Delete item","Delete this item?",{action:"delete_object",csrf_token:this.csrf,bucket:this.bucket,path:path});},'
+            . 'deleteObject(path){this.openConfirm("Delete item","Delete "+path+"? This cannot be undone.",{action:"delete_object",csrf_token:this.csrf,bucket:this.bucket,path:path});},'
             . 'bulkDelete(){if(this.selectedItems.length===0){this.setStatus("Select at least one item.",true);return;}this.openConfirm("Delete selected","Delete "+this.selectedItems.length+" selected item(s)?",{action:"bulk_delete",csrf_token:this.csrf,bucket:this.bucket,prefix:this.prefix,items:this.selectedItems});},'
             . 'submitDialog(){if(this.dialogIsConfirm){if(this.dialogConfirmPayload){this.request(this.dialogConfirmPayload);}return;}if(this.dialogAction!=="upload"&&this.dialogName.trim()===""){this.setStatus("Name is required.",true);return;}if(this.dialogAction==="upload"){const file=this.$refs.uploadFile?.files?.[0];if(!file){this.setStatus("Choose a file first.",true);return;}const fd=new FormData();fd.append("csrf_token",this.csrf);fd.append("action","upload");fd.append("bucket",this.bucket);fd.append("prefix",this.prefix);fd.append("file",file);this.request(fd,true);return;}const payload={action:this.dialogAction,csrf_token:this.csrf,bucket:this.bucket,prefix:this.prefix};if(this.dialogAction==="create_bucket"||this.dialogAction==="rename_bucket"){payload.name=this.dialogName.trim();}if(this.dialogAction==="create_folder"){payload.path=this.prefix?this.prefix+"/"+this.dialogName.trim():this.dialogName.trim();}if(this.dialogAction==="rename_object"){payload.path=this.dialogPath;payload.name=this.dialogName.trim();}this.request(payload);},'
             . 'async request(payload,isForm=false){if(this.busy){return;}this.busy=true;this.setStatus("",false);const options={method:"POST",headers:{Accept:"application/json"}};if(isForm){options.body=payload;}else{const fd=new FormData();Object.entries(payload).forEach(([key,value])=>{if(Array.isArray(value)){value.forEach((item)=>fd.append(key+"[]",item));}else{fd.append(key,String(value));}});options.body=fd;}try{const res=await fetch("/_/files",options);const data=await res.json().catch(()=>({ok:false,message:"Invalid response"}));if(!res.ok||!data.ok){this.setStatus(data.message||"Request failed",true);this.busy=false;return;}this.saveState();window.location.href=data.redirect||"/_/files";}catch(e){this.setStatus("Request failed. Check your connection and try again.",true);this.busy=false;}}
@@ -785,12 +1092,6 @@ final class AdminRenderer
             . '}}'
             . '</script>';
     }
-
-    private function statCard(string $label, string $value): string
-    {
-        return '<section class="card"><h2>' . $this->e($value) . '</h2><p>' . $this->e($label) . '</p></section>';
-    }
-
 
     private function flashMessage(string $message): string
     {
@@ -814,7 +1115,7 @@ final class AdminRenderer
         $message = (string) ($status['message'] ?? 'Update status unavailable.');
         $current = $status['currentVersion'] ?? null;
         $latest = $status['latestVersion'] ?? null;
-        $body = '<p>' . $this->e($message) . '</p>';
+        $body = '<p class="muted">' . $this->e($message) . '</p>';
         if (is_string($current) && $current !== '') {
             $body .= '<p><strong>Current version:</strong> ' . $this->e($current) . '</p>';
         }
@@ -825,7 +1126,7 @@ final class AdminRenderer
         if ($state !== 'unavailable') {
             $actions .= '<form method="post" action="/_/check-update" class="plain">'
                 . '<input type="hidden" name="csrf_token" value="' . $this->e((string) ($status['csrfToken'] ?? '')) . '">'
-                . '<button type="submit">Check update</button>'
+                . '<button type="submit" class="secondary">Check update</button>'
                 . '</form>';
         }
         if ($state === 'update_available' && is_string($latest) && $latest !== '') {
@@ -839,7 +1140,7 @@ final class AdminRenderer
             $body .= '<div class="update-actions">' . $actions . '</div>';
         }
 
-        return '<section class="panel"><h2>Updates</h2>' . $body . '</section>';
+        return '<div class="updates"><h3>Updates</h3>' . $body . '</div>';
     }
 
     private function formatBytes(int $bytes): string

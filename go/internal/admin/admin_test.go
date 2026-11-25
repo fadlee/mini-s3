@@ -996,7 +996,7 @@ func TestRouterUpgradeRouteRemoved(t *testing.T) {
 	router.ServeHTTP(rr, req)
 
 	body := rr.Body.String()
-	if rr.Code != http.StatusOK || !strings.Contains(body, "<h2>Updates</h2>") {
+	if rr.Code != http.StatusOK || !strings.Contains(body, "<h3>Updates</h3>") {
 		t.Fatalf("expected POST /_/upgrade to fall through to the dashboard, got %d: %s", rr.Code, body)
 	}
 	if strings.Contains(body, `action="/_/upgrade"`) || strings.Contains(body, "upgraded to") {
@@ -1276,5 +1276,62 @@ func TestConfigWriterWriteConfigDropsRemovedCredentials(t *testing.T) {
 	}
 	if creds["new-key"] != "new-secret" {
 		t.Errorf("new credential missing:\n%s", data)
+	}
+}
+
+func TestScanStatsReturnsPerBucketTotals(t *testing.T) {
+	dir := t.TempDir()
+	os.MkdirAll(filepath.Join(dir, "alpha", "nested"), 0o755)
+	os.MkdirAll(filepath.Join(dir, "beta"), 0o755)
+	os.MkdirAll(filepath.Join(dir, ".multipart"), 0o755)
+	os.WriteFile(filepath.Join(dir, "alpha", "a.txt"), []byte("12345"), 0o644)
+	os.WriteFile(filepath.Join(dir, "alpha", "nested", "b.txt"), []byte("123"), 0o644)
+	os.WriteFile(filepath.Join(dir, "beta", "c.txt"), []byte("12"), 0o644)
+
+	stats := ScanStats(dir)
+	want := []BucketStats{{Name: "alpha", ObjectCount: 2, TotalBytes: 8}, {Name: "beta", ObjectCount: 1, TotalBytes: 2}}
+	if len(stats.Buckets) != len(want) {
+		t.Fatalf("buckets = %+v, want %+v", stats.Buckets, want)
+	}
+	for i := range want {
+		if stats.Buckets[i] != want[i] {
+			t.Errorf("bucket %d = %+v, want %+v", i, stats.Buckets[i], want[i])
+		}
+	}
+	if stats.ObjectCount != 3 || stats.TotalBytes != 10 {
+		t.Errorf("totals = %d objects, %d bytes", stats.ObjectCount, stats.TotalBytes)
+	}
+}
+
+func TestRendererFilesOpensDetailsInsteadOfDownloading(t *testing.T) {
+	listing := &ListObjectsResult{Files: []FileInfo{{Name: "cover.png", Path: "cover.png", Size: 12, Mime: "image/png", IsImage: true}}}
+	html := NewAdminRenderer().Files([]BucketInfo{{Name: "photos"}}, listing, "photos", "", "csrf-token", "")
+	for _, want := range []string{`x-on:click="openDetails(`, `class="drawer"`, `class="bucket-rail"`, `openDetails(info){this.details=info;}`} {
+		if !strings.Contains(html, want) {
+			t.Errorf("files page is missing %q", want)
+		}
+	}
+	if strings.Contains(html, `window.location.href='/_/files?bucket=photos&path=cover.png&download=1'`) {
+		t.Error("clicking a file row must not download it")
+	}
+}
+
+func TestRendererDashboardEscapesBucketNames(t *testing.T) {
+	stats := Stats{DataDir: "/d", Status: "ok", BucketCount: 1, TotalBytes: 10, Buckets: []BucketStats{{Name: "pics <x>", ObjectCount: 2, TotalBytes: 10}}}
+	html := NewAdminRenderer().Dashboard(stats, &config.Config{}, "https://s3.example.test", nil, "")
+	for _, want := range []string{"pics &lt;x&gt;", "100%", `data-copy="https://s3.example.test"`, `<a class="nav-link" href="/_" aria-current="page">`} {
+		if !strings.Contains(html, want) {
+			t.Errorf("dashboard is missing %q", want)
+		}
+	}
+}
+
+func TestRendererLoginUsesAuthLayout(t *testing.T) {
+	html := NewAdminRenderer().Login("Invalid username or password", "csrf-token")
+	if !strings.Contains(html, `aria-label="Show password"`) || !strings.Contains(html, `role="alert"`) {
+		t.Error("login is missing the password toggle or the error alert")
+	}
+	if strings.Contains(html, `class="sidebar"`) {
+		t.Error("login must not show admin navigation")
 	}
 }

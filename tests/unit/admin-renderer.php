@@ -52,7 +52,9 @@ assertNotContainsText('client-secret', $html, 'dashboard never embeds secrets');
 assertNotContainsText('ADMIN_PASSWORD_HASH', $html, 'admin config is not dumped');
 assertContainsText('Public read is on &lt;danger&gt;', $html, 'warnings are escaped and rendered');
 assertContainsText('miniS3:dismiss:public-read', $html, 'warnings can be dismissed');
-assertContainsText('<h2>1</h2><p>Access keys</p>', $html, 'dashboard counts access keys');
+assertContainsText('<strong>Access keys</strong><span>1</span>', $html, 'dashboard counts access keys');
+assertContainsText('data-copy="https://s3.example.test"', $html, 'endpoint has a copy button');
+assertContainsText('1 key', $html, 'getting started marks the key step done');
 assertContainsText('Updates', $html, 'dashboard shows updates panel');
 assertContainsText('Current version:</strong> v1.0.1', $html, 'current version is rendered');
 assertContainsText('Latest version:</strong> v1.0.2', $html, 'latest version is rendered');
@@ -67,12 +69,16 @@ assertContainsText('<form method="post" action="/_/logout" class="plain nav-logo
 assertNotContainsText('href="/_/logout"', $html, 'logout is not a GET link');
 assertNotContainsText('unpkg.com', $html, 'no third-party CDN scripts');
 assertContainsText('<script defer src="/_/assets/alpine-' . MiniS3\Admin\AdminAssets::ALPINE_VERSION . '.js"></script>', $html, 'self-hosted Alpine is loaded');
-assertContainsText('<a href="/_" aria-current="page">Dashboard</a>', $html, 'current nav item is marked');
+assertContainsText('<a class="nav-link" href="/_" aria-current="page">', $html, 'current nav item is marked');
+assertNotContainsText('href="/_/files" aria-current', $html, 'other nav items are not marked');
 assertContainsText('<div class="error" role="alert">boom</div>', (new AdminRenderer())->dashboard(['data_dir' => '', 'status' => 'ok', 'bucket_count' => 1, 'object_count' => 0, 'total_bytes' => 0], [], '', [], 'Error: boom', 'csrf-token'), 'error flash renders as error');
 
 $loginHtml = (new AdminRenderer())->login('', 'csrf-token');
 assertContainsText('name="username"', $loginHtml, 'login form includes username field');
 assertContainsText('name="password"', $loginHtml, 'login form includes password field');
+assertContainsText('aria-label="Show password"', $loginHtml, 'login password can be revealed');
+assertContainsText('ADMIN_PASSWORD_HASH', $loginHtml, 'login explains password reset');
+assertNotContainsText('class="sidebar"', $loginHtml, 'login has no admin navigation');
 
 $settingsHtml = (new AdminRenderer())->settings([
     'data_dir' => '/tmp/mini-s3-data',
@@ -164,6 +170,14 @@ assertContainsText('x-dialog x-model="dialogOpen"', $filesHtml, 'files page rend
 assertContainsText('renameObject(\'cover.png\', \'cover.png\')', $filesHtml, 'files page renders Alpine rename handler');
 assertContainsText('function miniS3Explorer(csrf,bucket,prefix,summary)', $filesHtml, 'files page renders Alpine component factory');
 assertContainsText('New bucket', $filesHtml, 'files page renders create bucket action');
+assertContainsText('x-on:click="openDetails(', $filesHtml, 'clicking a file opens its details');
+assertNotContainsText('window.location.href=\'/_/files?bucket=photos&path=cover.png&download=1\'', $filesHtml, 'clicking a file row does not download it');
+assertContainsText('class="drawer"', $filesHtml, 'files page renders the details drawer');
+assertContainsText('class="bucket-rail"', $filesHtml, 'bucket rail is shown inside a bucket');
+$dashboardWithBuckets = (new AdminRenderer())->dashboard(['data_dir' => '/d', 'status' => 'ok', 'bucket_count' => 1, 'object_count' => 2, 'total_bytes' => 10, 'buckets' => [['name' => 'pics <x>', 'object_count' => 2, 'total_bytes' => 10]]], ['CREDENTIALS' => ['k' => ['secret' => 's', 'access' => 'read', 'label' => '', 'created' => 0]]], 'https://s3.example.test', [], '', 'csrf-token');
+assertContainsText('pics &lt;x&gt;', $dashboardWithBuckets, 'bucket names are escaped on the dashboard');
+assertContainsText('100%', $dashboardWithBuckets, 'bucket share of storage is shown');
+assertNotContainsText('Getting started', $dashboardWithBuckets, 'checklist hides once a key and a bucket exist');
 assertContainsText('No buckets yet.', (new AdminRenderer())->files([], ['folders' => [], 'files' => []], '', '', 'csrf-token', ''), 'empty bucket list explains what to do');
 
 $unavailableHtml = (new AdminRenderer())->dashboard([
