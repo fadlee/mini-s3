@@ -32,7 +32,9 @@ $configPath = $root . '/config/config.php';
 $configBackupPath = null;
 $createdConfig = false;
 
-register_shutdown_function(static function () use (&$configBackupPath, &$createdConfig, $configPath, $tmpDir, $root, $testBucket): void {
+// The ETag cache is created by the test requests; remove it afterwards unless it was already there.
+$etagCacheExisted = is_dir($root . '/data/.etag-cache');
+register_shutdown_function(static function () use (&$configBackupPath, &$createdConfig, $configPath, $tmpDir, $root, $testBucket, $etagCacheExisted): void {
     if (is_string($configBackupPath) && is_file($configBackupPath)) {
         ensureDirectory(dirname($configPath));
         @rename($configBackupPath, $configPath);
@@ -43,6 +45,9 @@ register_shutdown_function(static function () use (&$configBackupPath, &$created
     removePath($tmpDir);
     removePath($root . '/data/' . $testBucket);
     removePath($root . '/data/.multipart/' . $testBucket);
+    if (!$etagCacheExisted) {
+        removePath($root . '/data/.etag-cache');
+    }
     @rmdir($root . '/data/.multipart');
 });
 
@@ -71,11 +76,11 @@ assertEq('400', metaStatus($tmpDir . '/admin-upgrade-installer.meta', $phpBin), 
 
 runRequest($phpBin, $requestHelper, 'POST', '/_/upgrade', null, $tmpDir . '/admin-upgrade-unauth.body', $tmpDir . '/admin-upgrade-unauth.meta', ['Host: ' . $signHost]);
 assertEq('200', metaStatus($tmpDir . '/admin-upgrade-unauth.meta', $phpBin), 'Unauthenticated upgrade route should render login page');
-assertContains('Mini S3 Admin Login', $tmpDir . '/admin-upgrade-unauth.body', 'Unauthenticated upgrade route should be protected');
+assertContains('Sign in to admin', $tmpDir . '/admin-upgrade-unauth.body', 'Unauthenticated upgrade route should be protected');
 
 runRequest($phpBin, $requestHelper, 'POST', '/_/check-update', null, $tmpDir . '/admin-check-update-unauth.body', $tmpDir . '/admin-check-update-unauth.meta', ['Host: ' . $signHost]);
 assertEq('200', metaStatus($tmpDir . '/admin-check-update-unauth.meta', $phpBin), 'Unauthenticated check-update route should render login page');
-assertContains('Mini S3 Admin Login', $tmpDir . '/admin-check-update-unauth.body', 'Unauthenticated check-update route should be protected');
+assertContains('Sign in to admin', $tmpDir . '/admin-check-update-unauth.body', 'Unauthenticated check-update route should be protected');
 
 runRequest($phpBin, $requestHelper, 'OPTIONS', '/' . $testBucket . '/' . $testKey, null, $tmpDir . '/cors-preflight.body', $tmpDir . '/cors-preflight.meta', [
     'Host: ' . $signHost,

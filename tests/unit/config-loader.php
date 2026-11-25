@@ -88,6 +88,20 @@ function tempProject(array $config): string
     return $base;
 }
 
+function removeTestTree(string $path): void
+{
+    if (is_file($path) || is_link($path)) {
+        @unlink($path);
+        return;
+    }
+    foreach (is_dir($path) ? (scandir($path) ?: []) : [] as $entry) {
+        if ($entry !== '.' && $entry !== '..') {
+            removeTestTree($path . '/' . $entry);
+        }
+    }
+    @rmdir($path);
+}
+
 function createTempDirectory(string $prefix): string
 {
     $parent = __DIR__ . '/../../data/.test-tmp';
@@ -98,6 +112,11 @@ function createTempDirectory(string $prefix): string
     if (!mkdir($path, 0777, true) && !is_dir($path)) {
         throw new RuntimeException('Unable to create test temp directory');
     }
+    // Remove this directory, and the shared parent once it is empty, when the test ends.
+    register_shutdown_function(static function () use ($path, $parent): void {
+        removeTestTree($path);
+        @rmdir($parent);
+    });
     return $path;
 }
 
