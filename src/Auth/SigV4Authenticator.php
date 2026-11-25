@@ -26,7 +26,8 @@ final class SigV4Authenticator
     ) {
         $normalizedCredentials = [];
         foreach ($credentials as $accessKey => $secretKey) {
-            $normalizedCredentials[(string) $accessKey] = (string) $secretKey;
+            // Accepts both the legacy "key => secret" map and normalized entries.
+            $normalizedCredentials[(string) $accessKey] = is_array($secretKey) ? (string) ($secretKey['secret'] ?? '') : (string) $secretKey;
         }
         $this->credentials = $normalizedCredentials;
 
@@ -36,30 +37,31 @@ final class SigV4Authenticator
         }
     }
 
-    public function authenticate(RequestContext $request): void
+    /**
+     * Verifies the request and returns the access key it was made with.
+     */
+    public function authenticate(RequestContext $request): string
     {
         if ($this->isPresignedRequest($request)) {
-            $this->authenticatePresignedRequest($request);
-            return;
+            return $this->authenticatePresignedRequest($request);
         }
 
         $authorization = $request->getHeader('authorization');
         if ($authorization !== null && str_starts_with($authorization, self::ALGORITHM)) {
-            $this->authenticateAuthorizationHeaderRequest($request, $authorization);
-            return;
+            return $this->authenticateAuthorizationHeaderRequest($request, $authorization);
         }
 
         if ($this->allowLegacyAccessKeyOnly) {
             $legacyAccessKey = $this->extractAccessKeyId($request);
             if ($legacyAccessKey !== null && isset($this->allowedAccessKeys[$legacyAccessKey])) {
-                return;
+                return $legacyAccessKey;
             }
         }
 
         throw new AuthException('AccessDenied', 'Missing or unsupported authentication credentials');
     }
 
-    private function authenticateAuthorizationHeaderRequest(RequestContext $request, string $authorization): void
+    private function authenticateAuthorizationHeaderRequest(RequestContext $request, string $authorization): string
     {
         $authParams = $this->parseAuthorizationHeader($authorization);
 
@@ -111,9 +113,11 @@ final class SigV4Authenticator
             $this->logSignatureMismatch('authorization', $request, $signedHeaders, $signature, $attempts);
             throw new AuthException('SignatureDoesNotMatch', 'The request signature we calculated does not match the signature you provided.');
         }
+
+        return $accessKeyId;
     }
 
-    private function authenticatePresignedRequest(RequestContext $request): void
+    private function authenticatePresignedRequest(RequestContext $request): string
     {
         $algorithm = $request->getQueryParam('X-Amz-Algorithm');
         if ($algorithm !== self::ALGORITHM) {
@@ -174,6 +178,8 @@ final class SigV4Authenticator
             $this->logSignatureMismatch('presign', $request, $signedHeaders, $providedSignature, $attempts);
             throw new AuthException('SignatureDoesNotMatch', 'The request signature we calculated does not match the signature you provided.');
         }
+
+        return $accessKeyId;
     }
 
     private function parseAuthorizationHeader(string $authorization): array

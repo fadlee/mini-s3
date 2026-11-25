@@ -10,48 +10,175 @@ final class AdminRenderer
     private const ICON_DELETE = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/></svg>';
     private const ICON_DOWNLOAD = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12"/><path d="M7 10l5 5 5-5"/><path d="M5 21h14"/></svg>';
 
-    public function installer(array $values, array $errors, string $csrfToken): string
+    private const ICON_COPY = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg>';
+
+    private const NAV = [
+        '/_' => 'Dashboard',
+        '/_/files' => 'Files',
+        '/_/keys' => 'Access Keys',
+        '/_/settings' => 'Settings',
+        '/_/security' => 'Security',
+    ];
+
+    public function installer(array $values, array $errors, string $csrfToken, bool $credentialsFromEnv = false): string
     {
-        return $this->layout('Install Mini S3', $this->installerForm('/_', $values, $errors, $csrfToken), false);
+        $keyNote = $credentialsFromEnv
+            ? '<div class="notice">Access keys come from <code>MINI_S3_CREDENTIALS_JSON</code>, so no key will be generated.</div>'
+            : '';
+        $body = '<p class="lead">Create the admin account for this server. Mini S3 then creates your first access key and shows you how to connect an app.</p>'
+            . '<div class="warning">Until you finish this step, anyone who can open this page can take over the server. Finish setup now.</div>'
+            . $keyNote
+            . $this->errorHtml($errors)
+            . '<form method="post" action="/_">'
+            . $this->csrfField($csrfToken)
+            . $this->textField('admin_username', 'Admin username', (string) ($values['admin_username'] ?? 'admin'), 'You log in to this panel at <code>/_</code> with this name.', ['required' => true, 'autocomplete' => 'username'])
+            . $this->textField('admin_password', 'Admin password', '', 'At least 8 characters. This password controls every bucket and key, so use a password manager.', ['type' => 'password', 'required' => true, 'autocomplete' => 'new-password', 'minlength' => '8'])
+            . $this->textField('admin_password_confirm', 'Confirm password', '', '', ['type' => 'password', 'required' => true, 'autocomplete' => 'new-password', 'minlength' => '8'])
+            . '<details><summary>Advanced</summary>'
+            . $this->textField('data_dir', 'Data directory', (string) ($values['data_dir'] ?? ''), 'Objects are stored as plain files at <code>&lt;data directory&gt;/&lt;bucket&gt;/&lt;key&gt;</code>. PHP must be able to write here. Prefer a folder outside the web root.', ['required' => true])
+            . '</details>'
+            . '<button type="submit">Finish setup</button>'
+            . '</form>';
+
+        return $this->layout('Set up Mini S3', $body, null);
     }
 
     public function login(string $error, string $csrfToken): string
     {
         $errorHtml = $error === '' ? '' : '<div class="error">' . $this->e($error) . '</div>';
         $body = $errorHtml . '<form method="post" action="/_">'
-            . '<input type="hidden" name="csrf_token" value="' . $this->e($csrfToken) . '">'
-            . '<label>Username<input name="username" autocomplete="username" required></label>'
+            . $this->csrfField($csrfToken)
+            . '<label>Username<input name="username" autocomplete="username" required autofocus></label>'
             . '<label>Password<input type="password" name="password" autocomplete="current-password" required></label>'
             . '<button type="submit">Log in</button>'
-            . '</form>';
+            . '</form>'
+            . '<p class="muted">Forgot the password? On the server, run <code>php -r \'echo password_hash("new-password", PASSWORD_DEFAULT);\'</code> and put the result in <code>ADMIN_PASSWORD_HASH</code> in <code>config/config.php</code>.</p>';
 
-        return $this->layout('Mini S3 Admin Login', $body, false);
+        return $this->layout('Mini S3 Admin Login', $body, null);
     }
 
-    public function dashboard(array $stats, array $config = [], string $endpoint = '', array $updateStatus = [], string $flashMessage = ''): string
-    {
+    public function dashboard(
+        array $stats,
+        array $config = [],
+        string $endpoint = '',
+        array $updateStatus = [],
+        string $flashMessage = '',
+        string $csrfToken = '',
+        array $warnings = []
+    ): string {
+        $keyCount = count((array) ($config['CREDENTIALS'] ?? []));
         $body = $this->flashMessage($flashMessage)
+            . $this->warningBanners($warnings)
             . '<div class="cards">'
             . $this->statCard('Buckets', (string) $stats['bucket_count'])
             . $this->statCard('Objects', (string) $stats['object_count'])
             . $this->statCard('Storage', $this->formatBytes((int) $stats['total_bytes']))
-            . $this->statCard('Data Dir', $this->e((string) $stats['status']))
+            . $this->statCard('Access keys', (string) $keyCount)
             . '</div>'
-            . '<section class="panel"><h2>Data directory</h2><code>' . $this->e((string) $stats['data_dir']) . '</code></section>'
-            . $this->updatesPanel($updateStatus)
-            . $this->connectionConfig($config, $endpoint);
+            . $this->connectPanel($endpoint, (int) $stats['bucket_count'])
+            . '<section class="panel"><h2>Data directory</h2>'
+            . '<p><code>' . $this->e((string) $stats['data_dir']) . '</code></p>'
+            . '<p class="muted">Status: ' . $this->e((string) $stats['status']) . '. Every object is a plain file under this folder; back it up like any other directory.</p>'
+            . '</section>'
+            . $this->updatesPanel($updateStatus);
 
-        return $this->layout('Dashboard', $body, true);
+        return $this->layout('Dashboard', $body, $csrfToken);
     }
 
-    public function config(array $values, array $errors, string $csrfToken): string
+    /**
+     * @param array<string, string> $envLocked config key => environment variable
+     */
+    public function settings(array $values, array $errors, string $csrfToken, string $flashMessage = '', array $envLocked = []): string
     {
-        return $this->layout('Config', $this->configForm($values, $errors, $csrfToken), true);
+        $postMax = (string) ini_get('post_max_size');
+        $uploadMax = (string) ini_get('upload_max_filesize');
+        $debugLog = (string) ($values['auth_debug_log'] ?? '');
+        $debugHelp = $debugLog === ''
+            ? 'Off. To debug "SignatureDoesNotMatch" errors, set <code>AUTH_DEBUG_LOG</code> in <code>config/config.php</code> (or <code>MINI_S3_AUTH_DEBUG_LOG</code>) to a log file path outside the web root.'
+            : 'On, writing to <code>' . $this->e($debugLog) . '</code>. It can only be changed in <code>config/config.php</code> or the environment, so a stolen admin session cannot write files elsewhere.';
+
+        $body = $this->flashMessage($flashMessage)
+            . $this->errorHtml($errors)
+            . '<p class="lead">Server settings. Access keys are managed on the <a href="/_/keys">Access Keys</a> page and the admin password on the <a href="/_/security">Security</a> page.</p>'
+            . ($envLocked === [] ? '' : '<div class="notice">Fields marked <span class="badge badge-env">env</span> are set by environment variables. They override <code>config/config.php</code> and cannot be changed here.</div>')
+            . '<form method="post" action="/_/settings">'
+            . $this->csrfField($csrfToken)
+            . '<fieldset><legend>Storage</legend>'
+            . $this->textField('data_dir', 'Data directory', (string) ($values['data_dir'] ?? ''), 'Where objects are stored. Changing this does not move existing files: move them yourself first, or the buckets will appear empty.', ['required' => true], $envLocked['DATA_DIR'] ?? null)
+            . $this->textField('max_request_size', 'Max upload size (bytes)', (string) ($values['max_request_size'] ?? ''), 'Largest single request body accepted by the S3 API. 104857600 = 100 MiB. Larger files should use multipart upload (most S3 tools do this automatically). Uploads from this admin panel are also limited by PHP: upload_max_filesize = ' . $this->e($uploadMax) . ', post_max_size = ' . $this->e($postMax) . '. A reverse proxy may have its own limit (Nginx: <code>client_max_body_size</code>).', ['type' => 'number', 'min' => '1', 'required' => true], $envLocked['MAX_REQUEST_SIZE'] ?? null)
+            . '</fieldset>'
+            . '<fieldset><legend>Access</legend>'
+            . $this->checkboxField('public_read_all_buckets', 'Public read', !empty($values['public_read_all_buckets']), 'Allow anyone to download objects without a key', 'When on, every object in every bucket can be downloaded and listed by anyone who knows the URL. Uploads and deletes still need a key. Leave off unless this server only stores public files; for read-only apps, create a <a href="/_/keys">read-only key</a> instead.', $envLocked['PUBLIC_READ_ALL_BUCKETS'] ?? null)
+            . '</fieldset>'
+            . '<details><summary>Advanced</summary>'
+            . $this->textField('clock_skew_seconds', 'Clock skew (seconds)', (string) ($values['clock_skew_seconds'] ?? ''), 'How far a client clock may differ from the server clock. Default 900 (15 minutes). Raise it only if clients get "RequestTimeTooSkewed"; fixing the client clock is better.', ['type' => 'number', 'min' => '1', 'required' => true])
+            . $this->textField('max_presign_expires', 'Max presigned URL lifetime (seconds)', (string) ($values['max_presign_expires'] ?? ''), 'Longest validity a presigned (shareable) URL may request. Default 604800 (7 days), the S3 maximum. Lower it to limit how long a leaked link works.', ['type' => 'number', 'min' => '1', 'required' => true])
+            . $this->checkboxField('allow_host_candidate_fallbacks', 'Host fallbacks', !empty($values['allow_host_candidate_fallbacks']), 'Accept signatures made for a different Host', 'Only for reverse proxies that change the Host header. It also accepts X-Forwarded-Host and Host with or without the port, which weakens signature checks. Fix the proxy instead when you can (Nginx: <code>proxy_set_header Host $http_host;</code>).', $envLocked['ALLOW_HOST_CANDIDATE_FALLBACKS'] ?? null)
+            . '<div class="field"><span class="field-label">Auth debug log</span><div><p class="help">' . $debugHelp . '</p></div></div>'
+            . '</details>'
+            . '<button type="submit">Save settings</button>'
+            . '</form>';
+
+        return $this->layout('Settings', $body, $csrfToken);
     }
 
     public function security(array $values, array $errors, string $csrfToken, string $flashMessage): string
     {
-        return $this->layout('Security', $this->flashMessage($flashMessage) . $this->securityForm($values, $errors, $csrfToken), true);
+        $body = $this->flashMessage($flashMessage)
+            . $this->errorHtml($errors)
+            . '<p class="lead">The admin account for this panel. It is separate from the S3 <a href="/_/keys">access keys</a> that apps use.</p>'
+            . '<form method="post" action="/_/security">'
+            . $this->csrfField($csrfToken)
+            . $this->textField('admin_username', 'Admin username', (string) ($values['admin_username'] ?? 'admin'), '', ['required' => true, 'autocomplete' => 'username'])
+            . $this->textField('current_password', 'Current password', '', 'Required to save any change here.', ['type' => 'password', 'required' => true, 'autocomplete' => 'current-password'])
+            . $this->textField('new_password', 'New password', '', 'At least 8 characters. Leave blank to keep the current password.', ['type' => 'password', 'autocomplete' => 'new-password', 'minlength' => '8'])
+            . $this->textField('new_password_confirm', 'Confirm new password', '', '', ['type' => 'password', 'autocomplete' => 'new-password', 'minlength' => '8'])
+            . '<button type="submit">Save admin account</button>'
+            . '</form>';
+
+        return $this->layout('Security', $body, $csrfToken);
+    }
+
+    /**
+     * @param array<string, array{secret: string, access: string, label: string, created: int}> $credentials
+     */
+    public function keys(array $credentials, string $endpoint, string $csrfToken, string $flashMessage, string $newKey = '', bool $managedByEnv = false): string
+    {
+        $keyList = [];
+        foreach ($credentials as $accessKey => $entry) {
+            $keyList[] = ['key' => (string) $accessKey, 'label' => (string) $entry['label'], 'access' => (string) $entry['access']];
+        }
+        $initialSecrets = $newKey !== '' && isset($credentials[$newKey]) ? [$newKey => (string) $credentials[$newKey]['secret']] : [];
+        $selected = $newKey !== '' ? $newKey : (string) (array_key_first($credentials) ?? '');
+        $state = [
+            'csrf' => $csrfToken,
+            'keys' => $keyList,
+            'secrets' => (object) $initialSecrets,
+            'selected' => $selected,
+            'templates' => $this->snippetTemplates($endpoint),
+        ];
+
+        $body = '<script type="application/json" id="keys-state">' . $this->jsonForScript($state) . '</script>'
+            . '<div x-data="miniS3Keys()" x-init="init()">'
+            . $this->flashMessage($flashMessage)
+            . '<section class="panel"><h2>What are access keys?</h2>'
+            . '<p>Apps and tools (AWS CLI, rclone, Laravel, SDKs) connect to Mini S3 with an <strong>access key</strong> and its <strong>secret</strong>. Create one key per app, so you can remove one app without touching the others.</p>'
+            . '<ul class="help-list">'
+            . '<li><span class="badge badge-rw">Read &amp; write</span> can list, download, upload, overwrite and delete objects in every bucket.</li>'
+            . '<li><span class="badge badge-read">Read only</span> can only list and download. Use it for websites, CDNs and anything that should never change data.</li>'
+            . '</ul>'
+            . '<p class="muted">Anyone with a secret has that key\'s access, so treat it like a password. You can view secrets again on this page at any time. Deleting a key immediately stops every app that uses it.</p>'
+            . '</section>'
+            . ($newKey !== '' ? $this->newKeyPanel($newKey, (string) $credentials[$newKey]['secret'], $endpoint) : '')
+            . ($managedByEnv
+                ? '<div class="notice">These keys come from the <code>MINI_S3_CREDENTIALS_JSON</code> environment variable. Change that variable to add or remove keys.</div>'
+                : $this->createKeyForm($csrfToken))
+            . $this->keysTable($credentials, $csrfToken, $managedByEnv)
+            . ($credentials === [] ? '' : $this->snippetsPanel())
+            . '</div>'
+            . $this->keysScript();
+
+        return $this->layout('Access Keys', $body, $csrfToken);
     }
 
     public function files(array $buckets, array $listing, string $currentBucket, string $currentPrefix, string $csrfToken, string $flashMessage): string
@@ -73,76 +200,302 @@ final class AdminRenderer
             . $this->filesScript()
             . '</div>';
 
-        return $this->layout('Files', $body, true);
+        return $this->layout('Files', $body, $csrfToken);
     }
 
-    private function installerForm(string $action, array $values, array $errors, string $csrfToken): string
+    // --- form helpers -------------------------------------------------------
+
+    private function csrfField(string $csrfToken): string
     {
-        return $this->errorHtml($errors) . '<form method="post" action="' . $this->e($action) . '">'
-            . '<input type="hidden" name="csrf_token" value="' . $this->e($csrfToken) . '">'
-            . '<label><span class="field-label">Admin username</span><input name="admin_username" value="' . $this->e((string) ($values['admin_username'] ?? 'admin')) . '" required></label>'
-            . '<label><span class="field-label">Admin password</span><input type="password" name="admin_password" required></label>'
-            . '<label><span class="field-label">Confirm admin password</span><input type="password" name="admin_password_confirm" required></label>'
-            . $this->runtimeConfigFields($values)
-            . '<button type="submit">Save</button>'
-            . '</form>';
+        return '<input type="hidden" name="csrf_token" value="' . $this->e($csrfToken) . '">';
     }
 
-    private function configForm(array $values, array $errors, string $csrfToken): string
+    /**
+     * A labelled input with help text. $help is trusted HTML written in this
+     * class; values are escaped. A field locked by an environment variable is
+     * disabled, so the browser does not post it and the saved value is kept.
+     */
+    private function textField(string $name, string $label, string $value, string $help, array $attrs = [], ?string $envVar = null): string
     {
-        return $this->errorHtml($errors) . '<form method="post" action="/_/config">'
-            . '<input type="hidden" name="csrf_token" value="' . $this->e($csrfToken) . '">'
-            . '<p class="muted">Admin username and password are managed separately on the Security page.</p>'
-            . $this->runtimeConfigFields($values)
-            . '<button type="submit">Save config</button>'
-            . '</form>';
+        $attrs += ['type' => 'text'];
+        if ($envVar !== null) {
+            $attrs['disabled'] = true;
+            unset($attrs['required']);
+        }
+        $attrHtml = '';
+        foreach ($attrs as $attr => $attrValue) {
+            if ($attrValue === true) {
+                $attrHtml .= ' ' . $attr;
+            } elseif ($attrValue !== false) {
+                $attrHtml .= ' ' . $attr . '="' . $this->e((string) $attrValue) . '"';
+            }
+        }
+        $id = 'field-' . $name;
+        $helpId = $id . '-help';
+        $describedBy = $help === '' ? '' : ' aria-describedby="' . $helpId . '"';
+
+        return '<div class="field"><label class="field-label" for="' . $id . '">' . $this->e($label) . $this->envBadge($envVar) . '</label><div>'
+            . '<input id="' . $id . '" name="' . $this->e($name) . '" value="' . $this->e($value) . '"' . $attrHtml . $describedBy . '>'
+            . ($help === '' ? '' : '<p class="help" id="' . $helpId . '">' . $help . '</p>')
+            . '</div></div>';
     }
 
-    private function securityForm(array $values, array $errors, string $csrfToken): string
+    private function checkboxField(string $name, string $label, bool $checked, string $caption, string $help, ?string $envVar = null): string
     {
-        return $this->errorHtml($errors) . '<form method="post" action="/_/security">'
-            . '<input type="hidden" name="csrf_token" value="' . $this->e($csrfToken) . '">'
-            . '<label><span class="field-label">Admin username</span><input name="admin_username" value="' . $this->e((string) ($values['admin_username'] ?? 'admin')) . '" required></label>'
-            . '<label><span class="field-label">Current password</span><input type="password" name="current_password" autocomplete="current-password" required></label>'
-            . '<label><span class="field-label">New password</span><input type="password" name="new_password" autocomplete="new-password"></label>'
-            . '<label><span class="field-label">Confirm new password</span><input type="password" name="new_password_confirm" autocomplete="new-password"></label>'
-            . '<p class="muted">Leave new password blank to keep the current password.</p>'
-            . '<button type="submit">Save admin account</button>'
-            . '</form>';
+        $disabled = $envVar !== null ? ' disabled' : '';
+        $id = 'field-' . $name;
+
+        return '<div class="field"><span class="field-label">' . $this->e($label) . $this->envBadge($envVar) . '</span><div>'
+            . '<input type="hidden" name="' . $this->e($name) . '" value="0"' . $disabled . '>'
+            . '<label class="checkbox-label" for="' . $id . '"><input type="checkbox" id="' . $id . '" name="' . $this->e($name) . '" value="1"' . ($checked ? ' checked' : '') . $disabled . ' aria-describedby="' . $id . '-help"> ' . $this->e($caption) . '</label>'
+            . '<p class="help" id="' . $id . '-help">' . $help . '</p>'
+            . '</div></div>';
     }
 
-    private function runtimeConfigFields(array $values): string
+    private function envBadge(?string $envVar): string
     {
-        return '<label><span class="field-label">Data directory</span><input name="data_dir" value="' . $this->e((string) ($values['data_dir'] ?? '')) . '" required></label>'
-            . '<label><span class="field-label">Access key</span><input name="access_key" value="' . $this->e((string) ($values['access_key'] ?? '')) . '" required></label>'
-            . '<label><span class="field-label">Secret key</span><input type="password" name="secret_key" value="' . $this->e((string) ($values['secret_key'] ?? '')) . '" required></label>'
-            . '<input type="hidden" name="public_read_all_buckets" value="0">'
-            . '<label class="checkbox-label"><input type="checkbox" name="public_read_all_buckets" value="1"' . $this->checked($values, 'public_read_all_buckets') . '> Public read all buckets</label>'
-            . '<details><summary>Advanced</summary>'
-            . '<label><span class="field-label">Max request size</span><input type="number" min="1" name="max_request_size" value="' . $this->e((string) ($values['max_request_size'] ?? '104857600')) . '"></label>'
-            . '<label><span class="field-label">Auth debug log</span><input name="auth_debug_log" value="' . $this->e((string) ($values['auth_debug_log'] ?? '')) . '"></label>'
-            . '<label class="checkbox-label"><input type="checkbox" name="allow_host_candidate_fallbacks" value="1"' . $this->checked($values, 'allow_host_candidate_fallbacks') . '> Allow host candidate fallbacks</label>'
-            . '<label><span class="field-label">Clock skew seconds</span><input type="number" min="1" name="clock_skew_seconds" value="' . $this->e((string) ($values['clock_skew_seconds'] ?? '900')) . '"></label>'
-            . '<label><span class="field-label">Max presign expires</span><input type="number" min="1" name="max_presign_expires" value="' . $this->e((string) ($values['max_presign_expires'] ?? '604800')) . '"></label>'
-            . '</details>';
+        return $envVar === null ? '' : ' <span class="badge badge-env" title="Set by ' . $this->e($envVar) . '">env: ' . $this->e($envVar) . '</span>';
     }
 
     private function errorHtml(array $errors): string
     {
         $html = '';
         foreach ($errors as $error) {
-            $html .= '<div class="error">' . $this->e((string) $error) . '</div>';
+            $html .= '<div class="error" role="alert">' . $this->e((string) $error) . '</div>';
         }
 
         return $html;
     }
 
-    private function layout(string $title, string $body, bool $nav): string
+    // --- dashboard ----------------------------------------------------------
+
+    /**
+     * @param array<string, string> $warnings id => message
+     */
+    private function warningBanners(array $warnings): string
     {
-        $navigation = $nav ? '<nav><a href="/_">Dashboard</a><a href="/_/files">Files</a><a href="/_/config">Config</a><a href="/_/security">Security</a><a href="/_/logout">Logout</a></nav>' : '';
+        $html = '';
+        foreach ($warnings as $id => $message) {
+            $storageKey = 'miniS3:dismiss:' . $id;
+            $html .= '<div class="warning" x-data="{hidden: localStorage.getItem(' . $this->jsString($storageKey) . ') === \'1\'}" x-show="!hidden">'
+                . '<span>' . $this->e($message) . '</span>'
+                . '<button type="button" class="link-button" x-on:click="localStorage.setItem(' . $this->jsString($storageKey) . ', \'1\'); hidden = true">Dismiss</button>'
+                . '</div>';
+        }
+
+        return $html;
+    }
+
+    private function connectPanel(string $endpoint, int $bucketCount): string
+    {
+        if ($endpoint === '') {
+            return '';
+        }
+        $html = '<section class="panel"><h2>Connect an app</h2>'
+            . '<p>S3 endpoint: <code class="strong-code">' . $this->e($endpoint) . '</code></p>'
+            . '<p class="muted">Use path-style addressing (the bucket goes in the URL path) and any region name, for example <code>us-east-1</code>. Ready-made settings for the AWS CLI, rclone, s5cmd, Laravel and JavaScript are on the <a href="/_/keys">Access Keys</a> page.</p>';
+        if ($bucketCount === 0) {
+            $html .= '<h3>Getting started</h3><ol class="help-list">'
+                . '<li>Create a bucket on the <a href="/_/files">Files</a> page, or from a terminal: <code>aws --endpoint-url ' . $this->e($endpoint) . ' s3 mb s3://my-bucket</code></li>'
+                . '<li>Copy the connection settings for your app from <a href="/_/keys">Access Keys</a>.</li>'
+                . '<li>Upload files with your app, any S3 tool, or the Files page.</li>'
+                . '</ol>';
+        }
+
+        return $html . '</section>';
+    }
+
+    // --- access keys --------------------------------------------------------
+
+    private function newKeyPanel(string $accessKey, string $secret, string $endpoint): string
+    {
+        return '<section class="panel panel-highlight"><h2>Your new access key</h2>'
+            . '<p>Copy these into your app now. You can come back to this page to view the secret again.</p>'
+            . '<dl class="key-details">'
+            . '<dt>Endpoint</dt><dd><code>' . $this->e($endpoint) . '</code></dd>'
+            . '<dt>Access key</dt><dd><code>' . $this->e($accessKey) . '</code> ' . $this->copyButton($accessKey, 'Copy access key') . '</dd>'
+            . '<dt>Secret key</dt><dd><code>' . $this->e($secret) . '</code> ' . $this->copyButton($secret, 'Copy secret key') . '</dd>'
+            . '<dt>Region</dt><dd><code>us-east-1</code> <span class="muted">(any value works)</span></dd>'
+            . '</dl>'
+            . '<p class="muted">Ready-made settings for common tools are under <a href="#connect">Connection settings</a> below.</p>'
+            . '</section>';
+    }
+
+    private function copyButton(string $value, string $label): string
+    {
+        return $this->iconButton(self::ICON_COPY, $label, 'x-on:click="copy(' . $this->jsString($value) . ', $el)"');
+    }
+
+    private function createKeyForm(string $csrfToken): string
+    {
+        return '<section class="panel"><h2>Create an access key</h2>'
+            . '<form method="post" action="/_/keys" class="plain inline-form">'
+            . $this->csrfField($csrfToken)
+            . '<input type="hidden" name="action" value="create">'
+            . '<label class="stacked">Label<input name="label" maxlength="64" placeholder="e.g. Website, Backups, Laravel app"></label>'
+            . '<label class="stacked">Permission<select name="access">'
+            . '<option value="readwrite">Read &amp; write</option>'
+            . '<option value="read">Read only</option>'
+            . '</select></label>'
+            . '<button type="submit">Create key</button>'
+            . '</form>'
+            . '<p class="muted">The access key and secret are generated for you.</p>'
+            . '</section>';
+    }
+
+    private function keysTable(array $credentials, string $csrfToken, bool $managedByEnv): string
+    {
+        if ($credentials === []) {
+            return '<section class="panel"><p class="muted">No access keys yet. Create one above to let an app connect.</p></section>';
+        }
+
+        $rows = '';
+        foreach ($credentials as $accessKey => $entry) {
+            $accessKey = (string) $accessKey;
+            $label = (string) $entry['label'];
+            $isRead = $entry['access'] === 'read';
+            $created = (int) $entry['created'];
+            $js = $this->jsString($accessKey);
+            $rows .= '<tr>'
+                . '<td>' . ($label === '' ? '<span class="muted">No label</span>' : $this->e($label)) . '</td>'
+                . '<td><code>' . $this->e($accessKey) . '</code> ' . $this->copyButton($accessKey, 'Copy access key')
+                . '<div class="secret-row"><code x-show="secrets[' . $js . ']" x-text="secrets[' . $js . ']" x-cloak></code>'
+                . '<button type="button" class="link-button" x-on:click="toggleSecret(' . $js . ')" x-text="secrets[' . $js . '] ? \'Hide secret\' : \'Show secret\'">Show secret</button>'
+                . '<button type="button" class="link-button" x-show="secrets[' . $js . ']" x-cloak x-on:click="copy(secrets[' . $js . '], $el)">Copy secret</button>'
+                . '</div></td>'
+                . '<td>' . ($isRead ? '<span class="badge badge-read">Read only</span>' : '<span class="badge badge-rw">Read &amp; write</span>') . '</td>'
+                . '<td>' . ($created > 0 ? $this->e($this->formatDate($created)) : '<span class="muted">-</span>') . '</td>'
+                . '<td>' . ($managedByEnv ? '<span class="muted">env</span>' : $this->keyActions($accessKey, $label, $isRead, $csrfToken)) . '</td>'
+                . '</tr>';
+        }
+
+        return '<section class="panel"><h2>Keys</h2><div class="files-table-wrap"><table class="files-table keys-table">'
+            . '<thead><tr><th>Label</th><th>Access key / secret</th><th>Permission</th><th>Created</th><th>Actions</th></tr></thead>'
+            . '<tbody>' . $rows . '</tbody></table></div></section>';
+    }
+
+    private function keyActions(string $accessKey, string $label, bool $isRead, string $csrfToken): string
+    {
+        $hiddenFields = $this->csrfField($csrfToken) . '<input type="hidden" name="access_key" value="' . $this->e($accessKey) . '">';
+
+        return '<details class="row-details"><summary>Edit</summary>'
+            . '<form method="post" action="/_/keys" class="plain">'
+            . $hiddenFields . '<input type="hidden" name="action" value="update">'
+            . '<label class="stacked">Label<input name="label" maxlength="64" value="' . $this->e($label) . '"></label>'
+            . '<label class="stacked">Permission<select name="access">'
+            . '<option value="readwrite"' . ($isRead ? '' : ' selected') . '>Read &amp; write</option>'
+            . '<option value="read"' . ($isRead ? ' selected' : '') . '>Read only</option>'
+            . '</select></label>'
+            . '<button type="submit">Save</button>'
+            . '</form></details>'
+            . '<details class="row-details"><summary class="danger-text">Delete</summary>'
+            . '<form method="post" action="/_/keys" class="plain">'
+            . $hiddenFields . '<input type="hidden" name="action" value="delete">'
+            . '<p class="help">Apps using this key will stop working immediately. Type <code>' . $this->e($accessKey) . '</code> to confirm.</p>'
+            . '<input name="confirm" autocomplete="off" required aria-label="Type the access key to confirm">'
+            . '<button type="submit" class="danger">Delete key</button>'
+            . '</form></details>';
+    }
+
+    private function snippetsPanel(): string
+    {
+        return '<section class="panel" id="connect"><h2>Connection settings</h2>'
+            . '<p class="muted">Pick a key and a tool, then copy. Replace <code>your-bucket</code> with your bucket name.</p>'
+            . '<div class="inline-form">'
+            . '<label class="stacked">Key<select x-model="selected"><template x-for="k in keys" :key="k.key"><option :value="k.key" x-text="k.key + (k.label ? \' (\' + k.label + \')\' : \'\') + (k.access === \'read\' ? \' - read only\' : \'\')" :selected="k.key === selected"></option></template></select></label>'
+            . '</div>'
+            . '<div class="tabs" role="tablist">'
+            . '<template x-for="(t, id) in templates" :key="id"><button type="button" role="tab" class="tab" :class="tab === id ? \'active\' : \'\'" :aria-selected="tab === id" x-on:click="tab = id" x-text="t.title"></button></template>'
+            . '</div>'
+            . '<p class="muted" x-text="templates[tab] ? templates[tab].hint : \'\'"></p>'
+            . '<pre x-text="snippet()"></pre>'
+            . '<div class="snippet-actions">'
+            . '<button type="button" x-on:click="toggleSecret(selected)" x-text="secrets[selected] ? \'Hide secret\' : \'Show secret\'"></button>'
+            . '<button type="button" x-on:click="copySnippet($el)">Copy</button>'
+            . '</div>'
+            . '</section>';
+    }
+
+    /**
+     * Connection snippets with {{ACCESS_KEY}} and {{SECRET_KEY}} placeholders,
+     * filled in by the browser for the selected key.
+     *
+     * @return array<string, array{title: string, hint: string, body: string}>
+     */
+    private function snippetTemplates(string $endpoint): array
+    {
+        $region = 'us-east-1';
+
+        return [
+            'env' => [
+                'title' => 'Env vars',
+                'hint' => 'Standard AWS variables, read by the AWS CLI, SDKs and most S3 tools.',
+                'body' => "AWS_ACCESS_KEY_ID={{ACCESS_KEY}}\nAWS_SECRET_ACCESS_KEY={{SECRET_KEY}}\nAWS_DEFAULT_REGION={$region}\nAWS_ENDPOINT_URL={$endpoint}",
+            ],
+            'laravel' => [
+                'title' => 'Laravel',
+                'hint' => 'Add to .env and use the "s3" disk (needs league/flysystem-aws-s3-v3).',
+                'body' => "AWS_ACCESS_KEY_ID={{ACCESS_KEY}}\nAWS_SECRET_ACCESS_KEY={{SECRET_KEY}}\nAWS_DEFAULT_REGION={$region}\nAWS_BUCKET=your-bucket\nAWS_ENDPOINT={$endpoint}\nAWS_USE_PATH_STYLE_ENDPOINT=true",
+            ],
+            'awscli' => [
+                'title' => 'AWS CLI',
+                'hint' => 'Creates a "mini-s3" profile, then lists your buckets.',
+                'body' => "aws configure set aws_access_key_id {{ACCESS_KEY}} --profile mini-s3\naws configure set aws_secret_access_key {{SECRET_KEY}} --profile mini-s3\naws configure set region {$region} --profile mini-s3\naws --profile mini-s3 --endpoint-url {$endpoint} s3 ls",
+            ],
+            'rclone' => [
+                'title' => 'rclone',
+                'hint' => 'Add to rclone.conf (rclone config file shows where it is), then: rclone ls mini-s3:your-bucket',
+                'body' => "[mini-s3]\ntype = s3\nprovider = Other\naccess_key_id = {{ACCESS_KEY}}\nsecret_access_key = {{SECRET_KEY}}\nendpoint = {$endpoint}\nregion = {$region}\nforce_path_style = true",
+            ],
+            's5cmd' => [
+                'title' => 's5cmd',
+                'hint' => 'Fast parallel transfers from the command line.',
+                'body' => "AWS_ACCESS_KEY_ID={{ACCESS_KEY}} AWS_SECRET_ACCESS_KEY={{SECRET_KEY}} AWS_REGION={$region} \\\n  s5cmd --endpoint-url {$endpoint} ls",
+            ],
+            'js' => [
+                'title' => 'JavaScript',
+                'hint' => 'AWS SDK v3 for Node.js (npm install @aws-sdk/client-s3). Keep secrets on the server, never in browser code.',
+                'body' => "import { S3Client, ListObjectsV2Command } from \"@aws-sdk/client-s3\";\n\nconst s3 = new S3Client({\n  endpoint: \"{$endpoint}\",\n  region: \"{$region}\",\n  forcePathStyle: true,\n  credentials: {\n    accessKeyId: \"{{ACCESS_KEY}}\",\n    secretAccessKey: \"{{SECRET_KEY}}\",\n  },\n});\n\nconst result = await s3.send(new ListObjectsV2Command({ Bucket: \"your-bucket\" }));",
+            ],
+        ];
+    }
+
+    private function keysScript(): string
+    {
+        return '<script>'
+            . 'function miniS3Keys(){const state=JSON.parse(document.getElementById("keys-state").textContent);return {'
+            . 'csrf:state.csrf,keys:state.keys,secrets:state.secrets||{},selected:state.selected,templates:state.templates,tab:"env",'
+            . 'init(){},'
+            . 'async fetchSecret(key){if(this.secrets[key]){return this.secrets[key];}const fd=new FormData();fd.append("csrf_token",this.csrf);fd.append("action","reveal");fd.append("access_key",key);const res=await fetch("/_/keys",{method:"POST",body:fd,headers:{Accept:"application/json"}});const data=await res.json().catch(()=>({ok:false,message:"Invalid response"}));if(!res.ok||!data.ok){alert(data.message||"Could not load the secret.");return "";}this.secrets={...this.secrets,[key]:data.secret};return data.secret;},'
+            . 'async toggleSecret(key){if(this.secrets[key]){const next={...this.secrets};delete next[key];this.secrets=next;return;}await this.fetchSecret(key);},'
+            . 'snippet(){const t=this.templates[this.tab];if(!t||!this.selected){return "";}const secret=this.secrets[this.selected]||"<click Show secret>";return t.body.split("{{ACCESS_KEY}}").join(this.selected).split("{{SECRET_KEY}}").join(secret);},'
+            . 'async copySnippet(el){const t=this.templates[this.tab];if(!t){return;}const secret=await this.fetchSecret(this.selected);if(!secret){return;}this.copy(t.body.split("{{ACCESS_KEY}}").join(this.selected).split("{{SECRET_KEY}}").join(secret),el);},'
+            . 'copy(text,el){navigator.clipboard.writeText(text).then(()=>{if(!el){return;}const old=el.getAttribute("data-tooltip");el.setAttribute("data-tooltip","Copied");if(el.tagName==="BUTTON"&&!el.classList.contains("icon-btn")){const label=el.textContent;el.textContent="Copied";setTimeout(()=>{el.textContent=label;},1200);}setTimeout(()=>{if(old!==null){el.setAttribute("data-tooltip",old);}},1200);});}'
+            . '}}'
+            . '</script>';
+    }
+
+    private function jsonForScript(mixed $value): string
+    {
+        return (string) json_encode($value, JSON_UNESCAPED_SLASHES | JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT);
+    }
+
+    private function layout(string $title, string $body, ?string $navCsrfToken): string
+    {
+        $navigation = '';
+        if ($navCsrfToken !== null) {
+            $links = '';
+            foreach (self::NAV as $href => $label) {
+                $current = $label === $title ? ' aria-current="page"' : '';
+                $links .= '<a href="' . $href . '"' . $current . '>' . $this->e($label) . '</a>';
+            }
+            $navigation = '<nav>' . $links
+                . '<form method="post" action="/_/logout" class="plain nav-logout">' . $this->csrfField($navCsrfToken) . '<button type="submit" class="link-button">Log out</button></form>'
+                . '</nav>';
+        }
 
         return '<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">'
-            . '<title>' . $this->e($title) . '</title>'
+            . '<title>' . $this->e(str_contains($title, 'Mini S3') ? $title : $title . ' · Mini S3') . '</title>'
             . '<style>'
             . 'body { font-family: "SF Pro Display", "Geist Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; margin: 0; background: #FBFBFA; color: #111111; -webkit-font-smoothing: antialiased; }'
             . '[x-cloak] { display: none !important; }'
@@ -228,10 +581,55 @@ final class AdminRenderer
             . '.status-line { margin-bottom: 16px; font-size: 14px; }'
             . '.status-line.error-text { color: #9F2F2D; }'
             . '@media (max-width: 720px) { main { padding: 0 16px; } .files-table thead { display: none; } .files-table, .files-table tbody, .files-table tr, .files-table td { display: block; width: 100%; } .files-table tr { padding: 12px 0; } .files-table td { border-bottom: 0; padding: 6px 0; } }'
+            . 'header nav a[aria-current="page"] { color: #111111; text-decoration: underline; text-underline-offset: 4px; }'
+            . 'header nav { align-items: center; flex-wrap: wrap; }'
+            . 'form.plain { background: none; border: 0; padding: 0; margin: 0; }'
+            . 'main a { color: #1F6C9F; }'
+            . 'main .breadcrumbs a, main .files-table a, main .bucket-card a, main .row-actions a { color: #111111; }'
+            . '.icon-btn { background: #F7F6F3; border: 1px solid #EAEAEA; color: #111111; border-radius: 6px; vertical-align: middle; }'
+            . '.update-actions { display: flex; gap: 10px; flex-wrap: wrap; }'
+            . '.nav-logout { display: inline; }'
+            . '.link-button { background: none; border: 0; padding: 0; color: #787774; font-size: 14px; font-weight: 500; cursor: pointer; text-decoration: none; }'
+            . '.link-button:hover { background: none; color: #111111; text-decoration: underline; text-underline-offset: 4px; }'
+            . '.lead { color: #444444; font-size: 15px; line-height: 1.6; margin: -8px 0 20px; }'
+            . 'fieldset { border: 0; padding: 0; margin: 0 0 12px; }'
+            . 'legend { font-size: 16px; font-weight: 600; padding: 0; margin-bottom: 4px; }'
+            . '.field { display: grid; grid-template-columns: 220px 1fr; gap: 6px 16px; margin: 18px 0; align-items: start; }'
+            . '.field > .field-label { display: block; margin: 0; padding-top: 10px; font-size: 14px; font-weight: 500; }'
+            . '.field > div > label.checkbox-label { margin: 10px 0 0; }'
+            . '.field input:disabled { background: #F7F6F3; color: #787774; }'
+            . '.help { font-size: 13px; color: #787774; line-height: 1.55; margin: 6px 0 0; }'
+            . '.help code, .lead code, .muted code { font-size: 12px; }'
+            . '.help-list { padding-left: 20px; line-height: 1.7; font-size: 14px; }'
+            . '.help-list li { margin: 4px 0; }'
+            . '.badge { display: inline-block; font-size: 11px; font-weight: 600; padding: 2px 8px; border-radius: 999px; white-space: nowrap; vertical-align: middle; }'
+            . '.badge-rw { background: #EDF3EC; color: #346538; }'
+            . '.badge-read { background: #E1F3FE; color: #1F6C9F; }'
+            . '.badge-env { background: #F2F1EE; color: #5F5E5B; font-weight: 500; }'
+            . '.warning { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; background: #FBF3DB; border: 1px solid #F1E3B5; color: #7A5B12; padding: 12px 16px; border-radius: 6px; font-size: 14px; line-height: 1.5; margin-bottom: 16px; }'
+            . '.warning .link-button { color: #7A5B12; flex: none; }'
+            . '.panel-highlight { border-color: #346538; }'
+            . '.key-details { display: grid; grid-template-columns: 120px 1fr; gap: 10px 16px; align-items: center; }'
+            . '.key-details dt { color: #787774; font-size: 13px; }'
+            . '.key-details dd { margin: 0; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }'
+            . '.key-details code, .strong-code, .keys-table code { color: #111111; }'
+            . '.inline-form { display: flex; gap: 12px; align-items: flex-end; flex-wrap: wrap; }'
+            . 'label.stacked { display: flex; flex-direction: column; align-items: stretch; gap: 6px; margin: 8px 0; font-size: 13px; }'
+            . '.inline-form label.stacked { flex: 1 1 200px; margin: 0; }'
+            . '.secret-row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-top: 6px; font-size: 13px; }'
+            . '.secret-row .link-button { font-size: 13px; }'
+            . '.row-details { margin: 0 0 6px; border: 0; padding: 0; }'
+            . '.row-details summary { padding: 2px 0; font-weight: 500; font-size: 13px; }'
+            . '.row-details summary::before { display: none; }'
+            . '.row-details form { margin: 8px 0 12px; display: flex; flex-direction: column; gap: 8px; min-width: 220px; }'
+            . '.danger-text { color: #9F2F2D !important; }'
+            . '.tabs { display: flex; gap: 6px; flex-wrap: wrap; margin: 16px 0 4px; }'
+            . '.tab { background: #F7F6F3; color: #111111; border: 1px solid #EAEAEA; font-weight: 500; font-size: 13px; padding: 6px 12px; }'
+            . '.tab:hover { background: #EAEAEA; }'
+            . '.tab.active { background: #111111; color: #FFFFFF; border-color: #111111; }'
+            . '@media (max-width: 720px) { .field { grid-template-columns: 1fr; } .field > .field-label { padding-top: 0; } .key-details { grid-template-columns: 1fr; } }'
             . '</style>'
-            . '<script defer src="https://unpkg.com/@alpinejs/ui@3.x.x/dist/cdn.min.js"></script>'
-            . '<script defer src="https://unpkg.com/@alpinejs/focus@3.x.x/dist/cdn.min.js"></script>'
-            . '<script defer src="https://unpkg.com/alpinejs@3.x.x/dist/cdn.min.js"></script>'
+            . '<script defer src="' . $this->e(AdminAssets::alpinePath()) . '"></script>'
             . '</head><body><header><strong>Mini S3</strong>' . $navigation . '</header><main><h1>' . $this->e($title) . '</h1>' . $body . '</main></body></html>';
     }
 
@@ -258,7 +656,8 @@ final class AdminRenderer
     private function bucketGrid(array $buckets): string
     {
         if ($buckets === []) {
-            return '<p class="muted">No buckets yet.</p>';
+            return '<div class="empty-state"><p><strong>No buckets yet.</strong></p>'
+                . '<p class="muted">A bucket is a top-level folder for your objects. Click <em>New bucket</em> above, or let your app create one through the S3 API. Bucket names use lowercase letters, numbers, dots and hyphens (3 to 63 characters).</p></div>';
         }
 
         $html = '<div class="bucket-grid">';
@@ -331,7 +730,7 @@ final class AdminRenderer
         }
 
         if ($folders === [] && $files === []) {
-            $html .= '<tr><td colspan="7" class="muted">This location is empty.</td></tr>';
+            $html .= '<tr><td colspan="7" class="muted">This location is empty. Use <em>Upload file</em> or <em>New folder</em> above.</td></tr>';
         }
 
         return $html . '</tbody></table></div>';
@@ -392,9 +791,17 @@ final class AdminRenderer
         return '<section class="card"><h2>' . $this->e($value) . '</h2><p>' . $this->e($label) . '</p></section>';
     }
 
+
     private function flashMessage(string $message): string
     {
-        return $message === '' ? '' : '<div class="notice">' . $this->e($message) . '</div>';
+        if ($message === '') {
+            return '';
+        }
+        if (str_starts_with($message, 'Error: ')) {
+            return '<div class="error" role="alert">' . $this->e(substr($message, 7)) . '</div>';
+        }
+
+        return '<div class="notice" role="status">' . $this->e($message) . '</div>';
     }
 
     private function updatesPanel(array $status): string
@@ -414,87 +821,25 @@ final class AdminRenderer
         if (is_string($latest) && $latest !== '') {
             $body .= '<p><strong>Latest version:</strong> ' . $this->e($latest) . '</p>';
         }
+        $actions = '';
         if ($state !== 'unavailable') {
-            $body .= '<form method="post" action="/_/check-update">'
+            $actions .= '<form method="post" action="/_/check-update" class="plain">'
                 . '<input type="hidden" name="csrf_token" value="' . $this->e((string) ($status['csrfToken'] ?? '')) . '">'
                 . '<button type="submit">Check update</button>'
                 . '</form>';
         }
         if ($state === 'update_available' && is_string($latest) && $latest !== '') {
-            $body .= '<form method="post" action="/_/upgrade">'
+            $actions .= '<form method="post" action="/_/upgrade" class="plain">'
                 . '<input type="hidden" name="csrf_token" value="' . $this->e((string) ($status['csrfToken'] ?? '')) . '">'
                 . '<button type="submit">Upgrade to ' . $this->e($latest) . '</button>'
                 . '</form>';
         }
 
+        if ($actions !== '') {
+            $body .= '<div class="update-actions">' . $actions . '</div>';
+        }
+
         return '<section class="panel"><h2>Updates</h2>' . $body . '</section>';
-    }
-
-    private function connectionConfig(array $config, string $endpoint): string
-    {
-        if ($config === [] || $endpoint === '') {
-            return '';
-        }
-
-        $credentials = (array) ($config['CREDENTIALS'] ?? []);
-        if ($credentials === []) {
-            return '';
-        }
-
-        $accessKey = (string) array_key_first($credentials);
-        $secretKey = (string) $credentials[$accessKey];
-        $region = 'us-east-1';
-        $bucket = 'your-bucket';
-
-        $generic = $this->genericSnippet($endpoint, $region, $bucket, $accessKey, $secretKey);
-        $genericMasked = $this->genericSnippet($endpoint, $region, $bucket, $this->mask($accessKey), $this->mask($secretKey));
-        $laravel = $this->laravelSnippet($endpoint, $region, $bucket, $accessKey, $secretKey);
-        $laravelMasked = $this->laravelSnippet($endpoint, $region, $bucket, $this->mask($accessKey), $this->mask($secretKey));
-
-        return '<section class="panel"><h2>Connection config</h2>'
-            . '<p>Copy these values into applications that need to connect to this Mini S3 server.</p>'
-            . '<div class="snippet-actions"><button type="button" onclick="toggleSensitive(this)">Show sensitive</button></div>'
-            . '<h3>Generic S3 env vars</h3>'
-            . '<div class="snippet-actions"><button type="button" onclick="copySnippet(\'generic-snippet\')">Copy generic</button></div>'
-            . '<pre id="generic-snippet" data-masked="' . $this->e($genericMasked) . '" data-full="' . $this->e($generic) . '">' . $this->e($genericMasked) . '</pre>'
-            . '<h3>Laravel .env</h3>'
-            . '<div class="snippet-actions"><button type="button" onclick="copySnippet(\'laravel-snippet\')">Copy Laravel</button></div>'
-            . '<pre id="laravel-snippet" data-masked="' . $this->e($laravelMasked) . '" data-full="' . $this->e($laravel) . '">' . $this->e($laravelMasked) . '</pre>'
-            . '<script>let miniS3ShowSensitive=false;function toggleSensitive(button){miniS3ShowSensitive=!miniS3ShowSensitive;document.querySelectorAll("pre[data-masked]").forEach(function(el){el.textContent=miniS3ShowSensitive?el.dataset.full:el.dataset.masked;});button.textContent=miniS3ShowSensitive?"Hide sensitive":"Show sensitive";}function copySnippet(id){var el=document.getElementById(id);if(!el){return;}navigator.clipboard.writeText(el.textContent);}</script>'
-            . '</section>';
-    }
-
-    private function genericSnippet(string $endpoint, string $region, string $bucket, string $accessKey, string $secretKey): string
-    {
-        return 'MINI_S3_ENDPOINT=' . $endpoint . "\n"
-            . 'MINI_S3_REGION=' . $region . "\n"
-            . 'MINI_S3_BUCKET=' . $bucket . "\n"
-            . 'MINI_S3_ACCESS_KEY_ID=' . $accessKey . "\n"
-            . 'MINI_S3_SECRET_ACCESS_KEY=' . $secretKey;
-    }
-
-    private function laravelSnippet(string $endpoint, string $region, string $bucket, string $accessKey, string $secretKey): string
-    {
-        return 'AWS_ACCESS_KEY_ID=' . $accessKey . "\n"
-            . 'AWS_SECRET_ACCESS_KEY=' . $secretKey . "\n"
-            . 'AWS_DEFAULT_REGION=' . $region . "\n"
-            . 'AWS_BUCKET=' . $bucket . "\n"
-            . 'AWS_ENDPOINT=' . $endpoint . "\n"
-            . 'AWS_USE_PATH_STYLE_ENDPOINT=true';
-    }
-
-    private function mask(string $value): string
-    {
-        if (strlen($value) <= 8) {
-            return str_repeat('*', max(4, strlen($value)));
-        }
-
-        return substr($value, 0, 4) . '...' . substr($value, -4);
-    }
-
-    private function checked(array $values, string $key): string
-    {
-        return !empty($values[$key]) ? ' checked' : '';
     }
 
     private function formatBytes(int $bytes): string
@@ -519,7 +864,7 @@ final class AdminRenderer
 
     private function jsString(string $value): string
     {
-        $encoded = json_encode($value, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_HEX_APOS | JSON_HEX_QUOT);
+        $encoded = json_encode($value, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_AMP | JSON_HEX_TAG);
         if ($encoded === false) {
             return "''";
         }

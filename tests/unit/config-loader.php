@@ -2,8 +2,10 @@
 
 declare(strict_types=1);
 
+require_once __DIR__ . '/../../src/Config/AccessKeys.php';
 require_once __DIR__ . '/../../src/Config/ConfigLoader.php';
 
+use MiniS3\Config\AccessKeys;
 use MiniS3\Config\ConfigLoader;
 
 $failures = 0;
@@ -55,6 +57,26 @@ function withEnv(array $env, callable $callback): void
     }
 }
 
+function rw(string $secret): array
+{
+    return ['secret' => $secret, 'access' => 'readwrite', 'label' => '', 'created' => 0];
+}
+
+function envKeysSorted(): array
+{
+    $keys = ConfigLoader::envOverriddenKeys();
+    ksort($keys);
+    $expected = ['PUBLIC_READ_ALL_BUCKETS', 'GITHUB_TOKEN', 'CREDENTIALS'];
+    $ordered = [];
+    foreach ($expected as $key) {
+        if (isset($keys[$key])) {
+            $ordered[$key] = $keys[$key];
+            unset($keys[$key]);
+        }
+    }
+    return $ordered + $keys;
+}
+
 function tempProject(array $config): string
 {
     $base = createTempDirectory('mini-s3-config-');
@@ -85,7 +107,7 @@ $base = tempProject([
     'ADMIN_PASSWORD_HASH' => '$2y$10$abcdefghijklmnopqrstuuJ8CmYLcOeO9mRXuQzknW4f4mSb1zZ9K',
 ]);
 $config = ConfigLoader::load($base);
-assertSameValue(['file-key' => 'file-secret'], $config['CREDENTIALS'], 'config file credentials load');
+assertSameValue(['file-key' => rw('file-secret')], $config['CREDENTIALS'], 'legacy string credentials normalize to read/write entries');
 assertSameValue(true, $config['PUBLIC_READ_ALL_BUCKETS'], 'config file public read loads');
 assertSameValue('admin', $config['ADMIN_USERNAME'], 'admin username defaults for existing config');
 assertSameValue('$2y$10$abcdefghijklmnopqrstuuJ8CmYLcOeO9mRXuQzknW4f4mSb1zZ9K', $config['ADMIN_PASSWORD_HASH'], 'admin password hash loads');
@@ -97,7 +119,8 @@ withEnv([
     'MINI_S3_GITHUB_TOKEN' => 'env-token',
 ], function () use ($base): void {
     $config = ConfigLoader::load($base);
-    assertSameValue(['env-key' => 'env-secret'], $config['CREDENTIALS'], 'env credentials override file');
+    assertSameValue(['env-key' => rw('env-secret')], $config['CREDENTIALS'], 'env credentials override file');
+    assertSameValue(['PUBLIC_READ_ALL_BUCKETS' => 'MINI_S3_PUBLIC_READ_ALL_BUCKETS', 'GITHUB_TOKEN' => 'MINI_S3_GITHUB_TOKEN', 'CREDENTIALS' => 'MINI_S3_CREDENTIALS_JSON'], envKeysSorted(), 'env overridden keys are reported');
     assertSameValue(false, $config['PUBLIC_READ_ALL_BUCKETS'], 'env boolean override file');
     assertSameValue('env-token', $config['GITHUB_TOKEN'], 'env github token override file');
 });
@@ -134,7 +157,7 @@ assertThrows(fn() => ConfigLoader::load($emptyBase), 'empty credentials fail clo
 
 $defaultBase = tempProject(['CREDENTIALS' => ['default-key' => 'default-secret']]);
 $defaultConfig = ConfigLoader::load($defaultBase);
-assertSameValue(true, $defaultConfig['PUBLIC_READ_ALL_BUCKETS'], 'public read defaults to true');
+assertSameValue(false, $defaultConfig['PUBLIC_READ_ALL_BUCKETS'], 'public read defaults to false');
 assertSameValue('admin', $defaultConfig['ADMIN_USERNAME'], 'admin username defaults to admin');
 
 $usernameBase = tempProject([
@@ -149,5 +172,26 @@ assertSameValue('config-token', $usernameConfig['GITHUB_TOKEN'], 'github token l
 if ($failures > 0) {
     exit(1);
 }
+
+
+$richBase = tempProject(['CREDENTIALS' => [
+    'AKREAD' => ['secret' => 'read-secret', 'access' => 'read', 'label' => ' CDN ', 'created' => 1700000000],
+    'AKRW' => ['secret' => 'rw-secret'],
+    'legacy' => 'legacy-secret',
+]]);
+$rich = ConfigLoader::load($richBase)['CREDENTIALS'];
+assertSameValue(['secret' => 'read-secret', 'access' => 'read', 'label' => 'CDN', 'created' => 1700000000], $rich['AKREAD'], 'rich read-only entry loads');
+assertSameValue(rw('rw-secret'), $rich['AKRW'], 'rich entry defaults to read/write');
+assertSameValue(rw('legacy-secret'), $rich['legacy'], 'mixed legacy entry loads');
+assertSameValue(['AKREAD'], AccessKeys::readOnlyKeys($rich), 'read-only keys are listed');
+assertSameValue(['AKREAD' => 'read-secret', 'AKRW' => 'rw-secret', 'legacy' => 'legacy-secret'], AccessKeys::secrets($rich), 'secrets map for SigV4');
+assertThrows(fn() => ConfigLoader::load(tempProject(['CREDENTIALS' => ['AK' => ['secret' => 's', 'access' => 'admin']]])), 'invalid access level fails');
+assertThrows(fn() => ConfigLoader::load(tempProject(['CREDENTIALS' => ['AK' => ['access' => 'read']]])), 'missing secret fails');
+
+$generated = AccessKeys::generateAccessKey(['AKEXISTING' => 'x']);
+assertSameValue(1, preg_match('/^AK[A-Z0-9]{18}$/', $generated), 'generated access key format');
+$secret = AccessKeys::generateSecret();
+assertSameValue(1, preg_match('/^[A-Za-z0-9]{40}$/', $secret), 'generated secret format');
+assertSameValue(false, AccessKeys::generateSecret() === $secret, 'generated secrets differ');
 
 echo "[PASS] ConfigLoader tests passed" . PHP_EOL;

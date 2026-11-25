@@ -21,7 +21,8 @@ final class S3Router
         private readonly RequestValidator $validator,
         private readonly SigV4Authenticator $authenticator,
         private readonly int $maxRequestSize,
-        private readonly bool $publicReadAllBuckets = false
+        private readonly bool $publicReadAllBuckets = false,
+        private readonly array $readOnlyAccessKeys = []
     ) {
     }
 
@@ -44,7 +45,8 @@ final class S3Router
             $this->validateRequestSize();
 
             if (!$this->isPublicRead($method)) {
-                $this->authenticator->authenticate($this->request);
+                $accessKey = $this->authenticator->authenticate($this->request);
+                $this->authorize($accessKey, $method);
             }
 
             switch ($method) {
@@ -78,9 +80,28 @@ final class S3Router
         }
     }
 
+    /**
+     * Read-only keys may only GET and HEAD. Every other method (PUT, POST for
+     * multipart and bulk delete, DELETE) changes data and needs a read/write key.
+     */
+    private function authorize(string $accessKey, string $method): void
+    {
+        if (self::isReadMethod($method)) {
+            return;
+        }
+        if (in_array($accessKey, $this->readOnlyAccessKeys, true)) {
+            throw new AuthException('AccessDenied', 'This access key is read-only.', 403);
+        }
+    }
+
+    private static function isReadMethod(string $method): bool
+    {
+        return $method === 'GET' || $method === 'HEAD';
+    }
+
     private function isPublicRead(string $method): bool
     {
-        return $this->publicReadAllBuckets && ($method === 'GET' || $method === 'HEAD');
+        return $this->publicReadAllBuckets && self::isReadMethod($method);
     }
 
     private function sendCorsHeaders(): void

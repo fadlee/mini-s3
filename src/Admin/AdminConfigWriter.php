@@ -4,84 +4,138 @@ declare(strict_types=1);
 
 namespace MiniS3\Admin;
 
+use MiniS3\Config\AccessKeys;
 use MiniS3\Storage\FileStorage;
 use RuntimeException;
 
+/**
+ * Builds and writes config/config.php. Every build method starts from the
+ * config as stored on disk ($existing, from ConfigLoader::loadFile) so values
+ * that only come from environment variables are never written to the file,
+ * and keys this class does not manage are kept.
+ */
 final class AdminConfigWriter
 {
+    public const MIN_PASSWORD_LENGTH = 8;
+    public const DEFAULT_MAX_REQUEST_SIZE = 100 * 1024 * 1024;
+    public const DEFAULT_CLOCK_SKEW_SECONDS = 900;
+    public const DEFAULT_MAX_PRESIGN_EXPIRES = 604800;
+
     public function __construct(private readonly string $baseDir)
     {
     }
 
-    public function buildConfig(array $input, array $existing = []): array
+    /**
+     * First-run config: admin account, data directory and (unless credentials
+     * come from MINI_S3_CREDENTIALS_JSON) one generated read/write access key.
+     *
+     * @return array{0: array, 1: ?string} the config and the generated access key
+     */
+    public function buildInstallerConfig(array $input, bool $generateKey, ?int $now = null): array
     {
-        $dataDir = trim((string) ($input['data_dir'] ?? ''));
-        if ($dataDir === '') {
-            throw new RuntimeException('Data directory is required');
+        $adminUsername = trim((string) ($input['admin_username'] ?? ''));
+        if ($adminUsername === '') {
+            throw new RuntimeException('Admin username is required');
         }
+        $passwordHash = $this->hashNewPassword(
+            (string) ($input['admin_password'] ?? ''),
+            (string) ($input['admin_password_confirm'] ?? ''),
+            'Admin password'
+        );
 
-        $accessKey = trim((string) ($input['access_key'] ?? ''));
-        if ($accessKey === '') {
-            throw new RuntimeException('Access key is required');
-        }
-
-        $secretKey = (string) ($input['secret_key'] ?? '');
-        if ($secretKey === '') {
-            throw new RuntimeException('Secret key is required');
-        }
-
-        $adminPasswordHash = trim((string) ($existing['ADMIN_PASSWORD_HASH'] ?? ''));
-        if ($adminPasswordHash === '') {
-            $adminUsername = trim((string) ($input['admin_username'] ?? $existing['ADMIN_USERNAME'] ?? 'admin'));
-            if ($adminUsername === '') {
-                throw new RuntimeException('Admin username is required');
-            }
-
-            $password = (string) ($input['admin_password'] ?? '');
-            $passwordConfirm = (string) ($input['admin_password_confirm'] ?? '');
-            if ($password === '' || $password !== $passwordConfirm) {
-                throw new RuntimeException('Admin passwords must match');
-            }
-            $adminPasswordHash = password_hash($password, PASSWORD_DEFAULT);
-        } else {
-            $adminUsername = trim((string) ($existing['ADMIN_USERNAME'] ?? 'admin'));
-            if ($adminUsername === '') {
-                $adminUsername = 'admin';
-            }
-        }
-
-        $maxRequestSize = $this->positiveInt($input['max_request_size'] ?? 100 * 1024 * 1024, 'Max request size');
-        $clockSkewSeconds = $this->positiveInt($input['clock_skew_seconds'] ?? 900, 'Clock skew seconds');
-        $maxPresignExpires = $this->positiveInt($input['max_presign_expires'] ?? 604800, 'Max presign expires');
-
-        $config = $existing + [
+        $config = [
+            'DATA_DIR' => $this->requiredDataDir($input),
+            'MAX_REQUEST_SIZE' => self::DEFAULT_MAX_REQUEST_SIZE,
+            'CREDENTIALS' => [],
             'ALLOW_LEGACY_ACCESS_KEY_ONLY' => false,
             'ALLOWED_ACCESS_KEYS' => [],
+            'CLOCK_SKEW_SECONDS' => self::DEFAULT_CLOCK_SKEW_SECONDS,
+            'MAX_PRESIGN_EXPIRES' => self::DEFAULT_MAX_PRESIGN_EXPIRES,
+            'AUTH_DEBUG_LOG' => '',
+            'ALLOW_HOST_CANDIDATE_FALLBACKS' => false,
+            'PUBLIC_READ_ALL_BUCKETS' => false,
+            'ADMIN_USERNAME' => $adminUsername,
+            'ADMIN_PASSWORD_HASH' => $passwordHash,
         ];
-        $config['DATA_DIR'] = $dataDir;
-        $config['MAX_REQUEST_SIZE'] = $maxRequestSize;
-        $config['CREDENTIALS'] = $this->credentials($accessKey, $secretKey, (array) ($existing['CREDENTIALS'] ?? []));
-        $config['CLOCK_SKEW_SECONDS'] = $clockSkewSeconds;
-        $config['MAX_PRESIGN_EXPIRES'] = $maxPresignExpires;
-        $config['AUTH_DEBUG_LOG'] = trim((string) ($input['auth_debug_log'] ?? ''));
-        $config['ALLOW_HOST_CANDIDATE_FALLBACKS'] = $this->checkbox($input, 'allow_host_candidate_fallbacks');
-        $config['PUBLIC_READ_ALL_BUCKETS'] = $this->checkbox($input, 'public_read_all_buckets', (bool) ($existing['PUBLIC_READ_ALL_BUCKETS'] ?? true));
-        $config['ADMIN_USERNAME'] = $adminUsername;
-        $config['ADMIN_PASSWORD_HASH'] = $adminPasswordHash;
+
+        $accessKey = null;
+        if ($generateKey) {
+            [$config, $accessKey] = $this->addKey($config, 'Default', AccessKeys::READ_WRITE, $now);
+        }
+
+        return [$config, $accessKey];
+    }
+
+    /**
+     * Settings page save. A field missing from $input (for example a disabled
+     * field locked by an environment variable) keeps its existing value.
+     */
+    public function buildSettingsConfig(array $input, array $existing): array
+    {
+        $config = $existing;
+
+        if (array_key_exists('data_dir', $input)) {
+            $config['DATA_DIR'] = $this->requiredDataDir($input);
+        }
+        if (array_key_exists('max_request_size', $input)) {
+            $config['MAX_REQUEST_SIZE'] = $this->positiveInt($input['max_request_size'], 'Max upload size');
+        }
+        if (array_key_exists('clock_skew_seconds', $input)) {
+            $config['CLOCK_SKEW_SECONDS'] = $this->positiveInt($input['clock_skew_seconds'], 'Clock skew');
+        }
+        if (array_key_exists('max_presign_expires', $input)) {
+            $config['MAX_PRESIGN_EXPIRES'] = $this->positiveInt($input['max_presign_expires'], 'Max presigned URL lifetime');
+        }
+        if (array_key_exists('public_read_all_buckets', $input)) {
+            $config['PUBLIC_READ_ALL_BUCKETS'] = $this->checkbox($input['public_read_all_buckets']);
+        }
+        if (array_key_exists('allow_host_candidate_fallbacks', $input)) {
+            $config['ALLOW_HOST_CANDIDATE_FALLBACKS'] = $this->checkbox($input['allow_host_candidate_fallbacks']);
+        }
 
         return $config;
     }
 
-    private function credentials(string $accessKey, string $secretKey, array $existing): array
+    /**
+     * @return array{0: array, 1: string} the config and the new access key
+     */
+    public function addKey(array $existing, string $label, string $access, ?int $now = null): array
     {
-        $credentials = [$accessKey => $secretKey];
-        foreach (array_slice($existing, 1, null, true) as $key => $value) {
-            if ((string) $key !== $accessKey) {
-                $credentials[$key] = $value;
-            }
-        }
+        $credentials = AccessKeys::normalize((array) ($existing['CREDENTIALS'] ?? []));
+        $accessKey = AccessKeys::generateAccessKey($credentials);
+        $credentials[$accessKey] = [
+            'secret' => AccessKeys::generateSecret(),
+            'access' => $this->validAccess($access),
+            'label' => $this->validLabel($label),
+            'created' => $now ?? time(),
+        ];
+        $existing['CREDENTIALS'] = $credentials;
 
-        return $credentials;
+        return [$existing, $accessKey];
+    }
+
+    public function updateKey(array $existing, string $accessKey, string $label, string $access): array
+    {
+        $credentials = $this->existingCredentials($existing, $accessKey);
+        $credentials[$accessKey]['label'] = $this->validLabel($label);
+        $credentials[$accessKey]['access'] = $this->validAccess($access);
+        $existing['CREDENTIALS'] = $credentials;
+
+        return $existing;
+    }
+
+    public function deleteKey(array $existing, string $accessKey): array
+    {
+        $credentials = $this->existingCredentials($existing, $accessKey);
+        unset($credentials[$accessKey]);
+        $hasLegacyAllowance = (bool) ($existing['ALLOW_LEGACY_ACCESS_KEY_ONLY'] ?? false)
+            && (array) ($existing['ALLOWED_ACCESS_KEYS'] ?? []) !== [];
+        if ($credentials === [] && !$hasLegacyAllowance) {
+            throw new RuntimeException('The last access key cannot be deleted. Create a new key first.');
+        }
+        $existing['CREDENTIALS'] = $credentials;
+
+        return $existing;
     }
 
     public function buildAdminAccountConfig(array $input, array $existing): array
@@ -99,10 +153,7 @@ final class AdminConfigWriter
         $password = (string) ($input['new_password'] ?? '');
         $passwordConfirm = (string) ($input['new_password_confirm'] ?? '');
         if ($password !== '' || $passwordConfirm !== '') {
-            if ($password === '' || $password !== $passwordConfirm) {
-                throw new RuntimeException('New admin passwords must match');
-            }
-            $adminPasswordHash = password_hash($password, PASSWORD_DEFAULT);
+            $adminPasswordHash = $this->hashNewPassword($password, $passwordConfirm, 'New admin password');
         }
 
         $config = $existing;
@@ -126,7 +177,7 @@ final class AdminConfigWriter
     public function writeConfig(array $config): void
     {
         $configDir = dirname($this->configPath());
-        if (!is_dir($configDir) && !mkdir($configDir, 0777, true) && !is_dir($configDir)) {
+        if (!is_dir($configDir) && !mkdir($configDir, 0700, true) && !is_dir($configDir)) {
             throw new RuntimeException('Config directory cannot be created');
         }
         if (!is_writable($configDir)) {
@@ -138,9 +189,14 @@ final class AdminConfigWriter
         if (file_put_contents($tmpPath, $php, LOCK_EX) === false) {
             throw new RuntimeException('Config file cannot be written');
         }
+        // The file holds secrets: keep it private where the host allows it.
+        @chmod($tmpPath, 0600);
         if (!rename($tmpPath, $this->configPath())) {
             @unlink($tmpPath);
             throw new RuntimeException('Config file cannot be saved');
+        }
+        if (function_exists('opcache_invalidate')) {
+            @opcache_invalidate($this->configPath(), true);
         }
     }
 
@@ -161,22 +217,72 @@ final class AdminConfigWriter
         return $this->baseDir . '/config/config.php';
     }
 
-    private function positiveInt(mixed $value, string $label): int
+    private function requiredDataDir(array $input): string
     {
-        $int = (int) $value;
-        if ($int < 1) {
-            throw new RuntimeException($label . ' must be a positive integer');
+        $dataDir = trim((string) ($input['data_dir'] ?? ''));
+        if ($dataDir === '') {
+            throw new RuntimeException('Data directory is required');
         }
 
-        return $int;
+        return $dataDir;
     }
 
-    private function checkbox(array $input, string $key, bool $default = false): bool
+    private function hashNewPassword(string $password, string $confirm, string $label): string
     {
-        if (!array_key_exists($key, $input)) {
-            return $default;
+        if ($password === '') {
+            throw new RuntimeException($label . ' is required');
+        }
+        if (strlen($password) < self::MIN_PASSWORD_LENGTH) {
+            throw new RuntimeException($label . ' must be at least ' . self::MIN_PASSWORD_LENGTH . ' characters');
+        }
+        if ($password !== $confirm) {
+            throw new RuntimeException('Passwords must match');
         }
 
-        return in_array((string) $input[$key], ['1', 'true', 'on', 'yes'], true);
+        return password_hash($password, PASSWORD_DEFAULT);
+    }
+
+    private function existingCredentials(array $existing, string $accessKey): array
+    {
+        $credentials = AccessKeys::normalize((array) ($existing['CREDENTIALS'] ?? []));
+        if (!array_key_exists($accessKey, $credentials)) {
+            throw new RuntimeException('Access key not found');
+        }
+
+        return $credentials;
+    }
+
+    private function validAccess(string $access): string
+    {
+        if (!AccessKeys::isValidAccess($access)) {
+            throw new RuntimeException('Permission must be "read" or "readwrite"');
+        }
+
+        return $access;
+    }
+
+    private function validLabel(string $label): string
+    {
+        $label = trim($label);
+        if (strlen($label) > 64) {
+            throw new RuntimeException('Label must be 64 characters or fewer');
+        }
+
+        return $label;
+    }
+
+    private function positiveInt(mixed $value, string $label): int
+    {
+        $string = trim((string) $value);
+        if (!ctype_digit($string) || (int) $string < 1) {
+            throw new RuntimeException($label . ' must be a positive whole number');
+        }
+
+        return (int) $string;
+    }
+
+    private function checkbox(mixed $value): bool
+    {
+        return in_array((string) $value, ['1', 'true', 'on', 'yes'], true);
     }
 }

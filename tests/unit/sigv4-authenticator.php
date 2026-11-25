@@ -848,6 +848,30 @@ if ($logContents !== '') {
 @rmdir($tmpDir);
 
 // ===========================================================================
+// Returned access key + normalized credential entries
+// ===========================================================================
+
+$amzDate = gmdate('Ymd\THis\Z');
+$authzReturn = signHeaderAuth('GET', $host, $path, '', $accessKey, $secretKey, $payloadHash, $amzDate);
+$returnReq = makeRequest('GET', $path, '', [
+    'host' => $host,
+    'authorization' => $authzReturn,
+    'x-amz-date' => $amzDate,
+    'x-amz-content-sha256' => $payloadHash,
+]);
+check(makeAuth($credentials)->authenticate($returnReq) === $accessKey, 'header auth returns the access key');
+$richCredentials = [$accessKey => ['secret' => $secretKey, 'access' => 'read', 'label' => '', 'created' => 0]];
+check(makeAuth($richCredentials)->authenticate($returnReq) === $accessKey, 'normalized credential entries verify');
+$legacyReq = makeRequest('GET', $path, '', ['host' => $host, 'authorization' => 'LEGACY Credential=LEGACYKEY/20240101/us-east-1/s3/aws4_request']);
+$legacyResult = null;
+try {
+    $legacyResult = makeAuth([], ['LEGACYKEY'], true)->authenticate($legacyReq);
+} catch (Throwable $e) {
+    $legacyResult = $e->getMessage();
+}
+check($legacyResult === 'LEGACYKEY', 'legacy access-key-only auth returns the key (got ' . var_export($legacyResult, true) . ')');
+
+// ===========================================================================
 // Result
 // ===========================================================================
 

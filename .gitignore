@@ -3,3 +3,6 @@
 /data/
 /config/config.php
 /dist/
+/config/*.bak.php
+/config/*.tmp.*
+/config/.login-throttle.json

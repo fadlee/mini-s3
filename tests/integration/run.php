@@ -10,12 +10,19 @@ if ($root === false) {
 $phpBin = getenv('PHP_BIN');
 $phpBin = is_string($phpBin) && $phpBin !== '' ? $phpBin : PHP_BINARY;
 $sigv4Helper = $root . '/tests/integration/sigv4.php';
+require_once $root . '/src/Admin/AdminAssets.php';
+define('MINI_S3_ALPINE_VERSION', MiniS3\Admin\AdminAssets::ALPINE_VERSION);
 $requestHelper = $root . '/tests/integration/request.php';
 $signHost = 'mini-s3.test';
 $signBaseUrl = 'http://' . $signHost;
 $accessKey = getenv('AWS_ACCESS_KEY_ID') ?: 'minioadmin';
 $secretKey = getenv('AWS_SECRET_ACCESS_KEY') ?: 'minioadmin';
-putenv('MINI_S3_CREDENTIALS_JSON=' . json_encode([$accessKey => $secretKey], JSON_UNESCAPED_SLASHES));
+$readOnlyKey = 'AKREADONLYINTEGRATN';
+$readOnlySecret = 'read-only-integration-secret';
+putenv('MINI_S3_CREDENTIALS_JSON=' . json_encode([
+    $accessKey => $secretKey,
+    $readOnlyKey => ['secret' => $readOnlySecret, 'access' => 'read', 'label' => 'integration'],
+], JSON_UNESCAPED_SLASHES));
 putenv('MINI_S3_PUBLIC_READ_ALL_BUCKETS=true');
 
 $tmpDir = createTempDirectory($root . '/data/.test-tmp', 'mini-s3-int-');
@@ -57,7 +64,8 @@ if (is_string($configBackupPath) && is_file($configBackupPath)) {
     $createdConfig = true;
 }
 assertEq('200', metaStatus($tmpDir . '/admin-installer.meta', $phpBin), 'Admin installer route should succeed');
-assertContains('Install Mini S3', $tmpDir . '/admin-installer.body', 'Admin installer should render setup page');
+assertContains('Set up Mini S3', $tmpDir . '/admin-installer.body', 'Admin installer should render setup page');
+assertNotContains('name="secret_key"', $tmpDir . '/admin-installer.body', 'Installer should not ask for a secret key');
 assertNotContains('<?xml', $tmpDir . '/admin-installer.body', 'Admin installer should not render S3 XML');
 assertEq('400', metaStatus($tmpDir . '/admin-upgrade-installer.meta', $phpBin), 'Installer-mode upgrade POST should be rejected as invalid installer submission');
 
@@ -200,6 +208,34 @@ assertSameFile($tmpDir . '/hello.txt', $tmpDir . '/get.body', 'Downloaded body d
 runRequest($phpBin, $requestHelper, 'GET', '/' . $testBucket . '/' . $testKey, null, $tmpDir . '/public-get.body', $tmpDir . '/public-get.meta', ['Host: ' . $signHost]);
 assertEq('200', metaStatus($tmpDir . '/public-get.meta', $phpBin), 'Public GET should succeed without authentication');
 assertSameFile($tmpDir . '/hello.txt', $tmpDir . '/public-get.body', 'Public GET body differs from uploaded body');
+
+// Read-only access key: reads succeed, every write is refused with 403.
+signedRequest($phpBin, $sigv4Helper, $requestHelper, $readOnlyKey, $readOnlySecret, $signBaseUrl, $signHost, 'GET', '/' . $testBucket . '/' . $testKey, null, $tmpDir . '/ro-get.body', $tmpDir . '/ro-get.meta');
+assertEq('200', metaStatus($tmpDir . '/ro-get.meta', $phpBin), 'Read-only key GET should succeed');
+signedRequest($phpBin, $sigv4Helper, $requestHelper, $readOnlyKey, $readOnlySecret, $signBaseUrl, $signHost, 'GET', '/' . $testBucket . '/', null, $tmpDir . '/ro-list.body', $tmpDir . '/ro-list.meta');
+assertEq('200', metaStatus($tmpDir . '/ro-list.meta', $phpBin), 'Read-only key list should succeed');
+signedRequest($phpBin, $sigv4Helper, $requestHelper, $readOnlyKey, $readOnlySecret, $signBaseUrl, $signHost, 'HEAD', '/' . $testBucket . '/' . $testKey, null, $tmpDir . '/ro-head.body', $tmpDir . '/ro-head.meta');
+assertEq('200', metaStatus($tmpDir . '/ro-head.meta', $phpBin), 'Read-only key HEAD should succeed');
+$readOnlyWrites = [
+    ['PUT', '/' . $testBucket . '/ro-upload.txt', $tmpDir . '/hello.txt'],
+    ['DELETE', '/' . $testBucket . '/' . $testKey, null],
+    ['POST', '/' . $testBucket . '/?delete', $root . '/tests/integration/fixtures/delete-invalid.xml'],
+    ['POST', '/' . $testBucket . '/ro-multi.bin?uploads', null],
+];
+foreach ($readOnlyWrites as [$roMethod, $roUri, $roBody]) {
+    signedRequest($phpBin, $sigv4Helper, $requestHelper, $readOnlyKey, $readOnlySecret, $signBaseUrl, $signHost, $roMethod, $roUri, $roBody, $tmpDir . '/ro-write.body', $tmpDir . '/ro-write.meta');
+    assertEq('403', metaStatus($tmpDir . '/ro-write.meta', $phpBin), 'Read-only key ' . $roMethod . ' ' . $roUri . ' should be refused');
+    assertContains('<Code>AccessDenied</Code>', $tmpDir . '/ro-write.body', 'Read-only refusal should be AccessDenied');
+}
+signedRequest($phpBin, $sigv4Helper, $requestHelper, $accessKey, $secretKey, $signBaseUrl, $signHost, 'GET', '/' . $testBucket . '/ro-upload.txt', null, $tmpDir . '/ro-check.body', $tmpDir . '/ro-check.meta');
+assertEq('404', metaStatus($tmpDir . '/ro-check.meta', $phpBin), 'Refused read-only PUT must not create the object');
+signedRequest($phpBin, $sigv4Helper, $requestHelper, $readOnlyKey, 'wrong-secret', $signBaseUrl, $signHost, 'PUT', '/' . $testBucket . '/ro-upload.txt', $tmpDir . '/hello.txt', $tmpDir . '/ro-bad.body', $tmpDir . '/ro-bad.meta');
+assertContains('<Code>SignatureDoesNotMatch</Code>', $tmpDir . '/ro-bad.body', 'Wrong secret should fail the signature check before the permission check');
+
+// Self-hosted admin assets are served without login.
+runRequest($phpBin, $requestHelper, 'GET', '/_/assets/alpine-' . MINI_S3_ALPINE_VERSION . '.js', null, $tmpDir . '/alpine.body', $tmpDir . '/alpine.meta', ['Host: ' . $signHost]);
+assertEq('200', metaStatus($tmpDir . '/alpine.meta', $phpBin), 'Alpine asset should be served');
+assertContains('Alpine', $tmpDir . '/alpine.body', 'Alpine asset should contain Alpine.js');
 
 signedRequest($phpBin, $sigv4Helper, $requestHelper, $accessKey, $secretKey, $signBaseUrl, $signHost, 'DELETE', '/' . $testBucket . '/' . $testKey, null, $tmpDir . '/del.body', $tmpDir . '/del.meta');
 assertEq('204', metaStatus($tmpDir . '/del.meta', $phpBin), 'DELETE should succeed');

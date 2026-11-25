@@ -95,7 +95,14 @@ function smokeBundledEntrypoint(string $root, string $entrypoint, string $tmpDir
 
     runRequest($root, 'GET', '/_', null, $tmpDir . '/bundle-admin.body', $tmpDir . '/bundle-admin.meta', ['Host: ' . $host], $env);
     assertEq('200', metaStatus($tmpDir . '/bundle-admin.meta', $phpBin), 'bundled admin installer route should succeed');
-    assertFileContains('Install Mini S3', $tmpDir . '/bundle-admin.body', 'bundled admin installer should render setup page');
+    assertFileContains('Set up Mini S3', $tmpDir . '/bundle-admin.body', 'bundled admin installer should render setup page');
+    assertFileContains('MINI_S3_CREDENTIALS_JSON', $tmpDir . '/bundle-admin.body', 'bundled installer should say keys come from the environment');
+
+    $bundleSource = (string) file_get_contents($entrypoint);
+    preg_match("/ALPINE_VERSION = '([0-9.]+)'/", $bundleSource, $alpineMatch);
+    runRequest($root, 'GET', '/_/assets/alpine-' . ($alpineMatch[1] ?? 'missing') . '.js', null, $tmpDir . '/bundle-alpine.body', $tmpDir . '/bundle-alpine.meta', ['Host: ' . $host], $env);
+    assertEq('200', metaStatus($tmpDir . '/bundle-alpine.meta', $phpBin), 'bundled release should serve self-hosted Alpine');
+    assertFileContains('Alpine', $tmpDir . '/bundle-alpine.body', 'bundled Alpine asset should contain Alpine.js');
 
     $bodyFile = $tmpDir . '/bundle-hello.txt';
     file_put_contents($bodyFile, "hello bundled release\n");

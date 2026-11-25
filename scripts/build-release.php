@@ -14,8 +14,11 @@ if ($root === false) {
 }
 
 $sourceFiles = [
+    'src/Config/AccessKeys.php',
     'src/Config/ConfigLoader.php',
+    'src/Admin/AdminAssets.php',
     'src/Admin/AdminAuth.php',
+    'src/Admin/LoginThrottle.php',
     'src/Admin/AdminConfigWriter.php',
     'src/Admin/AdminStats.php',
     'src/Admin/AdminUpgradeService.php',
